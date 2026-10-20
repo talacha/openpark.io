@@ -43,7 +43,7 @@ const Env = z.object({
   SERVERLESS: z.enum(['true', 'false', '1', '0']).default(process.env.VERCEL ? 'true' : 'false').transform((v) => v === 'true' || v === '1'),
   DB_POOL_MAX: z.coerce.number().int().min(1).default(process.env.VERCEL ? 2 : 10),
   /** End SSE streams after this long (0 = never). EventSource reconnects on its own. */
-  SSE_MAX_SECONDS: z.coerce.number().int().min(0).default(process.env.VERCEL ? 270 : 0),
+  SSE_MAX_SECONDS: z.coerce.number().int().min(0).default(process.env.VERCEL ? 50 : 0),
   /** Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. */
   CRON_SECRET: z.string().optional(),
   REGISTRY_DIR: z.string().optional(),

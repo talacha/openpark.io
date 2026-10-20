@@ -76,3 +76,11 @@ Self-service trial signup is behind a flag and **off by default** while OpenPark
 
 Onboarding testers while it is off: a platform super admin (`SUPERADMIN_EMAILS`) calls `POST /v1/platform/tenants` (or uses the Platform screen) to create an organisation and invite its owner by email. For invite-only on Supabase, also turn off "Allow new users to sign up" in the Supabase Auth settings and use *Invite user*.
 To open the trial later: set `TRIAL_SIGNUP=true` on the API and `PUBLIC_TRIAL_SIGNUP=true` on the marketing site, and redeploy both.
+
+## Scheduling the guest-pass reminders
+
+`GET /v1/cron/pass-reminders` (Bearer `CRON_SECRET`) sends the 10 h / 11 h reminders and the 12 h overstay notice. It is idempotent, so
+run it every 1-5 minutes. Vercel's Hobby plan only allows daily crons, so `.github/workflows/pass-reminders.yml` calls it every 5 minutes
+(set the `API_URL` and `CRON_SECRET` repository secrets). Alternatives: a `*/5` Vercel cron on the Pro plan, or on Supabase
+`select cron.schedule('pass-reminders', '* * * * *', $$select net.http_get('https://api.openpark.io/v1/cron/pass-reminders', headers := '{"Authorization":"Bearer <CRON_SECRET>"}'::jsonb)$$)` with the `pg_cron` and `pg_net` extensions.
+The nightly plate-image purge stays on Vercel Cron (`vercel.json`).
