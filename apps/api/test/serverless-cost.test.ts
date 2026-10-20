@@ -105,3 +105,26 @@ describe('durable webhook retries', () => {
     expect(hits.length).toBe(before);
   });
 });
+
+describe('retention purge without owner credentials', () => {
+  it('removes expired plate crops through restricted functions, leaving fresh ones and other settings alone', async () => {
+    const t = await signup(h.app, 'US');
+    const id = await tenantId(t.slug);
+    await h.app.storage.put('old.jpg', Buffer.from('x'));
+    await h.app.storage.put('new.jpg', Buffer.from('y'));
+    await h.app.db.withTenant(id, async (db) => {
+      await db.query("insert into plate_read (tenant_id, crop_key, created_at) values ($1, 'old.jpg', now() - interval '40 days'), ($1, 'new.jpg', now() - interval '2 days')", [id]);
+    });
+    expect(await h.app.jobs.purge(h.app)).toBeGreaterThanOrEqual(1);
+    const rows = await h.app.db.withTenant(id, async (db) => (await db.query('select crop_key from plate_read order by created_at')).rows);
+    expect(rows.map((r) => r.crop_key)).toEqual([null, 'new.jpg']);
+    await expect(h.app.storage.get('old.jpg')).rejects.toThrow();
+    expect((await h.app.storage.get('new.jpg')).toString()).toBe('y');
+    // A tenant that keeps images longer is respected.
+    await h.app.db.withTenant(id, (db) => db.query("update tenant set settings = settings || '{\"retentionDays\": 90}'"));
+    await h.app.storage.put('mid.jpg', Buffer.from('z'));
+    await h.app.db.withTenant(id, (db) => db.query("insert into plate_read (tenant_id, crop_key, created_at) values ($1, 'mid.jpg', now() - interval '40 days')", [id]));
+    await h.app.jobs.purge(h.app);
+    expect((await h.app.storage.get('mid.jpg')).toString()).toBe('z');
+  });
+});

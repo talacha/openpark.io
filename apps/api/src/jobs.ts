@@ -1,6 +1,5 @@
 import { createHmac } from 'node:crypto';
 import PgBoss from 'pg-boss';
-import pg from 'pg';
 import type { Config } from './config.js';
 import type { Database } from './db.js';
 import type { App } from './server.js';
@@ -11,7 +10,6 @@ interface WebhookJob { tenantId: string; event: WebhookEvent; payload: unknown; 
 /** pg-boss queue inside Postgres: webhook delivery with backoff and the retention purge. */
 export class Jobs {
   private boss: PgBoss | null = null;
-  private admin: pg.Pool | null = null;
 
   constructor(private cfg: Config, private db: Database, private log: { error: (e: unknown, m?: string) => void; info: (m: string) => void }) {}
 
@@ -100,23 +98,23 @@ export class Jobs {
     if (failures.length) throw new Error(`webhook delivery failed: ${failures.join('; ')}`);
   }
 
-  /** Delete plate crops older than the tenant's retention (default 30 days). */
+  /** Delete plate crops older than the tenant's retention (default 30 days), in bounded batches. */
   async purge(app: App) {
-    this.admin ??= new pg.Pool({ connectionString: this.cfg.ADMIN_DATABASE_URL, max: 2 });
-    const { rows } = await this.admin.query(
-      `select r.id, r.crop_key from plate_read r join tenant t on t.id = r.tenant_id
-       where r.crop_key is not null
-         and r.created_at < now() - make_interval(days => coalesce((t.settings->>'retentionDays')::int, 30))`);
-    for (const r of rows) {
-      await app.storage.delete(r.crop_key);
-      await this.admin.query('update plate_read set crop_key = null where id = $1', [r.id]);
+    let total = 0;
+    for (;;) {
+      const { rows } = await this.db.raw((db) => db.query('select * from expired_plate_crops($1)', [200]));
+      for (const r of rows as { id: string; crop_key: string }[]) {
+        await app.storage.delete(r.crop_key);
+        await this.db.raw((db) => db.query('select clear_plate_crop($1)', [r.id]));
+      }
+      total += rows.length;
+      if (rows.length < 200) break;
     }
-    this.log.info(`retention purge removed ${rows.length} plate crops`);
-    return rows.length;
+    this.log.info(`retention purge removed ${total} plate crops`);
+    return total;
   }
 
   async stop() {
     await this.boss?.stop({ graceful: false, wait: false }).catch(() => {});
-    await this.admin?.end().catch(() => {});
   }
 }
