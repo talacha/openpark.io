@@ -13,7 +13,7 @@ describe('closed preview, local accounts (TRIAL_SIGNUP off)', () => {
   afterAll(async () => { await h.close(); });
 
   it('reports the flag, and refuses self-service signup', async () => {
-    expect((await h.app.inject({ method: 'GET', url: '/v1/config' })).json()).toEqual({ trialSignup: false, auth: 'local' });
+    expect((await h.app.inject({ method: 'GET', url: '/v1/config' })).json()).toEqual({ trialSignup: false, realtime: 'sse', auth: 'local' });
     const r = await h.app.inject({ method: 'POST', url: '/v1/signup', payload: { email: 'friend@example.com', password: 'correct-horse-battery', organisation: 'Friend Co', country: 'MX' } });
     expect(r.statusCode).toBe(403);
     expect(r.json().error.code).toBe('signup_closed');
@@ -64,7 +64,7 @@ describe('closed preview, Supabase accounts (TRIAL_SIGNUP off)', () => {
   };
 
   it('reports auth mode, and a signed-in stranger cannot create an organisation', async () => {
-    expect((await h.app.inject({ method: 'GET', url: '/v1/config' })).json()).toEqual({ trialSignup: false, auth: 'external' });
+    expect((await h.app.inject({ method: 'GET', url: '/v1/config' })).json()).toEqual({ trialSignup: false, realtime: 'sse', auth: 'external' });
     const stranger = await person(`stranger-${uniq()}@example.com`);
     const r = await h.app.inject({ method: 'POST', url: '/v1/signup', headers: stranger.bearer, payload: { organisation: 'Sneaky Co', country: 'US' } });
     expect(r.statusCode).toBe(403);

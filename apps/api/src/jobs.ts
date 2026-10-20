@@ -1,5 +1,4 @@
 import { createHmac } from 'node:crypto';
-import { waitUntil } from '@vercel/functions';
 import PgBoss from 'pg-boss';
 import pg from 'pg';
 import type { Config } from './config.js';
@@ -33,8 +32,16 @@ export class Jobs {
   /** Queue a webhook fan-out for a tenant event. No-op when jobs are disabled. */
   async enqueue(tenantId: string, event: WebhookEvent, payload: unknown) {
     if (this.cfg.SERVERLESS) {
-      // No worker to pull from a queue: deliver after the response, with short in-process retries.
-      if (this.cfg.JOBS_ENABLED) waitUntil(this.deliverWithRetry({ tenantId, event, payload, at: new Date().toISOString() }));
+      // No worker to pull from a queue and no function should sleep waiting to retry: persist the delivery, try once now,
+      // and let the cron tick retry failures with backoff (see drainDeliveries).
+      if (!this.cfg.JOBS_ENABLED) return;
+      const id = await this.db.withTenant(tenantId, async (db) => {
+        // Most events have no subscriber: do not write (or later read) anything for them.
+        const wanted = await db.query('select 1 from webhook_endpoint where active and $1 = any(events) limit 1', [event]);
+        if (!wanted.rowCount) return null;
+        return (await db.query('insert into webhook_delivery (tenant_id, event, payload) values ($1,$2,$3) returning id', [tenantId, event, JSON.stringify(payload)])).rows[0].id as string;
+      });
+      if (id) await this.attempt(tenantId, id);
       return;
     }
     if (!this.boss) return;
@@ -42,14 +49,35 @@ export class Jobs {
       { retryLimit: 6, retryBackoff: true, retryDelay: 5 });
   }
 
-  private async deliverWithRetry(job: WebhookJob) {
-    for (const wait of [0, 1000, 4000, 15000]) {
-      if (wait) await new Promise((r) => setTimeout(r, wait));
-      try { return await this.deliver(job); } catch (e) { this.log.error(e, 'webhook delivery failed'); }
+  private static readonly BACKOFF_MIN = [1, 5, 30, 120, 720];
+
+  /** One delivery attempt for a stored delivery; records success, or schedules the next try (dead after six). */
+  private async attempt(tenantId: string, id: string) {
+    const row = await this.db.withTenant(tenantId, async (db) => (await db.query('select * from webhook_delivery where id = $1 and status = $2', [id, 'pending'])).rows[0]);
+    if (!row) return false;
+    try {
+      await this.deliver({ tenantId, event: row.event, payload: row.payload, at: row.at.toISOString() }, 5_000);
+      await this.db.withTenant(tenantId, (db) => db.query("update webhook_delivery set status = 'delivered', attempts = attempts + 1 where id = $1", [id]));
+      return true;
+    } catch (e) {
+      const n = row.attempts + 1;
+      const dead = n >= Jobs.BACKOFF_MIN.length + 1;
+      await this.db.withTenant(tenantId, (db) => db.query(
+        `update webhook_delivery set attempts = $2, last_error = $3, status = $4, next_attempt_at = now() + make_interval(mins => $5) where id = $1`,
+        [id, n, String((e as Error).message).slice(0, 500), dead ? 'dead' : 'pending', Jobs.BACKOFF_MIN[Math.min(n - 1, Jobs.BACKOFF_MIN.length - 1)]]));
+      return false;
     }
   }
 
-  private async deliver(job: WebhookJob) {
+  /** Cron tick: retry deliveries whose backoff has elapsed. Bounded per run so a tick stays short. */
+  async drainDeliveries(app: App, limit = 25) {
+    const due = (await this.db.raw((db) => db.query('select * from due_webhook_deliveries($1, $2)', [app.now(), limit]))).rows as { id: string; tenant_id: string }[];
+    let ok = 0;
+    for (const d of due) if (await this.attempt(d.tenant_id, d.id)) ok++;
+    return { due: due.length, delivered: ok };
+  }
+
+  private async deliver(job: WebhookJob, timeoutMs = 10_000) {
     const hooks = await this.db.withTenant(job.tenantId, async (db) =>
       (await db.query('select id, url, secret from webhook_endpoint where active and $1 = any(events)', [job.event])).rows);
     const body = JSON.stringify({ event: job.event, at: job.at, data: job.payload });
@@ -61,7 +89,7 @@ export class Jobs {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-openpark-event': job.event, 'x-openpark-signature': `sha256=${sig}` },
           body,
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.timeout(timeoutMs),
         });
         if (!res.ok) failures.push(`${h.url}: ${res.status}`);
       } catch (e) {

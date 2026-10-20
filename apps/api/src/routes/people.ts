@@ -13,7 +13,7 @@ export function registerPeopleRoutes(app: App) {
   // What the sign-in/sign-up screens need to know before anyone is signed in.
   definePublicRoute(app, {
     method: 'GET', path: '/v1/config', summary: 'Public deployment settings (sign-up open?, auth mode)',
-    handler: async () => ({ trialSignup: app.cfg.TRIAL_SIGNUP, auth: localAuthEnabled(app.cfg) ? (externalAuthEnabled(app.cfg) ? 'both' : 'local') : 'external' }),
+    handler: async () => ({ trialSignup: app.cfg.TRIAL_SIGNUP, realtime: app.cfg.SSE_ENABLED ? 'sse' : 'poll', auth: localAuthEnabled(app.cfg) ? (externalAuthEnabled(app.cfg) ? 'both' : 'local') : 'external' }),
   });
 
   // ---- who am I, across tenants (used by the app right after sign-in, before a tenant is chosen) ------------------

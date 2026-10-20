@@ -82,7 +82,7 @@ export async function eventsUrl(): Promise<string> {
   return `${BASE}/v1/events?${q}`;
 }
 
-export interface PublicConfig { trialSignup: boolean; auth: 'local' | 'external' | 'both' }
+export interface PublicConfig { trialSignup: boolean; auth: 'local' | 'external' | 'both'; /** `poll` on serverless hosts, where holding a stream open costs money. */ realtime?: 'sse' | 'poll' }
 
 /** Deployment settings needed before sign-in. If the API cannot be reached, assume the safe (closed) setting. */
 export async function fetchConfig(): Promise<PublicConfig> {

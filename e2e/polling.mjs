@@ -1,0 +1,20 @@
+// Serverless-style API (SSE_ENABLED=false): dashboards poll, never open an event stream.
+import { chromium } from 'playwright-core';
+const API = 'http://localhost:3000', WEB = 'http://localhost:5173';
+const sfx = Math.random().toString(36).slice(2, 8);
+const su = await fetch(`${API}/v1/signup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `p-${sfx}@example.com`, password: 'correct-horse-battery', organisation: `Poll ${sfx}`, country: 'US' }) }).then((r) => r.json());
+const b = await chromium.launch({ channel: 'chrome' });
+const p = await (await b.newContext({ viewport: { width: 1200, height: 800 }, locale: 'en-US' })).newPage();
+let streams = 0, polls = 0;
+p.on('request', (r) => { if (r.url().includes('/v1/events')) streams++; if (r.url().includes('/v1/occupancy')) polls++; });
+await p.goto(`${WEB}/login`); await p.fill('input[name=email]', `p-${sfx}@example.com`); await p.fill('input[name=password]', 'correct-horse-battery'); await p.click('button.primary');
+await p.waitForSelector('.tile .value'); await p.waitForFunction(() => document.querySelector('.tile .value')?.textContent?.trim() === '52');
+console.log('✓ dashboard loaded, 52 free; live pill:', (await p.textContent('.pill')).trim());
+const before = polls;
+await fetch(`${API}/v1/sessions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${su.token}`, 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ site: 'DEMO-01', plate: { display: 'POLL-1' } }) });
+const t0 = Date.now();
+await p.waitForFunction(() => document.querySelectorAll('.tile .value')[1]?.textContent?.trim() === '1', null, { timeout: 25000 });
+console.log(`✓ check-in appeared via polling after ${Math.round((Date.now() - t0) / 1000)}s (occupancy fetches: ${polls - before})`);
+if (streams) throw new Error(`no event stream should be opened, saw ${streams}`);
+console.log('✓ zero /v1/events streams opened');
+await b.close();

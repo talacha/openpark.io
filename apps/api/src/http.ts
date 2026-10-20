@@ -111,7 +111,8 @@ export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends Zod
         }
         throw e;
       });
-      for (const fn of afters) Promise.resolve(fn()).catch((e) => app.log.error(e, 'after-commit hook failed'));
+      // After-commit work (webhooks, notifications) must outlive the response: waitUntil on Vercel.
+      for (const fn of afters) app.background(Promise.resolve().then(fn));
       if (result.replayed) reply.header('Idempotent-Replayed', 'true');
       return reply.code(result.status).send(result.body);
     },

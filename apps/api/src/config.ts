@@ -42,6 +42,8 @@ const Env = z.object({
   /** On Vercel: no background workers or shared LISTEN connection; see server.ts. */
   SERVERLESS: z.enum(['true', 'false', '1', '0']).default(process.env.VERCEL ? 'true' : 'false').transform((v) => v === 'true' || v === '1'),
   DB_POOL_MAX: z.coerce.number().int().min(1).default(process.env.VERCEL ? 2 : 10),
+  /** Server-sent events hold a connection open, which serverless platforms bill for; off there (clients poll instead). */
+  SSE_ENABLED: z.enum(['true', 'false', '1', '0']).default(process.env.VERCEL ? 'false' : 'true').transform((v) => v === 'true' || v === '1'),
   /** End SSE streams after this long (0 = never). EventSource reconnects on its own. */
   SSE_MAX_SECONDS: z.coerce.number().int().min(0).default(process.env.VERCEL ? 50 : 0),
   /** Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. */

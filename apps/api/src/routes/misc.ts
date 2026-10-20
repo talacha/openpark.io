@@ -135,7 +135,7 @@ export function registerMiscRoutes(app: App) {
     method: 'GET', path: '/v1/cron/pass-reminders', summary: 'Send due guest-pass reminders (cron only)',
     async handler({ req }) {
       if (!app.cfg.CRON_SECRET || req.headers.authorization !== `Bearer ${app.cfg.CRON_SECRET}`) throw new HttpError(401, 'unauthorized', 'Cron secret required');
-      return processPassReminders(app);
+      return { ...(await processPassReminders(app)), webhooks: await app.jobs.drainDeliveries(app) };
     },
   });
 
@@ -144,6 +144,7 @@ export function registerMiscRoutes(app: App) {
     const ctx = await app.authenticate(req);
     // Residents must not see the lot's plates and sessions.
     if (!can(ctx.role, 'read')) throw new HttpError(403, 'forbidden', `role ${ctx.role} cannot subscribe to live events`);
+    if (!app.cfg.SSE_ENABLED) throw new HttpError(501, 'realtime_polling', 'Live streaming is disabled on this deployment; poll instead');
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, {

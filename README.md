@@ -84,3 +84,11 @@ run it every 1-5 minutes. Vercel's Hobby plan only allows daily crons, so `.gith
 (set the `API_URL` and `CRON_SECRET` repository secrets). Alternatives: a `*/5` Vercel cron on the Pro plan, or on Supabase
 `select cron.schedule('pass-reminders', '* * * * *', $$select net.http_get('https://api.openpark.io/v1/cron/pass-reminders', headers := '{"Authorization":"Bearer <CRON_SECRET>"}'::jsonb)$$)` with the `pg_cron` and `pg_net` extensions.
 The nightly plate-image purge stays on Vercel Cron (`vercel.json`).
+
+## Hosting cost: serverless vs. always-on
+
+The API is stateless request/response work over Postgres (a few ms of CPU per call), so it is cheap on serverless as long as no
+function sits idle. To keep it that way, `VERCEL` deployments default to: no server-sent events (`SSE_ENABLED=false`; the app
+polls every 15 s while a tab is visible), webhook retries stored in `webhook_delivery` and retried by the cron tick (no sleeping
+in a function), and reminders triggered by an external scheduler. On a container host (Railway, Fly, a VPS) the defaults are
+live SSE, pg-boss workers and an in-process schedule, all at a flat cost.
