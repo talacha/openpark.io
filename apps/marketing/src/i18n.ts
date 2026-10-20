@@ -12,6 +12,8 @@ export interface Copy {
   oss: { title: string; body: string };
   signup: { title: string; email: string; password: string; show: string; hide: string; org: string; country: string; submit: string; busy: string; hint: string };
   pricing: { title: string; lead: string; plans: [string, string][]; note: string };
+  /** Shown instead of the trial form while sign-up is closed (friends-and-family preview). */
+  closed: { title: string; body: string; signin: string };
   footer: string;
 }
 
@@ -24,6 +26,7 @@ const en: Copy = {
   oss: { title: 'Open source, honestly', body: 'The core is AGPL-3.0: self-host freely, and a competitor running a hosted fork must publish their changes. SDKs, JSON schemas and the plate-format registry are Apache-2.0. Export your whole tenant as JSON and move between hosted and self-hosted at any time.' },
   signup: { title: 'Start a free trial', email: 'Email', password: 'Password (10+ characters)', show: 'Show', hide: 'Hide', org: 'Organisation', country: 'Country', submit: 'Create trial tenant', busy: 'Creating…', hint: 'We create a tenant with a demo site. No credit card.' },
   pricing: { title: 'Pricing', lead: 'The software is free. Hosting, setup and support are paid.', plans: [['Self-hosted', 'Free forever (AGPL-3.0)'], ['Hosted on app.openpark.io', 'Plans to be announced'], ['Site survey and inventory load', 'Quoted per site'], ['Support SLAs, cameras, gates, payment adapters', 'Quoted per project']], note: 'Hosted plan pricing is not final. Tell us about your lots and we will send a quote.' },
+  closed: { title: 'Closed preview', body: 'OpenPark is invitation-only for now. If you have been invited, sign in with the email address that received the invitation.', signin: 'Sign in' },
   footer: 'OpenPark · AGPL-3.0 · No tracking cookies',
 };
 
@@ -36,6 +39,7 @@ const esMX: Copy = {
   oss: { title: 'Código abierto, sin letra chica', body: 'El núcleo es AGPL-3.0: instálalo libremente, y quien ofrezca una versión alojada debe publicar sus cambios. Los SDK, esquemas JSON y el registro de formatos de placas son Apache-2.0. Exporta todo tu inquilino en JSON y cambia entre alojado y propio cuando quieras.' },
   signup: { title: 'Comienza tu prueba gratis', email: 'Correo electrónico', password: 'Contraseña (10+ caracteres)', show: 'Mostrar', hide: 'Ocultar', org: 'Organización', country: 'País', submit: 'Crear espacio de prueba', busy: 'Creando…', hint: 'Creamos un espacio con un sitio de demostración. Sin tarjeta.' },
   pricing: { title: 'Precios', lead: 'El software es gratis. El alojamiento, la implementación y el soporte tienen costo.', plans: [['Autoalojado', 'Gratis para siempre (AGPL-3.0)'], ['Alojado en app.openpark.io', 'Planes por anunciar'], ['Levantamiento del sitio y carga de inventario', 'Cotización por sitio'], ['Soporte con SLA, cámaras, plumas, adaptadores de pago', 'Cotización por proyecto']], note: 'Los precios del plan alojado no son definitivos. Cuéntanos de tus estacionamientos y te enviamos una cotización.' },
+  closed: { title: 'Vista previa cerrada', body: 'Por ahora OpenPark es solo por invitación. Si te invitaron, inicia sesión con el correo que recibió la invitación.', signin: 'Iniciar sesión' },
   footer: 'OpenPark · AGPL-3.0 · Sin cookies de rastreo',
 };
 
@@ -57,6 +61,7 @@ const ptBR: Copy = {
   oss: { title: 'Código aberto, sem letra miúda', body: 'O núcleo é AGPL-3.0: hospede livremente, e quem oferecer uma versão hospedada deve publicar suas alterações. SDKs, esquemas JSON e o registro de formatos de placa são Apache-2.0. Exporte todo o seu tenant em JSON e alterne entre hospedado e próprio quando quiser.' },
   signup: { title: 'Comece o teste grátis', email: 'E-mail', password: 'Senha (10+ caracteres)', show: 'Mostrar', hide: 'Ocultar', org: 'Organização', country: 'País', submit: 'Criar ambiente de teste', busy: 'Criando…', hint: 'Criamos um ambiente com uma unidade de demonstração. Sem cartão.' },
   pricing: { title: 'Preços', lead: 'O software é grátis. Hospedagem, implantação e suporte são pagos.', plans: [['Hospedagem própria', 'Grátis para sempre (AGPL-3.0)'], ['Hospedado em app.openpark.io', 'Planos a anunciar'], ['Levantamento da unidade e carga do inventário', 'Orçamento por unidade'], ['Suporte com SLA, câmeras, cancelas, adaptadores de pagamento', 'Orçamento por projeto']], note: 'Os preços do plano hospedado ainda não são definitivos. Conte sobre seus estacionamentos e enviaremos um orçamento.' },
+  closed: { title: 'Prévia fechada', body: 'Por enquanto o OpenPark é apenas por convite. Se você foi convidado, entre com o e-mail que recebeu o convite.', signin: 'Entrar' },
   footer: 'OpenPark · AGPL-3.0 · Sem cookies de rastreamento',
 };
 
@@ -69,6 +74,7 @@ const fr: Copy = {
   oss: { title: 'Open source, en toute franchise', body: 'Le cœur est sous AGPL-3.0 : hébergez-le librement ; un concurrent qui propose une version hébergée doit publier ses modifications. Les SDK, schémas JSON et le registre des formats de plaque sont sous Apache-2.0. Exportez tout votre locataire en JSON et passez de l\'hébergé à l\'auto-hébergé quand vous voulez.' },
   signup: { title: 'Démarrez l\'essai gratuit', email: 'E-mail', password: 'Mot de passe (10+ caractères)', show: 'Afficher', hide: 'Masquer', org: 'Organisation', country: 'Pays', submit: 'Créer l\'espace d\'essai', busy: 'Création…', hint: 'Nous créons un espace avec un site de démonstration. Sans carte bancaire.' },
   pricing: { title: 'Tarifs', lead: 'Le logiciel est gratuit. L\'hébergement, la mise en place et le support sont payants.', plans: [['Auto-hébergé', 'Gratuit pour toujours (AGPL-3.0)'], ['Hébergé sur app.openpark.io', 'Offres à annoncer'], ['Étude du site et chargement de l\'inventaire', 'Devis par site'], ['Support avec SLA, caméras, barrières, adaptateurs de paiement', 'Devis par projet']], note: 'Les tarifs de l\'offre hébergée ne sont pas définitifs. Parlez-nous de vos parkings et nous vous enverrons un devis.' },
+  closed: { title: 'Préversion fermée', body: "Pour l'instant, OpenPark est uniquement sur invitation. Si vous avez été invité, connectez-vous avec l'adresse e-mail qui a reçu l'invitation.", signin: 'Se connecter' },
   footer: 'OpenPark · AGPL-3.0 · Sans cookies de suivi',
 };
 
@@ -81,6 +87,7 @@ const de: Copy = {
   oss: { title: 'Open Source, ehrlich', body: 'Der Kern steht unter AGPL-3.0: frei selbst hosten; wer einen gehosteten Fork betreibt, muss seine Änderungen veröffentlichen. SDKs, JSON-Schemas und das Kennzeichenformat-Register stehen unter Apache-2.0. Exportieren Sie Ihren Mandanten als JSON und wechseln Sie jederzeit zwischen gehostet und selbst betrieben.' },
   signup: { title: 'Kostenlos testen', email: 'E-Mail', password: 'Passwort (mind. 10 Zeichen)', show: 'Zeigen', hide: 'Verbergen', org: 'Organisation', country: 'Land', submit: 'Testmandant erstellen', busy: 'Wird erstellt…', hint: 'Wir legen einen Mandanten mit Demo-Standort an. Keine Kreditkarte.' },
   pricing: { title: 'Preise', lead: 'Die Software ist kostenlos. Hosting, Einrichtung und Support sind kostenpflichtig.', plans: [['Selbst gehostet', 'Dauerhaft kostenlos (AGPL-3.0)'], ['Gehostet auf app.openpark.io', 'Tarife folgen'], ['Standortaufnahme und Bestandsladen', 'Angebot pro Standort'], ['Support-SLAs, Kameras, Schranken, Zahlungsadapter', 'Angebot pro Projekt']], note: 'Die Preise des gehosteten Tarifs stehen noch nicht fest. Erzählen Sie uns von Ihren Parkplätzen, wir senden ein Angebot.' },
+  closed: { title: 'Geschlossene Vorschau', body: 'OpenPark ist derzeit nur auf Einladung zugänglich. Wenn Sie eingeladen wurden, melden Sie sich mit der E-Mail-Adresse an, an die die Einladung ging.', signin: 'Anmelden' },
   footer: 'OpenPark · AGPL-3.0 · Keine Tracking-Cookies',
 };
 
@@ -93,6 +100,7 @@ const ar: Copy = {
   oss: { title: 'مفتوح المصدر بصراحة', body: 'النواة بترخيص AGPL-3.0: استضفها بحرية، ومن يشغّل نسخة مستضافة معدّلة عليه نشر تعديلاته. أما حزم التطوير ومخططات JSON وسجل صيغ اللوحات فبترخيص Apache-2.0. صدّر مستأجرك كاملًا بصيغة JSON وانتقل بين المستضاف والذاتي متى شئت.' },
   signup: { title: 'ابدأ تجربتك المجانية', email: 'البريد الإلكتروني', password: 'كلمة المرور (10 أحرف فأكثر)', show: 'إظهار', hide: 'إخفاء', org: 'المؤسسة', country: 'الدولة', submit: 'إنشاء بيئة تجريبية', busy: 'جارٍ الإنشاء…', hint: 'ننشئ بيئة تتضمن موقعًا تجريبيًا. بلا بطاقة ائتمان.' },
   pricing: { title: 'الأسعار', lead: 'البرنامج مجاني. الاستضافة والإعداد والدعم بمقابل.', plans: [['استضافة ذاتية', 'مجاني دائمًا (AGPL-3.0)'], ['مستضاف على app.openpark.io', 'ستُعلن الباقات لاحقًا'], ['معاينة الموقع وتحميل الجرد', 'عرض سعر لكل موقع'], ['دعم باتفاقيات مستوى الخدمة والكاميرات والبوابات ومحولات الدفع', 'عرض سعر لكل مشروع']], note: 'أسعار الباقة المستضافة ليست نهائية. حدّثنا عن مواقفك وسنرسل لك عرض سعر.' },
+  closed: { title: 'معاينة مغلقة', body: 'OpenPark متاح حاليًا بالدعوة فقط. إذا تلقيت دعوة فسجّل الدخول بالبريد الإلكتروني الذي وصلته الدعوة.', signin: 'تسجيل الدخول' },
   footer: 'OpenPark · AGPL-3.0 · بلا ملفات تعريف ارتباط للتتبع',
 };
 

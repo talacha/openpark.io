@@ -10,6 +10,7 @@ x-api-env: &api-env
   JWT_SECRET: ${JWT_SECRET}
   STORAGE_DIR: /data
   ALPR_URL: ${ALPR_URL:-}
+  TRIAL_SIGNUP: ${TRIAL_SIGNUP:-false}
 
 services:
   db:

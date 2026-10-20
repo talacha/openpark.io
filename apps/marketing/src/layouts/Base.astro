@@ -8,6 +8,8 @@ const { locale, title, description, path = '' } = Astro.props;
 const c = COPY[locale];
 const site = Astro.site!.toString().replace(/\/$/, '');
 const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
+// Feature flag: self-service trial. Off while OpenPark is a closed (friends-and-family) preview.
+const TRIAL = import.meta.env.PUBLIC_TRIAL_SIGNUP === 'true';
 ---
 <!doctype html>
 <html lang={locale} dir={isRtl(locale) ? 'rtl' : 'ltr'}>
@@ -31,7 +33,7 @@ const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
         <select aria-label="Language" onchange="location.href=this.value">
           {LOCALES.map((l) => <option value={href(l, path)} selected={l === locale}>{NAMES[l]}</option>)}
         </select>
-        <a class="btn primary" href={`${href(locale)}#trial`}>{c.nav.trial}</a>
+        {TRIAL ? <a class="btn primary" href={`${href(locale)}#trial`}>{c.nav.trial}</a> : <a class="btn primary" href={`${APP}/login`}>{c.closed.signin}</a>}
       </nav>
     </header>
     <slot />

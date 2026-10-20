@@ -19,6 +19,10 @@ export interface Ctx {
   userId: string | null;
   /** Set when an API key is scoped to one site. */
   siteId: string | null;
+  /** Residents belong to a unit. */
+  unitId: string | null;
+  /** Platform super admin acting inside a tenant they are not a member of. */
+  superadmin: boolean;
 }
 
 export interface Reply<T = unknown> { status: number; body: T }
@@ -91,6 +95,11 @@ export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends Zod
           after: (fn) => { afters.push(fn); },
         } as HandlerArgs<z.infer<B>, z.infer<Q>>);
         const r: Reply = isReply(out) ? out : { status: 200, body: out };
+        if (ctx.superadmin && def.method !== 'GET') {
+          // A platform super admin acting inside a tenant they do not belong to: leave a trail the tenant can see.
+          await db.query('insert into audit_event (tenant_id, actor_id, action, entity, after) values ($1,$2,$3,$4,$5)',
+            [ctx.tenantId, ctx.userId, 'platform.write', `${def.method} ${def.path}`, JSON.stringify({ url: req.url })]);
+        }
         if (def.idempotent) {
           await db.query('insert into idempotency_key (tenant_id, key, request_hash, status, response) values ($1,$2,$3,$4,$5)',
             [ctx.tenantId, idemKey, hash, r.status, JSON.stringify(r.body ?? null)]);
@@ -117,6 +126,25 @@ export function definePublicRoute<B extends ZodTypeAny = z.ZodUndefined>(app: Ap
     handler: async (req, reply) => {
       const body = def.body ? def.body.parse(req.body) : undefined;
       const out = await def.handler({ app, req, reply, body });
+      const r: Reply = isReply(out) ? out : { status: 200, body: out };
+      return reply.code(r.status).send(r.body);
+    },
+  });
+}
+
+/** Platform-level routes: the caller must be a super admin; no tenant is selected. */
+export function definePlatformRoute<B extends ZodTypeAny = z.ZodUndefined>(app: App, def: {
+  method: 'GET' | 'POST'; path: string; summary: string; body?: B;
+  handler: (a: { app: App; req: FastifyRequest; body: z.infer<B>; userId: string }) => Promise<unknown | Reply>;
+}) {
+  registry.push({ method: def.method, path: def.path, summary: def.summary, perm: 'platform', body: def.body });
+  app.route({
+    method: def.method, url: def.path,
+    handler: async (req, reply) => {
+      const who = await app.identify(req);
+      if (!who.superadmin) throw new HttpError(403, 'forbidden', 'Platform administrators only');
+      const body = def.body ? def.body.parse(req.body) : undefined;
+      const out = await def.handler({ app, req, body, userId: who.userId });
       const r: Reply = isReply(out) ? out : { status: 200, body: out };
       return reply.code(r.status).send(r.body);
     },

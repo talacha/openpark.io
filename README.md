@@ -10,7 +10,7 @@ docker compose up -d --build    # web :8080, api, postgres (+ one-shot migrator)
 docker compose --profile ai up -d   # optional: ALPR worker + VLM server (off by default)
 ```
 
-Open http://localhost:8080/signup. Signup creates a tenant with a demo site (52 slots) and a rate plan from the country template.
+Open http://localhost:8080/signup. (`TRIAL_SIGNUP=true` in `.env.example` opens self-service signup; it defaults to off, see below.) Signup creates a tenant with a demo site (52 slots) and a rate plan from the country template.
 
 ## Develop
 
@@ -63,3 +63,16 @@ Not built yet:
 | `x-` extension keys | Accepted and validated on import, not persisted. |
 | Device clock gap | Flagged as a warning; no supervisor approval step yet. |
 | Translations (es-ES, pt-BR, fr, de, ar) | Drafts; have native speakers review before launch. |
+
+## Closed preview: the trial feature flag
+
+Self-service trial signup is behind a flag and **off by default** while OpenPark is in friends-and-family testing.
+
+| Where | Flag | Off means |
+| --- | --- | --- |
+| API | `TRIAL_SIGNUP` (default `false`) | `POST /v1/signup` returns `403 signup_closed`; `GET /v1/config` reports `trialSignup: false` |
+| App | reads `/v1/config` | No organisation signup. With Supabase Auth, invited people can still create an account; they join their organisation automatically |
+| Marketing | `PUBLIC_TRIAL_SIGNUP` (build time, default off) | The trial form and "Try it free" buttons are replaced by a closed-preview notice and a sign-in link |
+
+Onboarding testers while it is off: a platform super admin (`SUPERADMIN_EMAILS`) calls `POST /v1/platform/tenants` (or uses the Platform screen) to create an organisation and invite its owner by email. For invite-only on Supabase, also turn off "Allow new users to sign up" in the Supabase Auth settings and use *Invite user*.
+To open the trial later: set `TRIAL_SIGNUP=true` on the API and `PUBLIC_TRIAL_SIGNUP=true` on the marketing site, and redeploy both.

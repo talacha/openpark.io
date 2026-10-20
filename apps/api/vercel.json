@@ -4,7 +4,26 @@
   "installCommand": "pnpm install",
   "buildCommand": "pnpm run build",
   "outputDirectory": "public",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
-  "functions": { "api/index.ts": { "maxDuration": 300, "includeFiles": "registry/**" } },
-  "crons": [{ "path": "/v1/cron/retention", "schedule": "17 3 * * *" }]
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300,
+      "includeFiles": "registry/**"
+    }
+  },
+  "crons": [
+    {
+      "path": "/v1/cron/retention",
+      "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/v1/cron/pass-reminders",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

@@ -6,7 +6,7 @@ import type { Config } from './config.js';
 import type { Database } from './db.js';
 import type { App } from './server.js';
 
-export type WebhookEvent = 'session.opened' | 'session.closed' | 'slot.changed' | 'read.needs_review';
+export type WebhookEvent = 'session.opened' | 'session.closed' | 'slot.changed' | 'read.needs_review' | 'pass.overstay';
 interface WebhookJob { tenantId: string; event: WebhookEvent; payload: unknown; at: string }
 
 /** pg-boss queue inside Postgres: webhook delivery with backoff and the retention purge. */

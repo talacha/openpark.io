@@ -4,6 +4,7 @@ import { emit, type Db } from '../db.js';
 import { HttpError, type Ctx } from '../http.js';
 import type { WebhookEvent } from '../jobs.js';
 import type { App } from '../server.js';
+import { completePass, passFee } from './passes.js';
 
 type After = (fn: () => void | Promise<void>) => void;
 
@@ -67,9 +68,10 @@ function queueWebhook(app: App, after: After, tenantId: string, event: WebhookEv
   after(() => app.jobs.enqueue(tenantId, event, payload));
 }
 
-export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: CheckInInput) {
+export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: CheckInInput, opts: { pass?: { id: string; guestName: string } } = {}) {
   const site = await resolveSite(db, ctx, input.site);
-  if (!site.default_rate_plan_id) throw new HttpError(409, 'no_rate_plan', 'Site has no default rate plan');
+  // A guest pass is free within its stay limit, so it needs no rate plan.
+  if (!site.default_rate_plan_id && !opts.pass) throw new HttpError(409, 'no_rate_plan', 'Site has no default rate plan');
   const tenant = (await db.query('select plate_regions from tenant')).rows[0];
   const region = input.plate.region ?? tenant.plate_regions[0] ?? 'XX';
   const display = displayPlate(input.plate.display);
@@ -133,7 +135,7 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
       sess = (await db.query(
         `insert into session (tenant_id, site_id, vehicle_id, slot_id, ticket_code, in_at, in_by, rate_plan_id)
          values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (tenant_id, ticket_code) do nothing returning id, ticket_code`,
-        [ctx.tenantId, site.id, veh.id, slot.id, newTicketCode(), now, ctx.userId, site.default_rate_plan_id])).rows[0];
+        [ctx.tenantId, site.id, veh.id, slot.id, newTicketCode(), now, ctx.userId, opts.pass ? null : site.default_rate_plan_id])).rows[0];
     } catch (e) {
       if ((e as { constraint?: string }).constraint === 'session_one_open_per_vehicle') throw new HttpError(409, 'already_inside', 'Vehicle is already inside');
       throw e;
@@ -150,7 +152,7 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
         input.read.latencyMs ?? null, input.read.textRaw && normalizePlate(input.read.textRaw) !== norm ? norm : null, ctx.userId]);
   }
   const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt };
-  await addEvent(db, ctx, sess.id, 'check_in', { plate: display, region, source: input.source, confidence: input.read?.confidence ?? null }, extra);
+  await addEvent(db, ctx, sess.id, 'check_in', { plate: display, region, source: input.source, confidence: input.read?.confidence ?? null, ...(opts.pass ? { passId: opts.pass.id } : {}) }, extra);
   await addEvent(db, ctx, sess.id, 'slot_assigned', { slot: slot.code, reason }, extra);
 
   const out = {
@@ -166,14 +168,14 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
 
 export interface OpenSession {
   id: string; site_id: string; site_code: string; timezone: string; ticket_code: string; in_at: Date; in_by: string | null; in_by_name: string | null;
-  slot_id: string | null; slot: string | null; rate_plan_id: string; plate_display: string; plate_norm: string; plate_region: string;
+  slot_id: string | null; slot: string | null; rate_plan_id: string | null; pass_id: string | null; plate_display: string; plate_norm: string; plate_region: string;
   make: string | null; model: string | null; color: string | null;
 }
 
 const OPEN_SQL = `select s.id, s.site_id, st.code as site_code, st.timezone, s.ticket_code, s.in_at, s.in_by, u.name as in_by_name, s.slot_id, sl.code as slot,
-    s.rate_plan_id, v.plate_display, v.plate_norm, v.plate_region, v.make, v.model, v.color
+    s.rate_plan_id, p.id as pass_id, v.plate_display, v.plate_norm, v.plate_region, v.make, v.model, v.color
   from session s join site st on st.id = s.site_id join vehicle v on v.id = s.vehicle_id
-  left join slot sl on sl.id = s.slot_id left join app_user u on u.id = s.in_by
+  left join slot sl on sl.id = s.slot_id left join app_user u on u.id = s.in_by left join pass p on p.session_id = s.id
   where s.status = 'open'`;
 
 export async function getOpenById(db: Db, id: string): Promise<OpenSession> {
@@ -205,7 +207,10 @@ export async function matchOpen(app: App, db: Db, ctx: Ctx, input: { site: strin
   return { session: null, method: null, candidates: [] };
 }
 
-async function quote(db: Db, s: OpenSession, now: Date, lostTicket?: boolean): Promise<FeeResult> {
+type Quote = FeeResult & { hoaCharge?: number; maxStayHours?: number };
+
+async function quote(db: Db, s: OpenSession, now: Date, lostTicket?: boolean): Promise<Quote> {
+  if (s.pass_id || !s.rate_plan_id) return passFee(db, s, now);
   const plan = (await db.query('select rules from rate_plan where id = $1', [s.rate_plan_id])).rows[0];
   return computeFee(RateRules.parse(plan.rules), s.in_at, now, { lostTicket });
 }
@@ -232,16 +237,17 @@ export async function checkOut(app: App, db: Db, ctx: Ctx, after: After, s: Open
     [s.id, now, ctx.userId, final, JSON.stringify(fee)]);
   if (!closed.rowCount) throw new HttpError(409, 'not_open', 'Session was already closed');
   if (s.slot_id) await db.query("update slot set status = 'available' where id = $1 and status = 'occupied'", [s.slot_id]);
+  const pass = s.pass_id ? await completePass(app, db, ctx, after, { id: s.id, pass_id: s.pass_id, in_at: s.in_at }, now) : null;
 
   const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt };
-  await addEvent(db, ctx, s.id, 'check_out', { matchMethod: method, minutes: fee.minutes, fee: final, lostTicket: !!input.lostTicket }, extra);
+  await addEvent(db, ctx, s.id, 'check_out', { matchMethod: method, minutes: fee.minutes, fee: final, lostTicket: !!input.lostTicket, ...(s.pass_id ? { passId: s.pass_id } : {}) }, extra);
   if (input.override) await addEvent(db, ctx, s.id, 'fee_override', { original: fee.total, override: input.override.fee, reason: input.override.reason });
   let receipt: string | null = null;
   if (input.payment) receipt = await recordPayment(db, ctx, s.id, s.ticket_code, input.payment);
 
   const out = {
     session: { id: s.id, ticketCode: s.ticket_code, site: s.site_code, inAt: s.in_at, outAt: now.toISOString() },
-    vehicle: { plate: s.plate_display }, slot: s.slot, minutes: fee.minutes, fee: { total: final, tax: fee.tax, lines: fee.lines, original: fee.total }, receipt,
+    vehicle: { plate: s.plate_display }, slot: s.slot, minutes: fee.minutes, fee: { total: final, tax: fee.tax, lines: fee.lines, original: fee.total, ...(pass ? { hoaCharge: pass.over ? pass.charge : 0 } : {}) }, receipt,
   };
   await emit(db, ctx.tenantId, 'session.closed', out);
   if (s.slot) await emit(db, ctx.tenantId, 'slot.changed', { site: s.site_code, slot: s.slot, status: 'available' });

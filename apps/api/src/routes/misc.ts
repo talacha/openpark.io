@@ -1,9 +1,11 @@
 import { matchPlateClass, normalizePlate } from '@openpark/core';
 import { z } from 'zod';
+import { can } from '../auth.js';
 import { emit } from '../db.js';
 import { HttpError, definePublicRoute, defineRoute, openApiDocument } from '../http.js';
 import type { App } from '../server.js';
 import { signUrl, verifySignedUrl } from '../storage.js';
+import { processPassReminders } from '../services/passes.js';
 import { resolveSite } from '../services/sessions.js';
 
 interface AlprResponse {
@@ -128,9 +130,20 @@ export function registerMiscRoutes(app: App) {
     },
   });
 
+  // Vercel Cron target: guest-pass reminders (10 h, 11 h) and overstay notices (12 h) for open pass stays.
+  definePublicRoute(app, {
+    method: 'GET', path: '/v1/cron/pass-reminders', summary: 'Send due guest-pass reminders (cron only)',
+    async handler({ req }) {
+      if (!app.cfg.CRON_SECRET || req.headers.authorization !== `Bearer ${app.cfg.CRON_SECRET}`) throw new HttpError(401, 'unauthorized', 'Cron secret required');
+      return processPassReminders(app);
+    },
+  });
+
   // Server-sent events: occupancy, sessions and low-confidence reads for the caller's tenant.
   app.get('/v1/events', async (req, reply) => {
     const ctx = await app.authenticate(req);
+    // Residents must not see the lot's plates and sessions.
+    if (!can(ctx.role, 'read')) throw new HttpError(403, 'forbidden', `role ${ctx.role} cannot subscribe to live events`);
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, {

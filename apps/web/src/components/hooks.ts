@@ -22,13 +22,15 @@ export function useLiveEvents(onEvent: () => void) {
   useEffect(() => {
     let es: EventSource | null = null; let timer: ReturnType<typeof setTimeout>; let closed = false;
     const fire = () => { clearTimeout(timer); timer = setTimeout(() => cb.current(), 150); };
-    const connect = () => {
-      es = new EventSource(eventsUrl());
+    const connect = async () => {
+      const url = await eventsUrl(); // a fresh token on every (re)connect
+      if (closed) return;
+      es = new EventSource(url);
       es.onopen = () => setLive(true);
-      es.onerror = () => { setLive(false); es?.close(); if (!closed) setTimeout(connect, 3000); };
+      es.onerror = () => { setLive(false); es?.close(); if (!closed) setTimeout(() => { void connect(); }, 3000); };
       for (const ev of ['session.opened', 'session.closed', 'session.voided', 'slot.changed', 'read.needs_review']) es.addEventListener(ev, fire);
     };
-    connect();
+    void connect();
     return () => { closed = true; es?.close(); clearTimeout(timer); };
   }, []);
   return live;

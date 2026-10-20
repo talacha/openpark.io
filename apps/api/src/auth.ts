@@ -3,18 +3,21 @@ import { promisify } from 'node:util';
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
-export type Role = 'owner' | 'admin' | 'supervisor' | 'attendant' | 'auditor';
+export type Role = 'owner' | 'admin' | 'supervisor' | 'attendant' | 'auditor' | 'resident';
 
-const ALL = ['read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void', 'inventory.edit',
-  'inventory.import', 'rate_plan.edit', 'settings.edit', 'users.edit', 'audit.read', 'tenant.delete'] as const;
+const ALL = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void', 'inventory.edit',
+  'inventory.import', 'rate_plan.edit', 'settings.edit', 'users.edit', 'audit.read', 'tenant.delete',
+  'pass.own', 'pass.redeem', 'pass.admin'] as const;
 export type Permission = (typeof ALL)[number];
 
 const PERMS: Record<Role, readonly Permission[]> = {
   owner: ALL,
   admin: ALL.filter((p) => p !== 'tenant.delete'),
-  supervisor: ['read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void'],
-  attendant: ['read', 'checkin', 'checkout', 'payment', 'slot.status'],
-  auditor: ['read', 'audit.read'],
+  supervisor: ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void', 'pass.redeem', 'pass.admin'],
+  attendant: ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'pass.redeem'],
+  auditor: ['me', 'read', 'audit.read'],
+  // Residents see nothing of the lot's operations: only their own unit's guest passes.
+  resident: ['me', 'pass.own'],
 };
 export const can = (role: Role, p: Permission) => PERMS[role].includes(p);
 

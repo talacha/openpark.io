@@ -1,68 +1,47 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { hashPassword, newApiKey, signToken, verifyPassword } from '../auth.js';
+import { localAuthEnabled } from '../config.js';
 import { audit } from '../db.js';
 import { HttpError, created, defineRoute, definePublicRoute } from '../http.js';
 import type { App } from '../server.js';
-import { applyInventory, loadLiveSlots, previewImport } from '../services/inventory.js';
-import { COUNTRIES, DEFAULT_COUNTRY, demoInventory } from '../services/demo.js';
+import { provisionTenant, type Owner } from '../services/tenants.js';
 
 const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'org';
 
 const Signup = z.object({
-  email: z.string().email(),
-  password: z.string().min(10),
+  /** Local accounts only; with an external identity (Supabase) the email comes from the access token. */
+  email: z.string().email().optional(),
+  password: z.string().min(10).optional(),
   name: z.string().optional(),
   organisation: z.string().min(2),
   country: z.string().length(2).toUpperCase(),
   slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}$/).optional(),
 });
 
-const Role = z.enum(['admin', 'supervisor', 'attendant', 'auditor']);
+const Role = z.enum(['admin', 'supervisor', 'attendant', 'auditor', 'resident']);
 
 export function registerAuthRoutes(app: App) {
   // Called by openpark.io: creates a trial tenant with one demo site and a country-template rate plan.
   definePublicRoute(app, {
     method: 'POST', path: '/v1/signup', summary: 'Create a trial tenant', body: Signup,
-    async handler({ body }) {
-      const c = COUNTRIES[body.country] ?? DEFAULT_COUNTRY;
-      const email = body.email.toLowerCase();
-      const baseSlug = body.slug ?? slugify(body.organisation);
-      const exists = await app.db.raw((db) => db.query('select 1 from app_user where email = $1', [email]));
-      if (exists.rowCount) throw new HttpError(409, 'email_taken', 'An account with this email already exists');
-
-      let tenantId = '', slug = baseSlug;
-      for (let attempt = 0; ; attempt++) {
-        try {
-          tenantId = (await app.db.raw((db) => db.query('select create_tenant($1,$2,$3,$4,$5,$6,$7) as id',
-            [slug, body.organisation, body.country, c.locale, c.currency, c.timezone, c.plateRegions]))).rows[0].id;
-          break;
-        } catch (e) {
-          if ((e as { code?: string }).code !== '23505' || body.slug || attempt > 4) {
-            if ((e as { code?: string }).code === '23505') throw new HttpError(409, 'slug_taken', 'That tenant slug is taken');
-            throw e;
-          }
-          slug = `${baseSlug}-${randomBytes(2).toString('hex')}`;
-        }
+    async handler({ body, req }) {
+      if (!app.cfg.TRIAL_SIGNUP) throw new HttpError(403, 'signup_closed', 'Sign-up is closed while OpenPark is in a closed preview. Ask for an invitation.');
+      const local = !!body.password;
+      let owner: Owner;
+      if (local) {
+        if (!localAuthEnabled(app.cfg)) throw new HttpError(400, 'local_auth_disabled', 'Sign up with the configured identity provider');
+        if (!body.email) throw new HttpError(400, 'email_required', 'Email is required');
+        const exists = await app.db.raw((db) => db.query('select 1 from app_user where email = $1', [body.email!.toLowerCase()]));
+        if (exists.rowCount) throw new HttpError(409, 'email_taken', 'An account with this email already exists');
+        owner = { kind: 'new_local_user', email: body.email.toLowerCase(), name: body.name, password: body.password! };
+      } else {
+        const who = await app.identify(req); // 401 unless a valid external token is presented
+        owner = { kind: 'user', userId: who.userId, name: body.name };
       }
-
-      const userId = await app.db.withTenant(tenantId, async (db) => {
-        const u = await db.query('insert into app_user (email, name, password_hash, locale) values ($1,$2,$3,$4) returning id',
-          [email, body.name ?? null, await hashPassword(body.password), c.locale]);
-        const id = u.rows[0].id as string;
-        await db.query("insert into membership (tenant_id, user_id, role) values ($1,$2,'owner')", [tenantId, id]);
-
-        const doc = demoInventory(slug, c.timezone);
-        await applyInventory(db, tenantId, doc, previewImport(await loadLiveSlots(db), doc, 'merge'));
-        const site = (await db.query('select id from site where code = $1', ['DEMO-01'])).rows[0].id;
-        const plan = await db.query(
-          `insert into rate_plan (tenant_id, site_id, name, version, rules, currency, tax_mode) values ($1,$2,'Visitor hourly',1,$3,$4,$5) returning id`,
-          [tenantId, site, JSON.stringify(c.rules), c.currency, c.rules.taxMode]);
-        await db.query('update site set default_rate_plan_id = $1 where id = $2', [plan.rows[0].id, site]);
-        await audit(db, tenantId, id, 'tenant.signup', 'tenant', null, { slug, country: body.country });
-        return id;
-      });
-      return created({ token: signToken(app.cfg.JWT_SECRET, userId), tenant: { slug, name: body.organisation, locale: c.locale, currency: c.currency } });
+      const t = await provisionTenant(app, { organisation: body.organisation, country: body.country, slug: body.slug, owner });
+      const tenant = { slug: t.slug, name: body.organisation, locale: t.locale, currency: t.currency };
+      return created(local ? { token: signToken(app.cfg.JWT_SECRET, t.ownerId!), tenant } : { tenant });
     },
   });
 
@@ -70,7 +49,8 @@ export function registerAuthRoutes(app: App) {
     method: 'POST', path: '/v1/auth/login', summary: 'Sign in with email and password',
     body: z.object({ email: z.string().email(), password: z.string() }),
     async handler({ body }) {
-      const u = (await app.db.raw((db) => db.query('select id, password_hash, name, locale from app_user where email = $1', [body.email.toLowerCase()]))).rows[0];
+      if (!localAuthEnabled(app.cfg)) throw new HttpError(404, 'local_auth_disabled', 'Sign in with the configured identity provider');
+      const u = (await app.db.raw((db) => db.query('select id, password_hash, name, locale from app_user where email = $1 and password_hash is not null', [body.email.toLowerCase()]))).rows[0];
       // Verify against a dummy hash when the user is unknown so timing does not reveal accounts.
       const ok = await verifyPassword(body.password, u?.password_hash ?? 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
       if (!u || !ok) throw new HttpError(401, 'bad_credentials', 'Invalid email or password');
@@ -81,11 +61,12 @@ export function registerAuthRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'GET', path: '/v1/me', summary: 'Current identity and tenant', perm: 'read',
+    method: 'GET', path: '/v1/me', summary: 'Current identity and tenant', perm: 'me',
     async handler({ ctx, db }) {
       const t = (await db.query('select slug, name, country, default_locale, locales, currency, plate_regions, ai_mode, terminology, slot_types from tenant')).rows[0];
-      const user = ctx.userId ? (await db.query('select id, email, name, locale from app_user where id = $1', [ctx.userId])).rows[0] : null;
-      return { role: ctx.role, user, tenant: t };
+      const user = ctx.userId ? (await db.query('select id, email, name, phone, locale from app_user where id = $1', [ctx.userId])).rows[0] : null;
+      const unit = ctx.unitId ? (await db.query('select code, name from unit where id = $1', [ctx.unitId])).rows[0] : null;
+      return { role: ctx.role, user, unit, superadmin: ctx.superadmin, tenant: t };
     },
   });
 
@@ -115,22 +96,6 @@ export function registerAuthRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/users', summary: 'Add a user to the tenant; returns a one-time temporary password', perm: 'users.edit',
-    body: z.object({ email: z.string().email(), name: z.string().optional(), role: Role }),
-    async handler({ ctx, db, body }) {
-      const email = body.email.toLowerCase();
-      const temp = randomBytes(9).toString('base64url');
-      let u = (await db.query('select id from app_user where email = $1', [email])).rows[0];
-      const isNew = !u;
-      if (!u) u = (await db.query('insert into app_user (email, name, password_hash) values ($1,$2,$3) returning id', [email, body.name ?? null, await hashPassword(temp)])).rows[0];
-      const r = await db.query('insert into membership (tenant_id, user_id, role) values ($1,$2,$3) on conflict do nothing', [ctx.tenantId, u.id, body.role]);
-      if (!r.rowCount) throw new HttpError(409, 'already_member', 'User already belongs to this tenant');
-      await audit(db, ctx.tenantId, ctx.userId, 'user.add', 'membership', null, { email, role: body.role });
-      return created({ userId: u.id, ...(isNew ? { temporaryPassword: temp } : {}) });
-    },
-  });
-
-  defineRoute(app, {
     method: 'POST', path: '/v1/api-keys', summary: 'Create a tenant (and optionally site) scoped API key; shown once', perm: 'users.edit',
     body: z.object({ name: z.string().min(1), role: Role.default('attendant'), site: z.string().optional() }),
     async handler({ ctx, db, body }) {
@@ -151,7 +116,7 @@ export function registerAuthRoutes(app: App) {
     method: 'POST', path: '/v1/webhooks', summary: 'Register a webhook endpoint; returns the signing secret once', perm: 'settings.edit',
     body: z.object({
       url: z.string().url(),
-      events: z.array(z.enum(['session.opened', 'session.closed', 'slot.changed', 'read.needs_review'])).min(1),
+      events: z.array(z.enum(['session.opened', 'session.closed', 'slot.changed', 'read.needs_review', 'pass.overstay'])).min(1),
     }),
     async handler({ ctx, db, body }) {
       const secret = `whsec_${randomBytes(24).toString('base64url')}`;

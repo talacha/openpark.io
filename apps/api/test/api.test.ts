@@ -278,7 +278,7 @@ describe('serverless mode (Vercel)', () => {
   it('streams SSE from a dedicated LISTEN connection and gates the cron route', async () => {
     const { loadConfig } = await import('../src/config.js');
     const { buildApp } = await import('../src/server.js');
-    const cfg = loadConfig({ ...process.env, LOG_LEVEL: 'silent', SERVERLESS: 'true', CRON_SECRET: 'cron-secret-123', DB_POOL_MAX: '2' } as NodeJS.ProcessEnv);
+    const cfg = loadConfig({ ...process.env, LOG_LEVEL: 'silent', SERVERLESS: 'true', TRIAL_SIGNUP: 'true', CRON_SECRET: 'cron-secret-123', DB_POOL_MAX: '2' } as NodeJS.ProcessEnv);
     const app = await buildApp({ cfg });
     try {
       const tn = await signup(app, 'US');

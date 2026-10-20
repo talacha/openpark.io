@@ -11,6 +11,30 @@ const Env = z.object({
   ADMIN_DATABASE_URL: z.string().default('postgres://openpark:openpark@localhost:54329/openpark'),
   JWT_SECRET: z.string().min(16).default('dev-only-secret-change-me'),
   OPENPARK_APP_PASSWORD: z.string().optional(),
+  /** External identity (Supabase Auth or any OIDC provider). Roles and tenants stay in our database. */
+  SUPABASE_URL: z.string().url().optional(),
+  /** Legacy Supabase projects sign tokens with a shared HS256 secret instead of publishing JWKS. */
+  SUPABASE_JWT_SECRET: z.string().optional(),
+  OIDC_ISSUER: z.string().optional(),
+  OIDC_JWKS_URL: z.string().url().optional(),
+  OIDC_AUDIENCE: z.string().optional(),
+  /** Emails that become platform super admins when they sign in (comma separated). */
+  SUPERADMIN_EMAILS: z.string().default('').transform((v) => v.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)),
+  /** Email + password accounts held by OpenPark itself. Defaults off when an external provider is configured. */
+  LOCAL_AUTH: z.enum(['true', 'false', '1', '0']).optional().transform((v) => (v === undefined ? undefined : v === 'true' || v === '1')),
+  /**
+   * Self-service trial: anyone may create an organisation. Off by default (closed preview); when off, new organisations
+   * are created by a platform admin and people join by invitation. Self-hosters turn it on for first-run setup.
+   */
+  TRIAL_SIGNUP: z.enum(['true', 'false', '1', '0']).default('false').transform((v) => v === 'true' || v === '1'),
+  /** Notifications (all optional; without any, messages are logged and recorded as undeliverable). */
+  RESEND_API_KEY: z.string().optional(),
+  MAIL_FROM: z.string().optional(),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_FROM: z.string().optional(),
+  /** `whatsapp` sends via Twilio WhatsApp (needs approved templates for business-initiated messages). */
+  NOTIFY_PHONE_CHANNEL: z.enum(['sms', 'whatsapp']).default('sms'),
   ALPR_URL: z.string().url().optional(),
   STORAGE_DIR: z.string().default('./data'),
   CORS_ORIGIN: z.string().default('*'),
@@ -26,6 +50,9 @@ const Env = z.object({
   JOBS_ENABLED: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
 });
 export type Config = z.infer<typeof Env>;
+
+export const externalAuthEnabled = (c: Config) => !!(c.SUPABASE_URL || c.OIDC_JWKS_URL || c.SUPABASE_JWT_SECRET);
+export const localAuthEnabled = (c: Config) => c.LOCAL_AUTH ?? !externalAuthEnabled(c);
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // Compose and Helm pass unset variables as empty strings; treat those as absent.

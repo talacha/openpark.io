@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { isNetworkError, request } from '../api.js';
+import { accessToken, isNetworkError, request } from '../api.js';
 import { useApp } from '../app-context.js';
 import { useT } from '../i18n.js';
 import { changes, flush, listConflicts, pendingCount, type QueuedWrite, type SendResult } from '../offline.js';
@@ -8,9 +8,11 @@ import { changes, flush, listConflicts, pendingCount, type QueuedWrite, type Sen
 const BASE: string = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 
 async function send(w: QueuedWrite): Promise<SendResult> {
+  // Tokens expire (Supabase: hourly), so replay with the current one rather than the one stored at queue time.
+  const token = (await accessToken()) ?? w.token;
   const res = await fetch(BASE + w.path, {
     method: w.method,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${w.token}`, 'x-tenant': w.tenant, 'idempotency-key': w.key },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-tenant': w.tenant, 'idempotency-key': w.key },
     body: JSON.stringify(w.body),
   });
   if (res.ok) return { ok: true, status: res.status };

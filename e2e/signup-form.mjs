@@ -1,4 +1,4 @@
-// Signup form: password reveal, translation, and a readable error when the API is unreachable/non-JSON.
+// Needs the API up with TRIAL_SIGNUP=true. The hosting 404 is simulated in the browser. Signup form: password reveal, translation, and a readable error when the API is unreachable/non-JSON.
 import { chromium } from 'playwright-core';
 const b = await chromium.launch({ channel: 'chrome' });
 const ctx = await b.newContext({ viewport: { width: 1000, height: 800 }, locale: 'es-419' });
@@ -27,14 +27,15 @@ if ((await p.getAttribute('html', 'dir')) !== 'rtl') throw new Error('Arabic sho
 await p.screenshot({ path: process.argv[2] + '/s-ar.png' });
 await p.selectOption('select.langpick', 'es-MX');
 
-// No API on :3000 -> the dev proxy answers with a non-JSON error. The UI must show a message, not a SyntaxError.
+// A hosting/proxy 404 with a plain-text body (what app.openpark.io returned before the /v1 proxy existed).
+await p.route('**/v1/signup', (r) => r.fulfill({ status: 404, contentType: 'text/plain', body: 'The page could not be found' }));
 await p.fill('input[name=org]', 'Org Prueba');
 await p.fill('input[name=email]', 'x@example.com');
 await p.click('button.primary');
 await p.waitForSelector('.banner.bad');
 const msg = (await p.textContent('.banner.bad')).trim();
 if (/SyntaxError|not valid JSON/i.test(msg)) throw new Error(`raw parse error leaked: ${msg}`);
-console.log('✓ unreachable API shows a readable error:', JSON.stringify(msg.slice(0, 80)));
+console.log('✓ non-JSON hosting error shows a readable message:', JSON.stringify(msg.slice(0, 80)));
 await p.screenshot({ path: process.argv[2] + '/s-es-error.png' });
 
 // Marketing form

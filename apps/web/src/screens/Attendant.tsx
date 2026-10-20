@@ -1,11 +1,15 @@
 import { PlateChip } from '@openpark/ui';
-import qrcode from 'qrcode-generator';
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Suspense, createContext, lazy, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiError, get, isNetworkError, request, write } from '../api.js';
+import { ApiError, get, isNetworkError, post, request, write } from '../api.js';
 import { useApp } from '../app-context.js';
+import { QrCode } from '../components/QrCode.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
+
+// The QR decoder is only needed once someone taps Scan, so it stays out of the main bundle.
+const QrScanner = lazy(() => import('../components/QrScanner.js').then((m) => ({ default: m.QrScanner })));
+const Scanner = (props: { onResult: (text: string) => void; onClose: () => void }) => <Suspense fallback={<div className="muted">…</div>}><QrScanner {...props} /></Suspense>;
 
 /* ---------- shared check-in state ---------- */
 
@@ -14,8 +18,10 @@ interface FlowState {
   plate: string; region: string; source: 'manual' | 'ai_assist' | 'ai_auto';
   candidates: Candidate[]; confidence?: number; textRaw?: string; cropKey?: string;
   vehicle: { make?: string; model?: string; color?: string; bodyType?: string };
+  /** A scanned resident guest pass: check-in is then free and tied to the pass. */
+  pass: { token: string; guest: string; unit: string } | null;
 }
-const empty = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {} });
+const empty = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null });
 const FlowCtx = createContext<{ flow: FlowState; set: (f: Partial<FlowState>) => void; reset: () => void }>(null as never);
 const useFlow = () => useContext(FlowCtx);
 
@@ -111,6 +117,21 @@ export function CheckInCapture() {
   const [err, setErr] = useState('');
   const cam = useCamera(camera);
   const b = base(me!.tenant.slug);
+  const [scanning, setScanning] = useState(false);
+  const [code, setCode] = useState('');
+  const [passErr, setPassErr] = useState('');
+
+  /** Look a scanned or typed pass up before taking the plate, so a bad QR is caught at the gate, not after. */
+  async function usePass(raw: string) {
+    const token = raw.trim();
+    setScanning(false); setPassErr('');
+    if (!token) return;
+    try {
+      const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
+      if (!r.valid) { setPassErr(t(`pass.reason_${r.reason}`)); return; }
+      set({ pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name } }); setCode('');
+    } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? t(`pass.reason_${e.code}`) : errText(e)); }
+  }
 
   async function capture() {
     const image = cam.snap();
@@ -129,6 +150,23 @@ export function CheckInCapture() {
   return (
     <div className="att">
       <h1>{t('att.capture')}</h1>
+      {flow.pass ? (
+        <div className="banner">
+          <strong>{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</strong>
+          <div><button type="button" className="btn" onClick={() => set({ pass: null })}>{t('att.passRemove')}</button></div>
+        </div>
+      ) : scanning ? (
+        <Scanner onClose={() => setScanning(false)} onResult={(text) => { void usePass(text); }} />
+      ) : (
+        <section className="card stack">
+          <button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanPass')}</button>
+          <div className="row">
+            <input className="grow" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('att.passCode')} aria-label={t('att.passCode')} dir="ltr" autoCapitalize="off" />
+            <button type="button" className="btn" disabled={!code.trim()} onClick={() => { void usePass(code); }}>{t('att.passUse')}</button>
+          </div>
+          {passErr && <div className="banner bad" role="alert">{passErr}</div>}
+        </section>
+      )}
       {aiOn && <div className="row"><button className={`btn ${camera ? 'primary' : ''}`} onClick={() => setCamera(true)}>{t('att.camera')}</button><button className={`btn ${!camera ? 'primary' : ''}`} onClick={() => setCamera(false)}>{t('att.keypad')}</button></div>}
       {camera ? (
         <>
@@ -179,10 +217,7 @@ export function CheckInReview() {
 interface Opened { session: { id: string; ticketCode: string }; slot: string; warnings: string[] }
 const BODY = ['sedan', 'suv', 'pickup', 'van', 'motorcycle'];
 
-function Ticket({ code }: { code: string }) {
-  const svg = useMemo(() => { const q = qrcode(0, 'M'); q.addData(code); q.make(); return q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); }, [code]);
-  return <div style={{ inlineSize: 180, background: '#fff', padding: 8, borderRadius: 8 }} dangerouslySetInnerHTML={{ __html: svg }} role="img" aria-label={code} />;
-}
+function Ticket({ code }: { code: string }) { return <QrCode value={code} size={180} />; }
 
 export function CheckInConfirm() {
   const t = useT();
@@ -194,6 +229,7 @@ export function CheckInConfirm() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; code?: string; details?: Record<string, unknown> } | null>(null);
   const [done, setDone] = useState<Opened | 'queued' | null>(null);
+  const idem = useRef(crypto.randomUUID()); // one key per confirm screen, so a retry never double-redeems
   const suggestion = useApi<{ slot: string | null; zone?: string }>(site ? `/v1/slots/suggest?site=${site.code}${flow.vehicle.bodyType ? `&bodyType=${flow.vehicle.bodyType}` : ''}` : null, [flow.vehicle.bodyType]);
   const v = (k: keyof FlowState['vehicle']) => ({ value: flow.vehicle[k] ?? '', onChange: (e: { target: { value: string } }) => set({ vehicle: { ...flow.vehicle, [k]: e.target.value || undefined } }) });
 
@@ -201,13 +237,19 @@ export function CheckInConfirm() {
     if (!site) return;
     setBusy(true); setErr(null);
     try {
-      const r = await write<Opened>('/v1/sessions', {
+      const body = {
         site: site.code, plate: { display: flow.plate, region: flow.region }, vehicle: flow.vehicle, slot: slotCode || slot || undefined, source: flow.source,
         read: flow.textRaw ? { textRaw: flow.textRaw, confidence: flow.confidence } : undefined,
-      });
-      setDone(r.queued ? 'queued' : r.data);
+      };
+      if (flow.pass) {
+        // A guest pass is validated by the server, so it is never queued offline.
+        setDone(await post<Opened>('/v1/passes/redeem', { ...body, token: flow.pass.token }, idem.current));
+      } else {
+        const r = await write<Opened>('/v1/sessions', body);
+        setDone(r.queued ? 'queued' : r.data);
+      }
     } catch (e) {
-      if (e instanceof ApiError) setErr({ message: e.message, code: e.code, details: e.details as Record<string, unknown> });
+      if (e instanceof ApiError) setErr({ message: e.code.startsWith('pass_') ? t(`pass.reason_${e.code}`) : e.message, code: e.code, details: e.details as Record<string, unknown> });
       else setErr({ message: errText(e) });
     } finally { setBusy(false); }
   }
@@ -230,6 +272,7 @@ export function CheckInConfirm() {
 
   return (
     <div className="att">
+      {flow.pass && <div className="banner">{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</div>}
       <div className="platebox"><PlateChip plate={flow.plate} region={flow.region} size="xl" /></div>
       {flow.confidence != null && <div className="muted">{t('att.confidence', { pct: Math.round(flow.confidence * 100) + '%' })}</div>}
       <h2>{t('att.vehicle')}</h2>
@@ -280,6 +323,7 @@ export function CheckOut() {
   const [err, setErr] = useState('');
   const [receipt, setReceipt] = useState<string | 'queued' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const b = base(me!.tenant.slug);
 
   async function find(over?: { ticket?: string }, lostTicket = lost) {
@@ -348,6 +392,9 @@ export function CheckOut() {
   return (
     <div className="att">
       <h1>{t('att.checkout')}</h1>
+      {scanning ? (
+        <Scanner onClose={() => setScanning(false)} onResult={(text) => { setScanning(false); setTicket(text.trim().toUpperCase()); void find({ ticket: text.trim().toUpperCase() }); }} />
+      ) : <button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanQr')}</button>}
       <label className="field">{t('att.scanTicket')}<input value={ticket} onChange={(e) => setTicket(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
       <div className="muted" style={{ textAlign: 'center' }}>{t('att.orPlate')}</div>
       <label className="field">{t('att.plate')}<input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>

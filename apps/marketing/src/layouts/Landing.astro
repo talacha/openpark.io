@@ -5,6 +5,8 @@ const { locale } = Astro.props as { locale: Locale };
 const c = COPY[locale];
 const API = import.meta.env.PUBLIC_API_URL ?? 'https://app.openpark.io';
 const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
+// Feature flag: self-service trial (build-time). Off by default while OpenPark is a closed preview.
+const TRIAL = import.meta.env.PUBLIC_TRIAL_SIGNUP === 'true';
 ---
 <Base locale={locale} title={`OpenPark: ${c.hero.title}`} description={c.hero.lead}>
   <div class="wrap">
@@ -13,7 +15,7 @@ const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
         <h1>{c.hero.title}</h1>
         <p class="lead">{c.hero.lead}</p>
         <p style="display:flex;gap:12px;flex-wrap:wrap">
-          <a class="btn primary" href="#trial">{c.hero.cta}</a>
+          {TRIAL ? <a class="btn primary" href="#trial">{c.hero.cta}</a> : <a class="btn primary" href={`${APP}/login`}>{c.closed.signin}</a>}
           <a class="btn" href="/self-hosting/">{c.hero.secondary}</a>
         </p>
       </div>
@@ -51,25 +53,34 @@ const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
       <p class="lead">{c.oss.body}</p>
     </section>
 
+    {TRIAL ? (
     <section id="trial">
-      <h2>{c.signup.title}</h2>
-      <form id="signup" data-api={API} data-app={APP} data-busy={c.signup.busy} data-show={c.signup.show} data-hide={c.signup.hide}>
-        <label>{c.signup.org}<input name="organisation" required minlength="2" autocomplete="organization" /></label>
-        <label>{c.signup.country}
-          <select name="country">{COUNTRIES.map((k) => <option selected={k === DEFAULT_COUNTRY[locale]}>{k}</option>)}</select></label>
-        <label>{c.signup.email}<input name="email" type="email" required autocomplete="email" /></label>
-        <label>{c.signup.password}<span class="pwd"><input name="password" type="password" required minlength="10" autocomplete="new-password" dir="ltr" /><button type="button" class="pwd-toggle" id="pwd-toggle" aria-pressed="false">{c.signup.show}</button></span></label>
-        <button class="btn primary" type="submit">{c.signup.submit}</button>
-        <small class="muted">{c.signup.hint}</small>
-        <small class="err" role="alert" id="signup-error"></small>
-      </form>
-    </section>
+        <h2>{c.signup.title}</h2>
+        <form id="signup" data-api={API} data-app={APP} data-busy={c.signup.busy} data-show={c.signup.show} data-hide={c.signup.hide}>
+          <label>{c.signup.org}<input name="organisation" required minlength="2" autocomplete="organization" /></label>
+          <label>{c.signup.country}
+            <select name="country">{COUNTRIES.map((k) => <option selected={k === DEFAULT_COUNTRY[locale]}>{k}</option>)}</select></label>
+          <label>{c.signup.email}<input name="email" type="email" required autocomplete="email" /></label>
+          <label>{c.signup.password}<span class="pwd"><input name="password" type="password" required minlength="10" autocomplete="new-password" dir="ltr" /><button type="button" class="pwd-toggle" id="pwd-toggle" aria-pressed="false">{c.signup.show}</button></span></label>
+          <button class="btn primary" type="submit">{c.signup.submit}</button>
+          <small class="muted">{c.signup.hint}</small>
+          <small class="err" role="alert" id="signup-error"></small>
+        </form>
+      </section>
+    ) : (
+      <section id="trial">
+        <h2>{c.closed.title}</h2>
+        <p class="lead">{c.closed.body}</p>
+        <p><a class="btn primary" href={`${APP}/login`}>{c.closed.signin}</a></p>
+      </section>
+    )}
   </div>
 
   <script>
     // The only dynamic call on the marketing site: create a trial tenant, then hand the token to the app in the URL fragment
     // (fragments are never sent to a server or logged).
-    const form = document.getElementById('signup') as HTMLFormElement;
+    const form = document.getElementById('signup') as HTMLFormElement | null;
+    if (form) {
     const toggle = document.getElementById('pwd-toggle') as HTMLButtonElement;
     const pwd = form.querySelector('input[name=password]') as HTMLInputElement;
     toggle.addEventListener('click', () => {
@@ -94,5 +105,6 @@ const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
         err.textContent = (x as Error).message; btn.disabled = false; btn.textContent = label;
       }
     });
+    }
   </script>
 </Base>

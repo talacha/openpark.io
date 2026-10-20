@@ -89,6 +89,7 @@ export function registerSessionRoutes(app: App) {
       if (s.status === 'void') throw new HttpError(409, 'already_void', 'Session is already void');
       await db.query("update session set status = 'void' where id = $1", [s.id]);
       if (s.status === 'open' && s.slot_id) await db.query("update slot set status = 'available' where id = $1 and status = 'occupied'", [s.slot_id]);
+      await db.query("update pass set status = 'completed', completed_at = now() where session_id = $1 and status = 'checked_in'", [s.id]);
       await addEvent(db, ctx, s.id, 'void', { reason: body.reason, before: s.status, after: 'void' });
       await emit(db, ctx.tenantId, 'session.voided', { id: s.id });
       return { ok: true };
