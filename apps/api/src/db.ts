@@ -4,8 +4,8 @@ export type Db = pg.PoolClient;
 
 export class Database {
   readonly pool: pg.Pool;
-  constructor(url: string) {
-    this.pool = new pg.Pool({ connectionString: url, max: 10 });
+  constructor(url: string, max = 10) {
+    this.pool = new pg.Pool({ connectionString: url, max });
   }
 
   /** Run `fn` in a transaction with the tenant set, so RLS scopes every statement. */

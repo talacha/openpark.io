@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm run build",
+  "outputDirectory": "public",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "functions": { "api/index.ts": { "maxDuration": 300, "includeFiles": "registry/**" } },
+  "crons": [{ "path": "/v1/cron/retention", "schedule": "17 3 * * *" }]
+}

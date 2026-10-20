@@ -2,12 +2,15 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError, request, setSession } from '../api.js';
 import { useApp } from '../app-context.js';
-import { useT } from '../i18n.js';
+import { PasswordInput } from '../components/PasswordInput.js';
+import { LOCALES, NAMES, useI18n, useT } from '../i18n.js';
 
 const COUNTRIES = ['MX', 'US', 'BR', 'ES', 'FR', 'DE', 'CO', 'AR', 'CL', 'PE', 'CA', 'GB', 'SA', 'AE'];
 
 export function Auth({ mode }: { mode: 'login' | 'signup' }) {
   const t = useT();
+  const { locale, setLocale } = useI18n();
+  const countryName = (c: string) => { try { return new Intl.DisplayNames([locale], { type: 'region' }).of(c) ?? c; } catch { return c; } };
   const nav = useNavigate();
   const { reload } = useApp();
   const [err, setErr] = useState('');
@@ -34,18 +37,21 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
   return (
     <div className="auth">
       <form className="card stack" onSubmit={submit}>
+        <select className="langpick" aria-label={t('auth.language')} value={locale} onChange={(e) => setLocale(e.target.value)}>
+          {[...LOCALES].map((l) => <option key={l} value={l}>{NAMES[l]}</option>)}
+        </select>
         <h1>{mode === 'signup' ? t('auth.signup') : t('auth.signin')}</h1>
         {mode === 'signup' && <p className="muted">{t('auth.trial')}</p>}
         {mode === 'signup' && <label className="field">{t('auth.name')}<input name="name" autoComplete="name" /></label>}
         {mode === 'signup' && <label className="field">{t('auth.org')}<input name="org" required minLength={2} /></label>}
         {mode === 'signup' && (
           <label className="field">{t('auth.country')}
-            <select name="country" defaultValue="MX">{COUNTRIES.map((c) => <option key={c}>{c}</option>)}</select>
+            <select name="country" defaultValue="MX">{COUNTRIES.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}</select>
           </label>
         )}
         <label className="field">{t('auth.email')}<input name="email" type="email" required autoComplete="email" /></label>
         <label className="field">{t('auth.password')}
-          <input name="password" type="password" required minLength={mode === 'signup' ? 10 : 1} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
+          <PasswordInput name="password" required minLength={mode === 'signup' ? 10 : 1} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
           {mode === 'signup' && <small>{t('auth.passwordHint')}</small>}
         </label>
         {err && <div className="banner bad" role="alert">{err}</div>}

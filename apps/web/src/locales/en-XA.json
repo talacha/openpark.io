@@ -171,5 +171,8 @@
   "att.nothingFree": "[Nô fréé slôts one tw]",
   "att.slot": "[Slôt on]",
   "att.takenBy": "[Àssîgñéd slôt îs tàkéñ bý {plate} one two thr]",
-  "att.confirmFuzzy": "[Thîs îs ñôt àñ éxàçt màtçh. Côñfîrm ît îs thé rîght çàr. one two three four five]"
+  "att.confirmFuzzy": "[Thîs îs ñôt àñ éxàçt màtçh. Côñfîrm ît îs thé rîght çàr. one two three four five]",
+  "auth.showPassword": "[Shôw pàsswôrd one tw]",
+  "auth.hidePassword": "[Hîdé pàsswôrd one tw]",
+  "auth.language": "[Làñgûàgé one ]"
 }

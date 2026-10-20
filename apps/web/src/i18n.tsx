@@ -10,6 +10,15 @@ export const LOCALES = ['en', 'es-MX', 'es-ES', 'pt-BR', 'fr', 'de', 'ar'] as co
 export const NAMES: Record<string, string> = {
   en: 'English', 'es-MX': 'Español (México)', 'es-ES': 'Español (España)', 'pt-BR': 'Português (Brasil)', fr: 'Français', de: 'Deutsch', ar: 'العربية', 'en-XA': 'Pseudo (en-XA)',
 };
+/** Map any BCP 47 tag (es-419, pt, fr-CA, en-GB) to the closest catalog we ship. */
+export function resolveLocale(tag: string | undefined | null): string {
+  if (!tag) return 'en';
+  if (catalogs[tag]) return tag;
+  const lang = tag.split('-')[0]!.toLowerCase();
+  const sameLang = LOCALES.filter((l) => l.split('-')[0] === lang);
+  return sameLang[0] ?? 'en';
+}
+
 const RTL = new Set(['ar', 'he', 'fa', 'ur']);
 export const isRtl = (l: string) => RTL.has(l.split('-')[0]!);
 
@@ -34,7 +43,7 @@ const I18n = createContext<Ctx>({ locale: 'en', setLocale: () => {}, t: (k) => k
 
 export function I18nProvider({ defaultLocale, terminology, children }: { defaultLocale: string; terminology: Terminology; children: ReactNode }) {
   const [override, setOverride] = useState<string | null>(() => { try { return localStorage.getItem('op.locale'); } catch { return null; } });
-  const locale = override ?? defaultLocale;
+  const locale = resolveLocale(override ?? defaultLocale);
   const setLocale = useCallback((l: string) => { setOverride(l); try { localStorage.setItem('op.locale', l); } catch { /* ignore */ } }, []);
   const dir = isRtl(locale) ? 'rtl' : 'ltr';
   useEffect(() => { document.documentElement.lang = locale; document.documentElement.dir = dir; }, [locale, dir]);

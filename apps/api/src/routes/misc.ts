@@ -119,6 +119,15 @@ export function registerMiscRoutes(app: App) {
     },
   });
 
+  // Vercel Cron target: retention purge (replaces the pg-boss schedule, which needs a long-lived worker).
+  definePublicRoute(app, {
+    method: 'GET', path: '/v1/cron/retention', summary: 'Purge plate crops past retention (cron only)',
+    async handler({ req }) {
+      if (!app.cfg.CRON_SECRET || req.headers.authorization !== `Bearer ${app.cfg.CRON_SECRET}`) throw new HttpError(401, 'unauthorized', 'Cron secret required');
+      return { purged: await app.jobs.purge(app) };
+    },
+  });
+
   // Server-sent events: occupancy, sessions and low-confidence reads for the caller's tenant.
   app.get('/v1/events', async (req, reply) => {
     const ctx = await app.authenticate(req);
@@ -131,6 +140,8 @@ export function registerMiscRoutes(app: App) {
     res.write(': connected\n\n');
     const unsub = app.hub.subscribe(ctx.tenantId, (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
     const beat = setInterval(() => res.write(': ping\n\n'), 25_000);
-    req.raw.on('close', () => { clearInterval(beat); unsub(); });
+    // Functions have a maximum duration; end the stream cleanly before it and let EventSource reconnect.
+    const cap = app.cfg.SSE_MAX_SECONDS ? setTimeout(() => res.end(), app.cfg.SSE_MAX_SECONDS * 1000) : null;
+    req.raw.on('close', () => { clearInterval(beat); if (cap) clearTimeout(cap); unsub(); });
   });
 }

@@ -171,5 +171,8 @@
   "att.nothingFree": "Não há vagas livres",
   "att.slot": "Vaga",
   "att.takenBy": "A vaga atribuída está ocupada por {plate}",
-  "att.confirmFuzzy": "Não é uma correspondência exata. Confirme que é o carro certo."
+  "att.confirmFuzzy": "Não é uma correspondência exata. Confirme que é o carro certo.",
+  "auth.showPassword": "Mostrar senha",
+  "auth.hidePassword": "Ocultar senha",
+  "auth.language": "Idioma"
 }

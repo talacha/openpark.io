@@ -273,3 +273,52 @@ describe('config', () => {
     expect(() => loadConfig({ NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toThrow(/JWT_SECRET/);
   });
 });
+
+describe('serverless mode (Vercel)', () => {
+  it('streams SSE from a dedicated LISTEN connection and gates the cron route', async () => {
+    const { loadConfig } = await import('../src/config.js');
+    const { buildApp } = await import('../src/server.js');
+    const cfg = loadConfig({ ...process.env, LOG_LEVEL: 'silent', SERVERLESS: 'true', CRON_SECRET: 'cron-secret-123', DB_POOL_MAX: '2' } as NodeJS.ProcessEnv);
+    const app = await buildApp({ cfg });
+    try {
+      const tn = await signup(app, 'US');
+      const tid = await tenantId(tn.slug);
+      const got: string[] = [];
+      const unsub = app.hub.subscribe(tid, (type) => got.push(type));
+      await new Promise((r) => setTimeout(r, 300)); // let the dedicated connection LISTEN
+      await app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(tn), payload: { site: 'DEMO-01', plate: { display: 'SRV-001' } } });
+      await new Promise((r) => setTimeout(r, 300));
+      unsub();
+      expect(got).toContain('session.opened');
+
+      expect((await app.inject({ method: 'GET', url: '/v1/cron/retention' })).statusCode).toBe(401);
+      const ok = await app.inject({ method: 'GET', url: '/v1/cron/retention', headers: { authorization: 'Bearer cron-secret-123' } });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toEqual({ purged: 0 });
+    } finally { await app.close(); }
+  });
+});
+
+describe('Supabase Data API exposure', () => {
+  it('gives the anon and authenticated roles no way to read data or call functions', async () => {
+    const pgm = await import('pg');
+    const c = new pgm.default.Client({ connectionString: process.env.ADMIN_DATABASE_URL });
+    await c.connect();
+    try {
+      for (const role of ['anon', 'authenticated']) {
+        await c.query(`set role ${role}`);
+        for (const sql of ['select * from app_user', 'select * from tenant', 'select * from session', 'select * from api_key',
+          "select user_memberships('00000000-0000-0000-0000-000000000000')", "select * from resolve_api_key('x')",
+          "select create_tenant('x','x','US','en','USD','UTC','{}')"]) {
+          await expect(c.query(sql), `${role}: ${sql}`).rejects.toThrow(/permission denied/);
+        }
+        await c.query('reset role');
+      }
+    } finally { await c.end(); }
+  });
+  it('still lets the app role log in and sign up (RLS policy on app_user)', async () => {
+    const t3 = await signup(h.app, 'US');
+    const r = await h.app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: `${t3.slug}`.length ? (await h.app.inject({ method: 'GET', url: '/v1/me', headers: t3.h })).json().user.email : '', password: 'correct-horse-battery' } });
+    expect(r.statusCode).toBe(200);
+  });
+});

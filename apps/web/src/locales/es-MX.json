@@ -171,5 +171,8 @@
   "att.nothingFree": "No hay cajones libres",
   "att.slot": "Cajón",
   "att.takenBy": "El cajón asignado está ocupado por {plate}",
-  "att.confirmFuzzy": "No es una coincidencia exacta. Confirma que es el auto correcto."
+  "att.confirmFuzzy": "No es una coincidencia exacta. Confirma que es el auto correcto.",
+  "auth.showPassword": "Mostrar contraseña",
+  "auth.hidePassword": "Ocultar contraseña",
+  "auth.language": "Idioma"
 }

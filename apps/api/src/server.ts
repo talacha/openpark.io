@@ -36,11 +36,11 @@ export async function buildApp({ cfg, now = () => new Date(), storage }: BuildOp
   await app.register(cors, { origin: cfg.CORS_ORIGIN === '*' ? true : cfg.CORS_ORIGIN.split(','), exposedHeaders: ['Idempotent-Replayed'] });
 
   app.decorate('cfg', cfg);
-  app.decorate('db', new Database(cfg.DATABASE_URL));
-  app.decorate('hub', new EventHub(cfg.DATABASE_URL, app.log));
+  app.decorate('db', new Database(cfg.DATABASE_URL, cfg.DB_POOL_MAX));
+  app.decorate('hub', new EventHub(cfg.LISTEN_DATABASE_URL ?? cfg.DATABASE_URL, app.log, cfg.SERVERLESS));
   app.decorate('jobs', new Jobs(cfg, app.db, app.log));
   app.decorate('storage', storage ?? new LocalDiskStorage(cfg.STORAGE_DIR));
-  app.decorate('plates', loadPlateRegistry());
+  app.decorate('plates', loadPlateRegistry(cfg.REGISTRY_DIR));
   app.decorate('now', now);
 
   app.decorate('authenticate', async (req: FastifyRequest): Promise<Ctx> => {

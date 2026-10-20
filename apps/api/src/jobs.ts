@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { waitUntil } from '@vercel/functions';
 import PgBoss from 'pg-boss';
 import pg from 'pg';
 import type { Config } from './config.js';
@@ -16,7 +17,7 @@ export class Jobs {
   constructor(private cfg: Config, private db: Database, private log: { error: (e: unknown, m?: string) => void; info: (m: string) => void }) {}
 
   async start(app: App) {
-    if (!this.cfg.JOBS_ENABLED) return;
+    if (!this.cfg.JOBS_ENABLED || this.cfg.SERVERLESS) return;
     this.boss = new PgBoss(this.cfg.ADMIN_DATABASE_URL);
     this.boss.on('error', (e) => this.log.error(e, 'pg-boss error'));
     await this.boss.start();
@@ -31,9 +32,21 @@ export class Jobs {
 
   /** Queue a webhook fan-out for a tenant event. No-op when jobs are disabled. */
   async enqueue(tenantId: string, event: WebhookEvent, payload: unknown) {
+    if (this.cfg.SERVERLESS) {
+      // No worker to pull from a queue: deliver after the response, with short in-process retries.
+      if (this.cfg.JOBS_ENABLED) waitUntil(this.deliverWithRetry({ tenantId, event, payload, at: new Date().toISOString() }));
+      return;
+    }
     if (!this.boss) return;
     await this.boss.send('webhook', { tenantId, event, payload, at: new Date().toISOString() } satisfies WebhookJob,
       { retryLimit: 6, retryBackoff: true, retryDelay: 5 });
+  }
+
+  private async deliverWithRetry(job: WebhookJob) {
+    for (const wait of [0, 1000, 4000, 15000]) {
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      try { return await this.deliver(job); } catch (e) { this.log.error(e, 'webhook delivery failed'); }
+    }
   }
 
   private async deliver(job: WebhookJob) {

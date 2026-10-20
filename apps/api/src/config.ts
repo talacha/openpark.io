@@ -5,6 +5,8 @@ const Env = z.object({
   HOST: z.string().default('0.0.0.0'),
   /** Runtime connection: a non-owner role so RLS applies. */
   DATABASE_URL: z.string().default('postgres://openpark_app:openpark_app@localhost:54329/openpark'),
+  /** LISTEN/NOTIFY needs a session-mode connection (Supabase's transaction pooler drops it). Defaults to DATABASE_URL. */
+  LISTEN_DATABASE_URL: z.string().optional(),
   /** Owner connection for migrations and the pg-boss schema. */
   ADMIN_DATABASE_URL: z.string().default('postgres://openpark:openpark@localhost:54329/openpark'),
   JWT_SECRET: z.string().min(16).default('dev-only-secret-change-me'),
@@ -13,6 +15,14 @@ const Env = z.object({
   STORAGE_DIR: z.string().default('./data'),
   CORS_ORIGIN: z.string().default('*'),
   LOG_LEVEL: z.string().default('info'),
+  /** On Vercel: no background workers or shared LISTEN connection; see server.ts. */
+  SERVERLESS: z.enum(['true', 'false', '1', '0']).default(process.env.VERCEL ? 'true' : 'false').transform((v) => v === 'true' || v === '1'),
+  DB_POOL_MAX: z.coerce.number().int().min(1).default(process.env.VERCEL ? 2 : 10),
+  /** End SSE streams after this long (0 = never). EventSource reconnects on its own. */
+  SSE_MAX_SECONDS: z.coerce.number().int().min(0).default(process.env.VERCEL ? 270 : 0),
+  /** Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. */
+  CRON_SECRET: z.string().optional(),
+  REGISTRY_DIR: z.string().optional(),
   JOBS_ENABLED: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
 });
 export type Config = z.infer<typeof Env>;

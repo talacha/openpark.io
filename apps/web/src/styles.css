@@ -70,6 +70,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .slot[data-selected='true'] { outline: 3px solid var(--accent); }
 .slot small { display: block; color: var(--ink-2); }
 
+/* Password reveal */
+.pwd { position: relative; display: block; }
+.pwd input { inline-size: 100%; padding-inline: 48px; }
+.pwd-toggle { position: absolute; inset-block: 0; inset-inline-end: 0; inline-size: 44px; border: 0; background: transparent; cursor: pointer; font-size: 1.1rem; color: var(--ink-2); }
+.langpick { justify-self: end; max-inline-size: 190px; }
+
 /* Auth */
 .auth { min-block-size: 100dvh; display: grid; place-items: center; padding: var(--space-4); }
 .auth .card { inline-size: min(420px, 100%); }

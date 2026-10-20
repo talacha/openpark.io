@@ -171,5 +171,8 @@
   "att.nothingFree": "No free slots",
   "att.slot": "Slot",
   "att.takenBy": "Assigned slot is taken by {plate}",
-  "att.confirmFuzzy": "This is not an exact match. Confirm it is the right car."
+  "att.confirmFuzzy": "This is not an exact match. Confirm it is the right car.",
+  "auth.showPassword": "Show password",
+  "auth.hidePassword": "Hide password",
+  "auth.language": "Language"
 }

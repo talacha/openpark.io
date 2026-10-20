@@ -171,5 +171,8 @@
   "att.nothingFree": "لا توجد مواقف شاغرة",
   "att.slot": "الموقف",
   "att.takenBy": "الموقف المخصص يشغله {plate}",
-  "att.confirmFuzzy": "ليست مطابقة تامة. تأكد من أنها السيارة الصحيحة."
+  "att.confirmFuzzy": "ليست مطابقة تامة. تأكد من أنها السيارة الصحيحة.",
+  "auth.showPassword": "إظهار كلمة المرور",
+  "auth.hidePassword": "إخفاء كلمة المرور",
+  "auth.language": "اللغة"
 }

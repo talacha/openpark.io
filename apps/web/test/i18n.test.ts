@@ -48,3 +48,18 @@ describe('translate', () => {
     expect(isRtl('en')).toBe(false);
   });
 });
+
+import { resolveLocale } from '../src/i18n.js';
+describe('resolveLocale', () => {
+  it('maps browser tags to the closest shipped catalog', () => {
+    expect(resolveLocale('es-419')).toBe('es-MX');
+    expect(resolveLocale('es')).toBe('es-MX');
+    expect(resolveLocale('pt')).toBe('pt-BR');
+    expect(resolveLocale('pt-PT')).toBe('pt-BR');
+    expect(resolveLocale('fr-CA')).toBe('fr');
+    expect(resolveLocale('en-GB')).toBe('en');
+    expect(resolveLocale('ja')).toBe('en');
+    expect(resolveLocale(undefined)).toBe('en');
+    expect(resolveLocale('de')).toBe('de');
+  });
+});

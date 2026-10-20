@@ -171,5 +171,8 @@
   "att.nothingFree": "Aucune place libre",
   "att.slot": "Place",
   "att.takenBy": "La place attribuée est occupée par {plate}",
-  "att.confirmFuzzy": "Ce n'est pas une correspondance exacte. Confirmez qu'il s'agit du bon véhicule."
+  "att.confirmFuzzy": "Ce n'est pas une correspondance exacte. Confirmez qu'il s'agit du bon véhicule.",
+  "auth.showPassword": "Afficher le mot de passe",
+  "auth.hidePassword": "Masquer le mot de passe",
+  "auth.language": "Langue"
 }

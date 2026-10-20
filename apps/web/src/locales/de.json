@@ -171,5 +171,8 @@
   "att.nothingFree": "Keine freien Stellplätze",
   "att.slot": "Stellplatz",
   "att.takenBy": "Der zugewiesene Stellplatz ist von {plate} belegt",
-  "att.confirmFuzzy": "Keine exakte Übereinstimmung. Bitte bestätigen, dass es das richtige Fahrzeug ist."
+  "att.confirmFuzzy": "Keine exakte Übereinstimmung. Bitte bestätigen, dass es das richtige Fahrzeug ist.",
+  "auth.showPassword": "Passwort anzeigen",
+  "auth.hidePassword": "Passwort verbergen",
+  "auth.language": "Sprache"
 }

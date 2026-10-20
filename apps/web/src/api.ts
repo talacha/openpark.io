@@ -30,10 +30,12 @@ export function headers(extra: Record<string, string> = {}): Record<string, stri
 export async function request<T>(method: string, path: string, body?: unknown, extra: Record<string, string> = {}): Promise<T> {
   const res = await fetch(BASE + path, { method, headers: headers(extra), body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!res.ok) {
+  let data: { error?: { code?: string; message?: string; details?: unknown } } | null = null;
+  try { data = text ? JSON.parse(text) : null; } catch { /* not JSON: a proxy or hosting error page */ }
+  if (!res.ok || (text && data === null)) {
+    // Never surface a raw JSON SyntaxError; show what the server actually said.
     const e = data?.error ?? {};
-    throw new ApiError(res.status, e.code ?? 'error', e.message ?? res.statusText, e.details);
+    throw new ApiError(res.status, e.code ?? 'error', e.message ?? (text.trim().slice(0, 120) || res.statusText), e.details);
   }
   return data as T;
 }

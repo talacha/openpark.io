@@ -70,6 +70,8 @@ const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
   .bar > i { display: block; block-size: 100%; background: var(--accent); }
   form { display: grid; gap: var(--space-3); max-inline-size: 440px; }
   label { display: grid; gap: 4px; color: var(--ink-2); font-size: 0.9rem; }
+  .pwd { position: relative; display: block; } .pwd input { inline-size: 100%; padding-inline: 84px; }
+  .pwd-toggle { position: absolute; inset-block: 4px; inset-inline-end: 4px; padding-inline: 12px; border: 0; border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); font: inherit; font-size: 0.85rem; cursor: pointer; }
   .err { color: var(--danger); } .muted { color: var(--ink-2); }
   .alt { background: var(--surface); border-block: 1px solid var(--line); }
   table { border-collapse: collapse; inline-size: 100%; } td { padding: 12px 0; border-block-end: 1px solid var(--line); } td:last-child { text-align: end; font-weight: 650; }

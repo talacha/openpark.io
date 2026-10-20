@@ -53,12 +53,12 @@ const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
 
     <section id="trial">
       <h2>{c.signup.title}</h2>
-      <form id="signup" data-api={API} data-app={APP} data-busy={c.signup.busy}>
+      <form id="signup" data-api={API} data-app={APP} data-busy={c.signup.busy} data-show={c.signup.show} data-hide={c.signup.hide}>
         <label>{c.signup.org}<input name="organisation" required minlength="2" autocomplete="organization" /></label>
         <label>{c.signup.country}
           <select name="country">{COUNTRIES.map((k) => <option selected={k === DEFAULT_COUNTRY[locale]}>{k}</option>)}</select></label>
         <label>{c.signup.email}<input name="email" type="email" required autocomplete="email" /></label>
-        <label>{c.signup.password}<input name="password" type="password" required minlength="10" autocomplete="new-password" /></label>
+        <label>{c.signup.password}<span class="pwd"><input name="password" type="password" required minlength="10" autocomplete="new-password" dir="ltr" /><button type="button" class="pwd-toggle" id="pwd-toggle" aria-pressed="false">{c.signup.show}</button></span></label>
         <button class="btn primary" type="submit">{c.signup.submit}</button>
         <small class="muted">{c.signup.hint}</small>
         <small class="err" role="alert" id="signup-error"></small>
@@ -70,6 +70,14 @@ const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
     // The only dynamic call on the marketing site: create a trial tenant, then hand the token to the app in the URL fragment
     // (fragments are never sent to a server or logged).
     const form = document.getElementById('signup') as HTMLFormElement;
+    const toggle = document.getElementById('pwd-toggle') as HTMLButtonElement;
+    const pwd = form.querySelector('input[name=password]') as HTMLInputElement;
+    toggle.addEventListener('click', () => {
+      const show = pwd.type === 'password';
+      pwd.type = show ? 'text' : 'password';
+      toggle.textContent = show ? form.dataset.hide! : form.dataset.show!;
+      toggle.setAttribute('aria-pressed', String(show));
+    });
     const err = document.getElementById('signup-error')!;
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
