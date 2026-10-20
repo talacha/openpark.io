@@ -26,8 +26,6 @@ OpenPark takes the guesswork out of running a parking lot: at any moment it show
 
 Paid services: hosted plans on app.openpark.io, site survey and inventory load, support SLAs, camera and gate integration, payment adapters, and per-country plate-model fine-tuning.
 
-Open question: trademark clearance. A web search turns up an [OpenPark Technologies KFT](https://www.parking.net/parking-industry/174228) listed in the parking industry and a product named [OpenParking](https://www.capterra.com/p/10045789/OpenParking/); check marks in the launch markets before buying ads or printing signage.
-
 ## Architecture
 
 A stateless TypeScript API over PostgreSQL does all the work; everything else is optional and swappable. The minimum install is four containers (web, API, Postgres, object storage); the AI profile adds two more.
@@ -53,7 +51,7 @@ Every client goes through the API; only the ALPR worker talks to the VLM, and bo
 
 **Marketing site (openpark.io).** A static site (Astro, Markdown content, same locales as the app) served from any CDN, with no database and no tracking cookies. It shares the design tokens and plate-chip components with the app so screenshots and live demos match. Its only dynamic call is the signup form, which posts to the app's public `/v1/signup` endpoint.
 
-**From visitor to first check-in**
+### From visitor to first check-in
 
 1. Visitor clicks *Try it free* on openpark.io.
 2. app.openpark.io/signup: email and passkey, organisation name, country. Country sets default locale, currency, timezone and plate regions.
