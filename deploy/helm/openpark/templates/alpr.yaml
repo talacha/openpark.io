@@ -1,0 +1,30 @@
+{{- if .Values.ai.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: {{ .Release.Name }}-alpr }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: {{ .Release.Name }}-alpr } }
+  template:
+    metadata: { labels: { app: {{ .Release.Name }}-alpr } }
+    spec:
+      containers:
+        - name: alpr
+          image: {{ include "openpark.image" (dict "root" . "name" .Values.ai.image.repository) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ containerPort: 8000 }]
+          env:
+            {{- if .Values.ai.vlmUrl }}
+            - { name: VLM_URL, value: {{ .Values.ai.vlmUrl | quote }} }
+            - { name: VLM_MODEL, value: {{ .Values.ai.vlmModel | quote }} }
+            {{- end }}
+          readinessProbe: { httpGet: { path: /healthz, port: 8000 }, initialDelaySeconds: 20 }
+          resources: {{ toYaml .Values.ai.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata: { name: {{ .Release.Name }}-alpr }
+spec:
+  selector: { app: {{ .Release.Name }}-alpr }
+  ports: [{ port: 8000, targetPort: 8000 }]
+{{- end }}

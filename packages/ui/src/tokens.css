@@ -1,0 +1,36 @@
+/* Design tokens shared by the marketing site and the app. Logical properties only elsewhere. */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Arabic", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --bg: #f6f7f5;
+  --surface: #ffffff;
+  --surface-2: #eef0ec;
+  --ink: #16201a;
+  --ink-2: #4d5a52;
+  --line: #d9ded8;
+  --accent: #0f7a4b;
+  --accent-ink: #ffffff;
+  --accent-soft: #dff3e8;
+  --warn: #b45309;
+  --warn-soft: #fdf0dc;
+  --danger: #b42318;
+  --danger-soft: #fde8e6;
+  --info: #1d5fa8;
+  --info-soft: #e1edfa;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgb(16 32 24 / 0.06), 0 4px 16px rgb(16 32 24 / 0.05);
+
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --tap: 48px; /* minimum touch target for the attendant PWA */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1511; --surface: #172019; --surface-2: #1e2a21; --ink: #e9efe9; --ink-2: #a6b3a9; --line: #2c3a30;
+    --accent: #3ccf8e; --accent-ink: #06210f; --accent-soft: #14382a;
+    --warn: #f2a54a; --warn-soft: #3a2a12; --danger: #ff8a80; --danger-soft: #3d1a17; --info: #7db4f0; --info-soft: #14283f;
+  }
+}

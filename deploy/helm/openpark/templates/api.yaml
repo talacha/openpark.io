@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: {{ .Release.Name }}-api }
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector: { matchLabels: { app: {{ .Release.Name }}-api } }
+  template:
+    metadata: { labels: { app: {{ .Release.Name }}-api } }
+    spec:
+      securityContext: { runAsNonRoot: true, fsGroup: 1000 }
+      containers:
+        - name: api
+          image: {{ include "openpark.image" (dict "root" . "name" "openpark-api") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ containerPort: 3000 }]
+          env:
+{{ include "openpark.apiEnv" . | indent 12 }}
+          readinessProbe: { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: 3000 }, initialDelaySeconds: 15, periodSeconds: 15 }
+          resources: {{ toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts: [{ name: data, mountPath: /data }]
+      volumes:
+        - name: data
+          emptyDir: {}   # plate crops are short-lived (30-day retention); swap for a PVC or an S3 adapter in production
+---
+apiVersion: v1
+kind: Service
+metadata: { name: {{ .Release.Name }}-api }
+spec:
+  selector: { app: {{ .Release.Name }}-api }
+  ports: [{ port: 3000, targetPort: 3000 }]

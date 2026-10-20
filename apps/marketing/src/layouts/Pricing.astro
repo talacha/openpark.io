@@ -1,0 +1,15 @@
+---
+import Base from './Base.astro';
+import { COPY, href, type Locale } from '../i18n';
+const { locale } = Astro.props as { locale: Locale };
+const c = COPY[locale];
+---
+<Base locale={locale} title={`${c.pricing.title} · OpenPark`} description={c.pricing.lead} path="/pricing">
+  <div class="wrap"><section>
+    <h1>{c.pricing.title}</h1>
+    <p class="lead">{c.pricing.lead}</p>
+    <div class="card"><table><tbody>{c.pricing.plans.map(([a, b]) => <tr><td>{a}</td><td>{b}</td></tr>)}</tbody></table></div>
+    <p class="muted">{c.pricing.note}</p>
+    <p><a class="btn primary" href={`${href(locale)}#trial`}>{c.hero.cta}</a></p>
+  </section></div>
+</Base>

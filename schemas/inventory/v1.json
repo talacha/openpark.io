@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.openpark.io/inventory/v1.json",
+  "title": "OpenPark slot inventory v1",
+  "description": "A tenant's whole slot inventory as one versioned document. Site, zone and slot codes are the stable keys. License: Apache-2.0.",
+  "type": "object",
+  "required": ["schemaVersion", "tenant", "sites"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "tenant": { "type": "string", "description": "Tenant slug." },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "slotTypes": { "type": "array", "items": { "$ref": "#/$defs/slotType" } },
+    "sites": { "type": "array", "items": { "$ref": "#/$defs/site" } }
+  },
+  "patternProperties": { "^x-": {} },
+  "additionalProperties": false,
+  "$defs": {
+    "label": {
+      "description": "A plain string, or a map of BCP 47 locale to string.",
+      "oneOf": [{ "type": "string" }, { "type": "object", "additionalProperties": { "type": "string" } }]
+    },
+    "slotType": {
+      "type": "object",
+      "required": ["code", "label"],
+      "properties": { "code": { "type": "string" }, "label": { "$ref": "#/$defs/label" } },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    },
+    "site": {
+      "type": "object",
+      "required": ["code", "name", "timezone", "zones"],
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "timezone": { "type": "string", "description": "IANA timezone, e.g. America/Mexico_City." },
+        "address": { "type": "string" },
+        "zones": { "type": "array", "items": { "$ref": "#/$defs/zone" } }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    },
+    "zone": {
+      "type": "object",
+      "required": ["code", "name", "slots"],
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "$ref": "#/$defs/label" },
+        "level": { "type": "integer" },
+        "slots": { "type": "array", "items": { "$ref": "#/$defs/slot" } }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    },
+    "slot": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [{ "required": ["code"] }, { "required": ["range"] }],
+      "properties": {
+        "code": { "type": "string" },
+        "range": {
+          "type": "string",
+          "pattern": "^.*\\d+\\.\\..*\\d+$",
+          "description": "PREFIX-start..PREFIX-end. Zero-padding width of the start is kept; a later entry with the same code overrides a slot in the range."
+        },
+        "type": { "type": "string" },
+        "status": { "enum": ["available", "occupied", "reserved", "out_of_service"] },
+        "note": { "type": "string" },
+        "attributes": { "type": "object", "description": "Free-form; preserved on round trip." },
+        "assignment": {
+          "type": "object",
+          "required": ["mode"],
+          "properties": { "mode": { "enum": ["assigned", "shared"] }, "permit": { "type": "string" } }
+        }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    }
+  }
+}

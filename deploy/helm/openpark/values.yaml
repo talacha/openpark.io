@@ -1,0 +1,41 @@
+image:
+  registry: ghcr.io/openpark
+  tag: ""            # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+
+# Managed Postgres is recommended. Provide connection strings via an existing Secret or inline (dev only).
+database:
+  existingSecret: ""   # Secret with keys: DATABASE_URL (openpark_app role), ADMIN_DATABASE_URL (owner role)
+  url: ""
+  adminUrl: ""
+  appPassword: ""      # sets the openpark_app role password during migration
+
+auth:
+  existingSecret: ""   # Secret with key: JWT_SECRET
+  jwtSecret: ""
+
+api:
+  replicas: 2
+  resources: { requests: { cpu: 100m, memory: 192Mi }, limits: { memory: 512Mi } }
+  storage:
+    size: 5Gi          # local-disk object storage for plate crops (single replica writes; use an S3 adapter for >1)
+    storageClassName: ""
+
+web:
+  replicas: 2
+  dnsResolver: kube-dns.kube-system.svc.cluster.local
+  resources: { requests: { cpu: 25m, memory: 32Mi }, limits: { memory: 128Mi } }
+
+ai:
+  enabled: false
+  image: { repository: openpark-alpr }
+  vlmUrl: ""           # any OpenAI-compatible endpoint, e.g. http://ollama:11434/v1
+  vlmModel: "qwen3.5:4b"
+  resources: { requests: { cpu: "1", memory: 1Gi }, limits: { memory: 3Gi } }
+
+ingress:
+  enabled: true
+  className: ""
+  host: app.example.com
+  tls: { enabled: true, secretName: openpark-tls }
+  annotations: {}

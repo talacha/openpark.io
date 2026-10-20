@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+*.log
+.venv
+__pycache__
+graphify-out
+data
+e2e/shots

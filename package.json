@@ -1,0 +1,17 @@
+{
+  "name": "openpark",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@11.5.1",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "dev:api": "pnpm --filter @openpark/api dev",
+    "dev:web": "pnpm --filter @openpark/web dev",
+    "migrate": "pnpm --filter @openpark/api migrate",
+    "e2e": "pnpm --filter @openpark/e2e smoke",
+    "dev:marketing": "pnpm --filter @openpark/marketing dev"
+  },
+  "description": "OpenPark: open-source parking platform"
+}

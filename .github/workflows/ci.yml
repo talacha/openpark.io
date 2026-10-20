@@ -1,0 +1,44 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: openpark, POSTGRES_PASSWORD: openpark, POSTGRES_DB: postgres }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U openpark" --health-interval 5s --health-retries 20
+    env:
+      TEST_ADMIN_URL: postgres://openpark:openpark@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openpark/core build   # API and SDK import the built core
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @openpark/web check:css   # logical CSS properties only (RTL guard)
+      - run: pnpm --filter @openpark/web build       # also regenerates the en-XA pseudo-locale
+      - run: pnpm --filter @openpark/marketing build
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e 'services/alpr[dev]' -e 'packages/sdk-py[dev]'
+      - run: pytest services/alpr packages/sdk-py -q
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/Dockerfile.api -t openpark-api .
+      - run: docker build -f deploy/Dockerfile.web -t openpark-web .
+      - run: docker build -t openpark-alpr services/alpr

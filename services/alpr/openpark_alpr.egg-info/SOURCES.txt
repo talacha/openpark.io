@@ -1,0 +1,10 @@
+pyproject.toml
+app/__init__.py
+app/engines.py
+app/main.py
+openpark_alpr.egg-info/PKG-INFO
+openpark_alpr.egg-info/SOURCES.txt
+openpark_alpr.egg-info/dependency_links.txt
+openpark_alpr.egg-info/requires.txt
+openpark_alpr.egg-info/top_level.txt
+tests/test_worker.py

@@ -1,0 +1,34 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base locale="en" title="Self-hosting · OpenPark" description="Run OpenPark on one server, on Kubernetes, or on a managed cloud." path="/self-hosting">
+  <div class="wrap"><section>
+    <h1>Self-hosting</h1>
+    <p class="lead">One set of OCI images. No cloud lock-in: any container runtime, any cloud, or on-prem.</p>
+
+    <h2>Single server or laptop</h2>
+    <pre class="code"><code>git clone https://github.com/openpark/openpark &amp;&amp; cd openpark
+cp .env.example .env     # change the three secrets
+docker compose up -d     # web, api, postgres
+# plate reading (optional, off by default, runs inside your deployment):
+docker compose --profile ai up -d</code></pre>
+    <p>Open <code>http://localhost:8080</code>, create the first tenant at <code>/signup</code>. Single-tenant installs run the same code path with one tenant.</p>
+
+    <h2>Kubernetes</h2>
+    <pre class="code"><code>helm install openpark ./deploy/helm/openpark \
+  --set database.url=postgres://openpark_app:…@db/openpark \
+  --set database.adminUrl=postgres://openpark:…@db/openpark \
+  --set auth.jwtSecret=$(openssl rand -hex 32) \
+  --set ingress.host=parking.example.com</code></pre>
+
+    <h2>Move between hosted and self-hosted</h2>
+    <p>Export the inventory from <em>Import / export</em> in the app (or <code>GET /v1/inventory/export</code>) and import it on the other side. Slot and site codes are the stable keys.</p>
+
+    <h2>What stays on your infrastructure</h2>
+    <p>With the AI profile, plate images never leave your deployment: no external AI API is called. Only plate crops are stored, and purged after 30 days by default.</p>
+  </section></div>
+</Base>
+<style is:global>
+  .code { background: #0f1511; color: #e9efe9; padding: var(--space-4); border-radius: var(--radius); overflow-x: auto; direction: ltr; text-align: left; }
+  code { font-family: var(--font-mono); }
+</style>

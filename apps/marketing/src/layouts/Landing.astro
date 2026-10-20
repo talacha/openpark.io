@@ -1,0 +1,90 @@
+---
+import Base from './Base.astro';
+import { COPY, COUNTRIES, DEFAULT_COUNTRY, type Locale } from '../i18n';
+const { locale } = Astro.props as { locale: Locale };
+const c = COPY[locale];
+const API = import.meta.env.PUBLIC_API_URL ?? 'https://app.openpark.io';
+const APP = import.meta.env.PUBLIC_APP_URL ?? 'https://app.openpark.io';
+---
+<Base locale={locale} title={`OpenPark: ${c.hero.title}`} description={c.hero.lead}>
+  <div class="wrap">
+    <section class="hero">
+      <div>
+        <h1>{c.hero.title}</h1>
+        <p class="lead">{c.hero.lead}</p>
+        <p style="display:flex;gap:12px;flex-wrap:wrap">
+          <a class="btn primary" href="#trial">{c.hero.cta}</a>
+          <a class="btn" href="/self-hosting/">{c.hero.secondary}</a>
+        </p>
+      </div>
+      <!-- Static preview built from the same tokens and plate chip as the app -->
+      <div class="panel" aria-hidden="true">
+        <div class="row"><strong>B2</strong><span class="muted">52 / 80</span></div>
+        <div class="bar"><i style="inline-size:65%"></i></div>
+        <div class="row"><span class="plate" data-region="MX" dir="ltr">ABC 123</span><span class="muted">B2-047 · 08:12</span></div>
+        <div class="row"><span class="plate" data-region="BR" dir="ltr">BRA2E19</span><span class="muted">B2-051 · 09:40</span></div>
+        <div class="row"><span class="plate" dir="ltr">٣٤٥ س ع ص</span><span class="muted">B2-M03 · 10:05</span></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="alt"><div class="wrap"><section>
+    <h2>{c.q.title}</h2>
+    <div class="cards">{c.q.rows.map(([q, a]) => <div class="card"><h3>{q}</h3><p>{a}</p></div>)}</div>
+  </section></div></div>
+
+  <div class="wrap">
+    <section id="how">
+      <h2>{c.how.title}</h2>
+      <ol class="steps">{c.how.steps.map(([h, p]) => <li><div><h3>{h}</h3><p>{p}</p></div></li>)}</ol>
+    </section>
+  </div>
+
+  <div class="alt"><div class="wrap"><section id="deploy">
+    <h2>{c.deploy.title}</h2>
+    <div class="cards">{c.deploy.items.map(([h, p]) => <div class="card"><h3>{h}</h3><p>{p}</p></div>)}</div>
+  </section></div></div>
+
+  <div class="wrap">
+    <section>
+      <h2>{c.oss.title}</h2>
+      <p class="lead">{c.oss.body}</p>
+    </section>
+
+    <section id="trial">
+      <h2>{c.signup.title}</h2>
+      <form id="signup" data-api={API} data-app={APP} data-busy={c.signup.busy}>
+        <label>{c.signup.org}<input name="organisation" required minlength="2" autocomplete="organization" /></label>
+        <label>{c.signup.country}
+          <select name="country">{COUNTRIES.map((k) => <option selected={k === DEFAULT_COUNTRY[locale]}>{k}</option>)}</select></label>
+        <label>{c.signup.email}<input name="email" type="email" required autocomplete="email" /></label>
+        <label>{c.signup.password}<input name="password" type="password" required minlength="10" autocomplete="new-password" /></label>
+        <button class="btn primary" type="submit">{c.signup.submit}</button>
+        <small class="muted">{c.signup.hint}</small>
+        <small class="err" role="alert" id="signup-error"></small>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    // The only dynamic call on the marketing site: create a trial tenant, then hand the token to the app in the URL fragment
+    // (fragments are never sent to a server or logged).
+    const form = document.getElementById('signup') as HTMLFormElement;
+    const err = document.getElementById('signup-error')!;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button')!;
+      const label = btn.textContent;
+      btn.disabled = true; btn.textContent = form.dataset.busy!; err.textContent = '';
+      const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
+      try {
+        const res = await fetch(`${form.dataset.api}/v1/signup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(f) });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error?.message ?? res.statusText);
+        location.href = `${form.dataset.app}/#token=${encodeURIComponent(body.token)}&tenant=${encodeURIComponent(body.tenant.slug)}`;
+      } catch (x) {
+        err.textContent = (x as Error).message; btn.disabled = false; btn.textContent = label;
+      }
+    });
+  </script>
+</Base>

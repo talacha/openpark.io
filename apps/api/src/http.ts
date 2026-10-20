@@ -1,0 +1,152 @@
+import { createHash } from 'node:crypto';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { z, type ZodTypeAny } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { can, type Permission, type Role } from './auth.js';
+import type { Db } from './db.js';
+import type { App } from './server.js';
+
+export class HttpError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
+    super(message);
+  }
+}
+
+export interface Ctx {
+  tenantId: string;
+  tenantSlug: string;
+  role: Role;
+  userId: string | null;
+  /** Set when an API key is scoped to one site. */
+  siteId: string | null;
+}
+
+export interface Reply<T = unknown> { status: number; body: T }
+export const created = <T>(body: T): Reply<T> => ({ status: 201, body });
+
+export interface HandlerArgs<B, Q> {
+  app: App;
+  req: FastifyRequest;
+  reply: FastifyReply;
+  body: B;
+  query: Q;
+  params: Record<string, string>;
+  ctx: Ctx;
+  db: Db;
+  /** Run after the transaction commits (webhooks, side effects). */
+  after: (fn: () => void | Promise<void>) => void;
+}
+
+export interface RouteDef<B extends ZodTypeAny, Q extends ZodTypeAny> {
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+  path: string;
+  summary: string;
+  perm: Permission;
+  body?: B;
+  query?: Q;
+  /** Writes require an Idempotency-Key header and replay stored responses. */
+  idempotent?: boolean;
+  handler: (a: HandlerArgs<z.infer<B>, z.infer<Q>>) => Promise<unknown | Reply>;
+}
+
+export interface PublicRouteDef<B extends ZodTypeAny> {
+  method: 'GET' | 'POST';
+  path: string;
+  summary: string;
+  body?: B;
+  handler: (a: { app: App; req: FastifyRequest; reply: FastifyReply; body: z.infer<B> }) => Promise<unknown | Reply>;
+}
+
+export const registry: { method: string; path: string; summary: string; perm: string; body?: ZodTypeAny; query?: ZodTypeAny; idempotent?: boolean }[] = [];
+
+const isReply = (x: unknown): x is Reply => !!x && typeof x === 'object' && 'status' in x && 'body' in x;
+
+export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends ZodTypeAny = z.ZodUndefined>(app: App, def: RouteDef<B, Q>) {
+  registry.push({ method: def.method, path: def.path, summary: def.summary, perm: def.perm, body: def.body, query: def.query, idempotent: def.idempotent });
+  app.route({
+    method: def.method,
+    url: def.path,
+    handler: async (req, reply) => {
+      const ctx = await app.authenticate(req);
+      if (!can(ctx.role, def.perm)) throw new HttpError(403, 'forbidden', `role ${ctx.role} lacks ${def.perm}`);
+      const body = def.body ? def.body.parse(req.body) : undefined;
+      const query = def.query ? def.query.parse(req.query) : undefined;
+      const idemKey = req.headers['idempotency-key'];
+      if (def.idempotent && typeof idemKey !== 'string') throw new HttpError(400, 'idempotency_key_required', 'Idempotency-Key header is required');
+
+      const afters: (() => void | Promise<void>)[] = [];
+      const result = await app.db.withTenant(ctx.tenantId, async (db) => {
+        let hash = '';
+        if (def.idempotent) {
+          hash = createHash('sha256').update(`${def.method} ${req.url} ${JSON.stringify(body ?? null)}`).digest('hex');
+          const prior = await db.query('select request_hash, status, response from idempotency_key where key = $1', [idemKey]);
+          if (prior.rows[0]) {
+            if (prior.rows[0].request_hash !== hash) throw new HttpError(422, 'idempotency_key_reuse', 'Idempotency-Key was used with a different request');
+            return { replayed: true, status: prior.rows[0].status as number, body: prior.rows[0].response };
+          }
+        }
+        const out = await def.handler({
+          app, req, reply, body, query, ctx, db,
+          params: req.params as Record<string, string>,
+          after: (fn) => { afters.push(fn); },
+        } as HandlerArgs<z.infer<B>, z.infer<Q>>);
+        const r: Reply = isReply(out) ? out : { status: 200, body: out };
+        if (def.idempotent) {
+          await db.query('insert into idempotency_key (tenant_id, key, request_hash, status, response) values ($1,$2,$3,$4,$5)',
+            [ctx.tenantId, idemKey, hash, r.status, JSON.stringify(r.body ?? null)]);
+        }
+        return { replayed: false, ...r };
+      }).catch((e) => {
+        if (def.idempotent && e?.code === '23505' && e?.constraint === 'idempotency_key_pkey') {
+          throw new HttpError(409, 'request_in_progress', 'A request with this Idempotency-Key is still being processed');
+        }
+        throw e;
+      });
+      for (const fn of afters) Promise.resolve(fn()).catch((e) => app.log.error(e, 'after-commit hook failed'));
+      if (result.replayed) reply.header('Idempotent-Replayed', 'true');
+      return reply.code(result.status).send(result.body);
+    },
+  });
+}
+
+export function definePublicRoute<B extends ZodTypeAny = z.ZodUndefined>(app: App, def: PublicRouteDef<B>) {
+  registry.push({ method: def.method, path: def.path, summary: def.summary, perm: 'public', body: def.body });
+  app.route({
+    method: def.method,
+    url: def.path,
+    handler: async (req, reply) => {
+      const body = def.body ? def.body.parse(req.body) : undefined;
+      const out = await def.handler({ app, req, reply, body });
+      const r: Reply = isReply(out) ? out : { status: 200, body: out };
+      return reply.code(r.status).send(r.body);
+    },
+  });
+}
+
+export function openApiDocument() {
+  const paths: Record<string, Record<string, unknown>> = {};
+  for (const r of registry) {
+    const path = r.path.replace(/:(\w+)/g, '{$1}');
+    const params = [...r.path.matchAll(/:(\w+)/g)].map((m) => ({ name: m[1], in: 'path', required: true, schema: { type: 'string' } }));
+    const queryProps = r.query ? ((zodToJsonSchema(r.query, { target: 'openApi3' }) as { properties?: Record<string, unknown> }).properties ?? {}) : {};
+    const queryParams = Object.entries(queryProps).map(([name, schema]) => ({ name, in: 'query', schema }));
+    (paths[path] ??= {})[r.method.toLowerCase()] = {
+      summary: r.summary,
+      'x-permission': r.perm,
+      parameters: [
+        ...params, ...queryParams,
+        ...(r.idempotent ? [{ name: 'Idempotency-Key', in: 'header', required: true, schema: { type: 'string' } }] : []),
+      ],
+      ...(r.body ? { requestBody: { required: true, content: { 'application/json': { schema: zodToJsonSchema(r.body, { target: 'openApi3' }) } } } } : {}),
+      responses: { '200': { description: 'OK' }, '4XX': { description: 'Error: { error: { code, message, details? } }' } },
+      ...(r.perm === 'public' ? {} : { security: [{ bearer: [] }, { apiKey: [] }] }),
+    };
+  }
+  return {
+    openapi: '3.1.0',
+    info: { title: 'OpenPark API', version: '1.0.0', license: { name: 'AGPL-3.0-only' } },
+    servers: [{ url: '/' }],
+    paths,
+    components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' }, apiKey: { type: 'apiKey', in: 'header', name: 'X-API-Key' } } },
+  };
+}

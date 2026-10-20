@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: {{ .Release.Name }}-web }
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector: { matchLabels: { app: {{ .Release.Name }}-web } }
+  template:
+    metadata: { labels: { app: {{ .Release.Name }}-web } }
+    spec:
+      containers:
+        - name: web
+          image: {{ include "openpark.image" (dict "root" . "name" "openpark-web") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ containerPort: 80 }]
+          env:
+            - { name: API_UPSTREAM, value: "http://{{ .Release.Name }}-api:3000" }
+            - { name: DNS_RESOLVER, value: {{ .Values.web.dnsResolver | quote }} }
+          readinessProbe: { httpGet: { path: /, port: 80 } }
+          resources: {{ toYaml .Values.web.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata: { name: {{ .Release.Name }}-web }
+spec:
+  selector: { app: {{ .Release.Name }}-web }
+  ports: [{ port: 80, targetPort: 80 }]

@@ -1,0 +1,15 @@
+/* The plate chip: always shows the plate as captured, in its native script, left-to-right. */
+.plate {
+  display: inline-flex; align-items: center; gap: 0.5ch;
+  padding-block: 0.15em; padding-inline: 0.6em;
+  font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.08em; font-size: 1em; line-height: 1.3;
+  color: #111; background: #fff; border: 2px solid #111; border-radius: 6px;
+  box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 3px rgb(0 0 0 / 0.25);
+  direction: ltr; unicode-bidi: isolate; white-space: nowrap;
+}
+.plate[data-region]::before {
+  content: attr(data-region); font-size: 0.6em; letter-spacing: 0.04em; color: #fff; background: #1d4ea8;
+  padding-inline: 0.4em; border-radius: 3px; align-self: stretch; display: inline-flex; align-items: center;
+}
+.plate--lg { font-size: 1.6rem; }
+.plate--xl { font-size: 2.4rem; }

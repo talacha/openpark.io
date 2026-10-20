@@ -1,0 +1,372 @@
+import { PlateChip } from '@openpark/ui';
+import qrcode from 'qrcode-generator';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ApiError, get, isNetworkError, request, write } from '../api.js';
+import { useApp } from '../app-context.js';
+import { useApi, useLiveEvents } from '../components/hooks.js';
+import { useFormat, useT } from '../i18n.js';
+
+/* ---------- shared check-in state ---------- */
+
+interface Candidate { text: string; norm: string; confidence: number; region?: string; formatValid: boolean | null }
+interface FlowState {
+  plate: string; region: string; source: 'manual' | 'ai_assist' | 'ai_auto';
+  candidates: Candidate[]; confidence?: number; textRaw?: string; cropKey?: string;
+  vehicle: { make?: string; model?: string; color?: string; bodyType?: string };
+}
+const empty = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {} });
+const FlowCtx = createContext<{ flow: FlowState; set: (f: Partial<FlowState>) => void; reset: () => void }>(null as never);
+const useFlow = () => useContext(FlowCtx);
+
+export function Flow({ children }: { children: ReactNode }) {
+  const { me } = useApp();
+  const region0 = me?.tenant.plate_regions[0] ?? 'US';
+  const [flow, setFlow] = useState<FlowState>(empty(region0));
+  const value = useMemo(() => ({ flow, set: (f: Partial<FlowState>) => setFlow((s) => ({ ...s, ...f })), reset: () => setFlow(empty(region0)) }), [flow, region0]);
+  return <FlowCtx.Provider value={value}>{children}</FlowCtx.Provider>;
+}
+
+const errText = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
+const base = (slug: string) => `/t/${slug}/a`;
+
+/* ---------- home ---------- */
+
+interface Occ { totals: { free: number }; breakdown: { zone: string; zone_name: string; type: string; free: number }[] }
+interface Row { id: string; plate: string; slot: string | null; in_at: string; out_at: string | null; fee: number | null }
+
+export function AttendantHome() {
+  const t = useT();
+  const nav = useNavigate();
+  const { me, site } = useApp();
+  const fmt = useFormat(site?.timezone, me?.tenant.currency);
+  const occ = useApi<Occ>(site ? `/v1/occupancy?site=${site.code}` : null, [site?.code]);
+  const recent = useApi<{ items: Row[] }>(site ? `/v1/sessions?site=${site.code}&limit=6` : null, [site?.code]);
+  useLiveEvents(() => { void occ.reload(); void recent.reload(); });
+  const b = base(me!.tenant.slug);
+  return (
+    <div className="att">
+      <div className="card tile"><div className="label">{t('att.freeNow')}</div><div className="value" style={{ fontSize: '3rem' }}>{occ.data ? fmt.number(occ.data.totals.free) : '–'}</div></div>
+      <button className="btn primary big" onClick={() => nav(`${b}/checkin`)}>{t('att.checkin')}</button>
+      <button className="btn big" onClick={() => nav(`${b}/checkout`)}>{t('att.checkout')}</button>
+      <section><h2>{t('att.recent')}</h2>
+        <div className="stack">{recent.data?.items.map((r) => (
+          <div key={r.id} className="card row between"><PlateChip plate={r.plate} /><span className="muted">{r.slot} · {fmt.time(r.out_at ?? r.in_at)}</span></div>
+        ))}</div>
+      </section>
+    </div>
+  );
+}
+
+/* ---------- plate entry: keypad and camera ---------- */
+
+function Keypad({ region, value, onChange }: { region: string; value: string; onChange: (v: string) => void }) {
+  const regions = useApi<{ region: string; charset: string }[]>('/v1/plate-regions');
+  const charset = regions.data?.find((r) => r.region === region)?.charset ?? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  return (
+    <div className="stack">
+      <div className="keypad" dir="ltr">
+        {[...charset].map((c) => <button key={c} type="button" onClick={() => onChange(value + c)} aria-label={c}>{c}</button>)}
+        <button type="button" onClick={() => onChange(value.slice(0, -1))} aria-label="Backspace">⌫</button>
+        <button type="button" onClick={() => onChange('')} aria-label="Clear">✕</button>
+      </div>
+    </div>
+  );
+}
+
+const MAX_SIDE = 1280;
+function useCamera(active: boolean) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!active) return;
+    let stream: MediaStream | undefined;
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } }).then((s) => {
+      stream = s;
+      if (video.current) { video.current.srcObject = s; void video.current.play(); }
+    }).catch((e) => setError(String(e)));
+    return () => stream?.getTracks().forEach((tr) => tr.stop());
+  }, [active]);
+  const snap = (): string | null => {
+    const v = video.current;
+    if (!v || !v.videoWidth) return null;
+    const k = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
+    const c = Object.assign(document.createElement('canvas'), { width: v.videoWidth * k, height: v.videoHeight * k });
+    c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85).split(',')[1]!;
+  };
+  return { video, snap, error };
+}
+
+interface AlprRes { decision: 'auto' | 'review'; threshold: number; candidates: Candidate[]; vehicle: FlowState['vehicle'] | null; readId: string }
+
+export function CheckInCapture() {
+  const t = useT();
+  const nav = useNavigate();
+  const { me, site } = useApp();
+  const { flow, set } = useFlow();
+  const aiOn = me!.tenant.ai_mode !== 'off';
+  const [camera, setCamera] = useState(aiOn);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const cam = useCamera(camera);
+  const b = base(me!.tenant.slug);
+
+  async function capture() {
+    const image = cam.snap();
+    if (!image || !site) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await request<AlprRes>('POST', '/v1/alpr/read', { site: site.code, image, region: flow.region });
+      const top = r.candidates[0];
+      set({ candidates: r.candidates, plate: top?.text ?? '', confidence: top?.confidence, textRaw: top?.text, source: r.decision === 'auto' ? 'ai_auto' : 'ai_assist', vehicle: r.vehicle ?? {} });
+      // Low confidence or a failed format check: the attendant picks or types; nothing saves until confirmed.
+      const confident = top && top.confidence >= r.threshold && top.formatValid !== false;
+      nav(`${b}/checkin/${confident ? 'confirm' : 'review'}`);
+    } catch (e) { setErr(isNetworkError(e) ? t('att.offline') : errText(e)); setCamera(false); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="att">
+      <h1>{t('att.capture')}</h1>
+      {aiOn && <div className="row"><button className={`btn ${camera ? 'primary' : ''}`} onClick={() => setCamera(true)}>{t('att.camera')}</button><button className={`btn ${!camera ? 'primary' : ''}`} onClick={() => setCamera(false)}>{t('att.keypad')}</button></div>}
+      {camera ? (
+        <>
+          <video ref={cam.video} className="video" playsInline muted />
+          {cam.error && <div className="banner warn">{cam.error}</div>}
+          <button className="btn primary big" disabled={busy} onClick={capture}>{busy ? t('common.loading') : t('att.capture')}</button>
+        </>
+      ) : (
+        <>
+          <label className="field">{t('att.region')}
+            <select value={flow.region} onChange={(e) => set({ region: e.target.value })}>{[...new Set([...(me!.tenant.plate_regions), flow.region])].map((r) => <option key={r}>{r}</option>)}</select></label>
+          <div className="platebox">{flow.plate ? <PlateChip plate={flow.plate} region={flow.region} size="xl" /> : <span className="muted">{t('att.plate')}</span>}</div>
+          <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual', candidates: [] })} />
+          <button className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</button>
+        </>
+      )}
+      {err && <div className="banner bad" role="alert">{err}</div>}
+    </div>
+  );
+}
+
+export function CheckInReview() {
+  const t = useT();
+  const nav = useNavigate();
+  const { me } = useApp();
+  const { flow, set } = useFlow();
+  const fmt = useFormat();
+  const b = base(me!.tenant.slug);
+  return (
+    <div className="att">
+      <div className="banner warn">{t('att.lowConf')}</div>
+      <h2>{t('att.candidates')}</h2>
+      <div className="stack">{flow.candidates.map((c) => (
+        <button key={c.norm} className="btn row between" onClick={() => { set({ plate: c.text, confidence: c.confidence, source: 'ai_assist' }); nav(`${b}/checkin/confirm`); }}>
+          <PlateChip plate={c.text} region={c.region} size="lg" /><span className="muted">{t('att.confidence', { pct: fmt.percent(c.confidence) })}{c.formatValid === false ? ' ⚠' : ''}</span>
+        </button>
+      ))}</div>
+      <h2>{t('att.keypad')}</h2>
+      <div className="platebox"><PlateChip plate={flow.plate || '—'} region={flow.region} size="xl" /></div>
+      <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual' })} />
+      <button className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</button>
+    </div>
+  );
+}
+
+/* ---------- check-in confirm ---------- */
+
+interface Opened { session: { id: string; ticketCode: string }; slot: string; warnings: string[] }
+const BODY = ['sedan', 'suv', 'pickup', 'van', 'motorcycle'];
+
+function Ticket({ code }: { code: string }) {
+  const svg = useMemo(() => { const q = qrcode(0, 'M'); q.addData(code); q.make(); return q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); }, [code]);
+  return <div style={{ inlineSize: 180, background: '#fff', padding: 8, borderRadius: 8 }} dangerouslySetInnerHTML={{ __html: svg }} role="img" aria-label={code} />;
+}
+
+export function CheckInConfirm() {
+  const t = useT();
+  const nav = useNavigate();
+  const { me, site } = useApp();
+  const { flow, set, reset } = useFlow();
+  const b = base(me!.tenant.slug);
+  const [slot, setSlot] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ message: string; code?: string; details?: Record<string, unknown> } | null>(null);
+  const [done, setDone] = useState<Opened | 'queued' | null>(null);
+  const suggestion = useApi<{ slot: string | null; zone?: string }>(site ? `/v1/slots/suggest?site=${site.code}${flow.vehicle.bodyType ? `&bodyType=${flow.vehicle.bodyType}` : ''}` : null, [flow.vehicle.bodyType]);
+  const v = (k: keyof FlowState['vehicle']) => ({ value: flow.vehicle[k] ?? '', onChange: (e: { target: { value: string } }) => set({ vehicle: { ...flow.vehicle, [k]: e.target.value || undefined } }) });
+
+  async function confirm(slotCode?: string) {
+    if (!site) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await write<Opened>('/v1/sessions', {
+        site: site.code, plate: { display: flow.plate, region: flow.region }, vehicle: flow.vehicle, slot: slotCode || slot || undefined, source: flow.source,
+        read: flow.textRaw ? { textRaw: flow.textRaw, confidence: flow.confidence } : undefined,
+      });
+      setDone(r.queued ? 'queued' : r.data);
+    } catch (e) {
+      if (e instanceof ApiError) setErr({ message: e.message, code: e.code, details: e.details as Record<string, unknown> });
+      else setErr({ message: errText(e) });
+    } finally { setBusy(false); }
+  }
+
+  if (done) {
+    return (
+      <div className="att">
+        {done === 'queued' ? <div className="banner warn">{t('att.queued')}</div> : (
+          <>
+            <div className="platebox"><PlateChip plate={flow.plate} region={flow.region} size="xl" /></div>
+            <dl className="kv"><dt>{t('att.slot')}</dt><dd>{done.slot}</dd><dt>{t('att.ticket')}</dt><dd className="num">{done.session.ticketCode}</dd></dl>
+            <Ticket code={done.session.ticketCode} />
+            {done.warnings.length > 0 && <div className="banner warn">{done.warnings.join(', ')}</div>}
+          </>
+        )}
+        <button className="btn primary big" onClick={() => { reset(); nav(b); }}>{t('att.done')}</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="att">
+      <div className="platebox"><PlateChip plate={flow.plate} region={flow.region} size="xl" /></div>
+      {flow.confidence != null && <div className="muted">{t('att.confidence', { pct: Math.round(flow.confidence * 100) + '%' })}</div>}
+      <h2>{t('att.vehicle')}</h2>
+      <div className="stack">
+        <label className="field">{t('att.make')}<input {...v('make')} /></label>
+        <label className="field">{t('att.model')}<input {...v('model')} /></label>
+        <label className="field">{t('att.color')}<input {...v('color')} /></label>
+        <label className="field">Body<select {...v('bodyType')}><option value="" />{BODY.map((x) => <option key={x}>{x}</option>)}</select></label>
+      </div>
+      <h2>{t('att.suggested')}</h2>
+      <label className="field">{t('att.slot')}
+        <input value={slot} onChange={(e) => setSlot(e.target.value.toUpperCase())} placeholder={suggestion.data?.slot ?? t('att.nothingFree')} dir="ltr" /></label>
+      {err && (
+        <div className="banner bad" role="alert">
+          {err.code === 'already_inside' ? t('att.inside', { time: new Date(String(err.details?.inAt)).toLocaleTimeString(), slot: String(err.details?.slot ?? '—') })
+            : err.code === 'assigned_slot_taken' ? t('att.takenBy', { plate: String(err.details?.offender ?? '?') })
+            : err.code === 'site_full' ? t('att.full') : err.message}
+          {typeof err.details?.suggestion === 'string' && <div><button className="btn" onClick={() => confirm(err.details!.suggestion as string)}>{t('att.slot')} {String(err.details!.suggestion)}</button></div>}
+        </div>
+      )}
+      <button className="btn primary big" disabled={busy} onClick={() => confirm()}>{t('att.confirm')}</button>
+    </div>
+  );
+}
+
+/* ---------- check-out ---------- */
+
+interface Match {
+  matched: boolean; method?: string;
+  candidates?: { sessionId: string; ticketCode: string; plate: string; slot: string | null }[];
+  session?: { id: string; ticketCode: string; inAt: string; inBy: string | null; outAt: string };
+  vehicle?: { plate: string; make: string | null; model: string | null; color: string | null }; slot?: string | null;
+  fee?: { minutes: number; total: number; tax: number; lines: { label: string; amount: number }[] };
+}
+type Pay = 'cash' | 'card' | 'account';
+
+export function CheckOut() {
+  const t = useT();
+  const nav = useNavigate();
+  const { me, site, can } = useApp();
+  const fmt = useFormat(site?.timezone, me?.tenant.currency);
+  const [plate, setPlate] = useState('');
+  const [ticket, setTicket] = useState('');
+  const [m, setM] = useState<Match | null>(null);
+  const [fuzzy, setFuzzy] = useState<string | null>(null);
+  const [lost, setLost] = useState(false);
+  const [pay, setPay] = useState<Pay>('cash');
+  const [err, setErr] = useState('');
+  const [receipt, setReceipt] = useState<string | 'queued' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const b = base(me!.tenant.slug);
+
+  async function find(over?: { ticket?: string }, lostTicket = lost) {
+    if (!site) return;
+    setErr(''); setBusy(true);
+    try {
+      const body = { site: site.code, plate: over?.ticket ? undefined : plate || undefined, ticket: over?.ticket ?? (ticket || undefined), region: me!.tenant.plate_regions[0], lostTicket: lostTicket || undefined };
+      setM(await request<Match>('POST', '/v1/checkout/match', body));
+    } catch (e) { setErr(isNetworkError(e) ? t('att.offline') : errText(e)); } finally { setBusy(false); }
+  }
+
+  async function confirm() {
+    if (!site || !m?.session) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await write<{ receipt: string }>('/v1/checkout', {
+        site: site.code, confirmedSession: m.session.id, lostTicket: lost || undefined,
+        payment: { method: pay, amount: m.fee!.total },
+      });
+      setReceipt(r.queued ? 'queued' : r.data.receipt);
+    } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
+  }
+
+  /** Offline: no fee preview is possible, so queue the check-out by plate and let the server price it on replay. */
+  async function queueOffline() {
+    if (!site) return;
+    const r = await write('/v1/checkout', { site: site.code, plate: plate || undefined, ticket: ticket || undefined, payment: { method: pay, amount: 0 } });
+    if (r.queued) setReceipt('queued');
+  }
+
+  if (receipt) {
+    return (
+      <div className="att">
+        {receipt === 'queued' ? <div className="banner warn">{t('att.queued')}</div> : <div className="banner">{t('att.receipt', { no: receipt })}</div>}
+        <button className="btn primary big" onClick={() => nav(b)}>{t('att.done')}</button>
+      </div>
+    );
+  }
+
+  if (m?.matched && m.session && m.fee) {
+    const h = Math.floor(m.fee.minutes / 60), min = m.fee.minutes % 60;
+    return (
+      <div className="att">
+        {fuzzy && <div className="banner warn">{t('att.confirmFuzzy')}</div>}
+        <div className="platebox"><PlateChip plate={m.vehicle!.plate} size="xl" /></div>
+        <dl className="kv">
+          <dt>{t('att.slot')}</dt><dd>{m.slot ?? '—'}</dd>
+          <dt>{t('att.entry')}</dt><dd>{fmt.dateTime(m.session.inAt)}</dd>
+          <dt>{t('att.vehicle')}</dt><dd>{[m.vehicle!.make, m.vehicle!.model, m.vehicle!.color].filter(Boolean).join(' ') || '—'}</dd>
+        </dl>
+        <div className="muted">{t('att.checkedInBy', { name: m.session.inBy ?? '—', time: fmt.time(m.session.inAt) })}</div>
+        <div className="muted">{t('att.duration', { hours: h, minutes: min })}</div>
+        <section className="card">
+          {m.fee.lines.map((l, i) => <div key={i} className="feeline"><span>{l.label}</span><span className="num">{fmt.money(l.amount)}</span></div>)}
+          <div className="feeline"><strong>{t('att.fee')}</strong><span className="feetotal num">{fmt.money(m.fee.total)}</span></div>
+        </section>
+        {can('override') && <label className="row"><input type="checkbox" checked={lost} onChange={(e) => { setLost(e.target.checked); void find({ ticket: m.session!.ticketCode }, e.target.checked); }} />{t('att.lost')}</label>}
+        <div className="row">{(['cash', 'card', 'account'] as const).map((p) => <button key={p} className={`btn grow ${pay === p ? 'primary' : ''}`} onClick={() => setPay(p)}>{t(`att.${p}`)}</button>)}</div>
+        {err && <div className="banner bad" role="alert">{err}</div>}
+        <button className="btn primary big" disabled={busy} onClick={confirm}>{t('att.pay')} · {fmt.money(m.fee.total)}</button>
+        <button className="btn" onClick={() => { setM(null); setFuzzy(null); }}>{t('common.back')}</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="att">
+      <h1>{t('att.checkout')}</h1>
+      <label className="field">{t('att.scanTicket')}<input value={ticket} onChange={(e) => setTicket(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
+      <div className="muted" style={{ textAlign: 'center' }}>{t('att.orPlate')}</div>
+      <label className="field">{t('att.plate')}<input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
+      {m && !m.matched && (
+        <div className="stack">
+          <div className="banner warn">{t('att.noMatch')}</div>
+          {!!m.candidates?.length && <h2>{t('att.didYouMean')}</h2>}
+          {m.candidates?.map((c) => (
+            <button key={c.sessionId} className="btn row between" onClick={() => { setFuzzy(c.sessionId); void find({ ticket: c.ticketCode }); }}>
+              <PlateChip plate={c.plate} size="lg" /><span className="muted">{c.slot}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {err && <div className="banner bad" role="alert">{err}{!navigator.onLine && (plate || ticket) && <div><button className="btn" onClick={queueOffline}>{t('att.queued')}</button></div>}</div>}
+      <button className="btn primary big" disabled={busy || (!plate && !ticket)} onClick={() => find()}>{t('att.find')}</button>
+      <Link to={b}>{t('common.back')}</Link>
+    </div>
+  );
+}
+
+export { get };

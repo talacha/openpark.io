@@ -1,0 +1,64 @@
+# docker compose up                  -> web, api, postgres (4 containers with the one-shot migrator)
+# docker compose --profile ai up     -> adds the ALPR worker and a VLM server
+# Copy .env.example to .env first and change the secrets.
+name: openpark
+
+x-api-env: &api-env
+  DATABASE_URL: postgres://openpark_app:${OPENPARK_APP_PASSWORD}@db:5432/openpark
+  ADMIN_DATABASE_URL: postgres://openpark:${POSTGRES_PASSWORD}@db:5432/openpark
+  OPENPARK_APP_PASSWORD: ${OPENPARK_APP_PASSWORD}
+  JWT_SECRET: ${JWT_SECRET}
+  STORAGE_DIR: /data
+  ALPR_URL: ${ALPR_URL:-}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: openpark
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: openpark
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openpark"]
+      interval: 5s
+      retries: 20
+
+  migrate:
+    build: { context: ., dockerfile: deploy/Dockerfile.api }
+    command: ["node", "dist/migrate.js"]
+    environment: *api-env
+    depends_on: { db: { condition: service_healthy } }
+    restart: "no"
+
+  api:
+    build: { context: ., dockerfile: deploy/Dockerfile.api }
+    environment: *api-env
+    volumes: [objects:/data]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      retries: 10
+
+  web:
+    build: { context: ., dockerfile: deploy/Dockerfile.web }
+    ports: ["${WEB_PORT:-8080}:80"]
+    depends_on: { api: { condition: service_healthy } }
+
+  alpr:
+    profiles: [ai]
+    build: { context: services/alpr }
+    environment:
+      VLM_URL: http://vlm:11434/v1
+      VLM_MODEL: ${VLM_MODEL:-qwen3.5:4b}
+    volumes: [models:/models]
+
+  # Any OpenAI-compatible server works; Ollama is the easiest on a single box.
+  # After first start: docker compose exec vlm ollama pull ${VLM_MODEL}
+  vlm:
+    profiles: [ai]
+    image: ollama/ollama:latest
+    volumes: [ollama:/root/.ollama]
+
+volumes: { pgdata: {}, objects: {}, models: {}, ollama: {} }
