@@ -72,8 +72,12 @@ const TRIAL = import.meta.env.PUBLIC_TRIAL_SIGNUP === 'true';
   .bar > i { display: block; block-size: 100%; background: var(--accent); }
   form { display: grid; gap: var(--space-3); max-inline-size: 440px; }
   label { display: grid; gap: 4px; color: var(--ink-2); font-size: 0.9rem; }
-  .pwd { position: relative; display: block; } .pwd input { inline-size: 100%; padding-inline: 84px; }
-  .pwd-toggle { position: absolute; inset-block: 4px; inset-inline-end: 4px; padding-inline: 12px; border: 0; border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); font: inherit; font-size: 0.85rem; cursor: pointer; }
+  .field { display: grid; gap: 4px; color: var(--ink-2); font-size: 0.9rem; }
+  .pwd { position: relative; display: block; } .pwd input { inline-size: 100%; padding-inline-end: 46px; }
+  .pwd-eye { position: absolute; inset-block: 0; inset-inline-end: 0; inline-size: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+  .pwd-eye:hover { color: var(--ink); } .pwd-eye[aria-pressed='true'] { color: var(--accent); }
+  .showpw { display: flex; align-items: center; gap: 8px; cursor: pointer; min-block-size: 32px; }
+  .showpw input { min-block-size: 0; inline-size: 18px; block-size: 18px; padding: 0; accent-color: var(--accent); }
   .err { color: var(--danger); } .muted { color: var(--ink-2); }
   .alt { background: var(--surface); border-block: 1px solid var(--line); }
   table { border-collapse: collapse; inline-size: 100%; } td { padding: 12px 0; border-block-end: 1px solid var(--line); } td:last-child { text-align: end; font-weight: 650; }

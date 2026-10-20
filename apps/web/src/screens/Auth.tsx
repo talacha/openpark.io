@@ -100,10 +100,11 @@ export function Auth({ mode }: { mode: 'login' | 'signup' | 'forgot' | 'reset' }
         )}
         {mode !== 'reset' && <label className="field">{t('auth.email')}<input name="email" type="email" required autoComplete="email" defaultValue={pending?.email} /></label>}
         {mode !== 'forgot' && (
-          <label className="field">{mode === 'reset' ? t('auth.newPassword') : t('auth.password')}
-            <PasswordInput name="password" required minLength={mode === 'login' ? 1 : 10} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+          <div className="field">
+            <label htmlFor="pw">{mode === 'reset' ? t('auth.newPassword') : t('auth.password')}</label>
+            <PasswordInput id="pw" name="password" required minLength={mode === 'login' ? 1 : 10} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
             {mode !== 'login' && <small>{t('auth.passwordHint')}</small>}
-          </label>
+          </div>
         )}
         {err && <div className="banner bad" role="alert">{err}</div>}
         {notice && <div className="banner" role="status">{notice}</div>}

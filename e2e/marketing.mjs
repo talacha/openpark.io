@@ -17,7 +17,7 @@ await page.fill('input[name=organisation]', `Marketing ${suffix}`);
 await page.selectOption('select[name=country]', 'US');
 await page.fill('input[name=email]', `visitor-${suffix}@example.com`);
 await page.fill('input[name=password]', 'correct-horse-battery');
-await page.click('form#signup button[type=submit]');
+await page.click('form#signup button');
 await page.waitForURL(/localhost:5173\/t\/.+\/dashboard/, { timeout: 15000 });
 await page.waitForFunction(() => document.querySelector('.tile .value')?.textContent?.trim() === '52');
 if (page.url().includes('token=')) throw new Error('token must be removed from the address bar');

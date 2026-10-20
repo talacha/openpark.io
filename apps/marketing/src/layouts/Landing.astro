@@ -61,8 +61,18 @@ const TRIAL = import.meta.env.PUBLIC_TRIAL_SIGNUP === 'true';
           <label>{c.signup.country}
             <select name="country">{COUNTRIES.map((k) => <option selected={k === DEFAULT_COUNTRY[locale]}>{k}</option>)}</select></label>
           <label>{c.signup.email}<input name="email" type="email" required autocomplete="email" /></label>
-          <label>{c.signup.password}<span class="pwd"><input name="password" type="password" required minlength="10" autocomplete="new-password" dir="ltr" /><button type="button" class="pwd-toggle" id="pwd-toggle" aria-pressed="false">{c.signup.show}</button></span></label>
-          <button class="btn primary" type="submit">{c.signup.submit}</button>
+          <div class="field">
+          <label for="pw">{c.signup.password}</label>
+          <div class="pwd">
+            <input id="pw" name="password" type="password" required minlength="10" autocomplete="new-password" />
+            <button type="button" class="pwd-eye" id="pw-eye" aria-pressed="false" aria-controls="pw" aria-label={c.signup.show} title={c.signup.show}>
+              <svg id="eye-on" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg id="eye-off" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C5 20 1 12 1 12a18.5 18.5 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12A3 3 0 1 1 9.88 9.88"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+          <label class="showpw" for="pw-show"><input id="pw-show" type="checkbox" />{c.signup.show}</label>
+        </div>
+        <button class="btn primary" type="submit">{c.signup.submit}</button>
           <small class="muted">{c.signup.hint}</small>
           <small class="err" role="alert" id="signup-error"></small>
         </form>
@@ -81,14 +91,21 @@ const TRIAL = import.meta.env.PUBLIC_TRIAL_SIGNUP === 'true';
     // (fragments are never sent to a server or logged).
     const form = document.getElementById('signup') as HTMLFormElement | null;
     if (form) {
-    const toggle = document.getElementById('pwd-toggle') as HTMLButtonElement;
     const pwd = form.querySelector('input[name=password]') as HTMLInputElement;
-    toggle.addEventListener('click', () => {
-      const show = pwd.type === 'password';
-      pwd.type = show ? 'text' : 'password';
-      toggle.textContent = show ? form.dataset.hide! : form.dataset.show!;
-      toggle.setAttribute('aria-pressed', String(show));
-    });
+    // One state, two controls: the eye button and the checkbox both flip the field between password and text.
+    const box = document.getElementById('pw-show') as HTMLInputElement;
+    const eye = document.getElementById('pw-eye') as HTMLButtonElement;
+    const setShown = (on: boolean) => {
+      pwd.type = on ? 'text' : 'password';
+      box.checked = on;
+      eye.setAttribute('aria-pressed', String(on));
+      const label = on ? form.dataset.hide! : form.dataset.show!;
+      eye.setAttribute('aria-label', label); eye.title = label;
+      document.getElementById('eye-on')!.toggleAttribute('hidden', on);
+      document.getElementById('eye-off')!.toggleAttribute('hidden', !on);
+    };
+    box.addEventListener('change', () => setShown(box.checked));
+    eye.addEventListener('click', () => setShown(pwd.type === 'password'));
     const err = document.getElementById('signup-error')!;
     form.addEventListener('submit', async (e) => {
       e.preventDefault();

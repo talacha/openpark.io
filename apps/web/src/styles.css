@@ -46,7 +46,7 @@ tbody tr:last-child td { border-block-end: 0; }
 tr.click { cursor: pointer; } tr.click:hover { background: var(--surface-2); }
 
 /* Forms */
-label.field { display: grid; gap: 4px; font-size: 0.9rem; color: var(--ink-2); }
+.field { display: grid; gap: 4px; font-size: 0.9rem; color: var(--ink-2); }
 input, select, textarea, button { font: inherit; }
 input, select, textarea { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); min-block-size: 42px; max-inline-size: 100%; }
 textarea { font-family: var(--font-mono); font-size: 0.85rem; min-block-size: 220px; inline-size: 100%; }
@@ -70,10 +70,15 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .slot[data-selected='true'] { outline: 3px solid var(--accent); }
 .slot small { display: block; color: var(--ink-2); }
 
-/* Password reveal */
+/* Password field: eye button inside the end edge (left in RTL), plus the checkbox below */
 .pwd { position: relative; display: block; }
-.pwd input { inline-size: 100%; padding-inline: 48px; }
-.pwd-toggle { position: absolute; inset-block: 0; inset-inline-end: 0; inline-size: 44px; border: 0; background: transparent; cursor: pointer; font-size: 1.1rem; color: var(--ink-2); }
+.pwd input { inline-size: 100%; padding-inline-end: 46px; }
+.pwd-eye { position: absolute; inset-block: 0; inset-inline-end: 0; inline-size: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; border-start-end-radius: var(--radius-sm); border-end-end-radius: var(--radius-sm); }
+.pwd-eye:hover { color: var(--ink); }
+.pwd-eye[aria-pressed='true'] { color: var(--accent); }
+/* Show-password checkbox */
+.showpw { display: flex; align-items: center; gap: var(--space-2); font-size: 0.9rem; color: var(--ink-2); cursor: pointer; min-block-size: 32px; }
+.showpw input { min-block-size: 0; inline-size: 18px; block-size: 18px; padding: 0; accent-color: var(--accent); }
 .langpick { justify-self: end; max-inline-size: 190px; }
 
 /* Auth */
