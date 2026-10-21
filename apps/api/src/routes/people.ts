@@ -7,7 +7,7 @@ import { HttpError, created, definePlatformRoute, definePublicRoute, defineRoute
 import { addPerson } from '../services/people.js';
 import { cancelUnusedPassesOfHost } from '../services/passes.js';
 import { applyUnits, exportUnits, parseUnitsDoc, previewUnits } from '../services/units.js';
-import { applyUsers, exportUsers, parseUsersDoc, previewUsers } from '../services/usersimport.js';
+import { applyUsers, exportUsers, parseUsersDoc, previewUsers, rollbackUsers, type UsersRollback } from '../services/usersimport.js';
 import { locateJsonError } from '../jsonpos.js';
 import { provisionTenant, type Owner } from '../services/tenants.js';
 import type { App } from '../server.js';
@@ -77,7 +77,7 @@ export function registerPeopleRoutes(app: App) {
   // A resident's profile picture: base64 JSON upload (same transport as plate crops), stored via app.storage and
   // served only through short-lived signed URLs (GET /v1/me returns the URL, never the key).
   defineRoute(app, {
-    method: 'POST', path: '/v1/me/avatar', summary: 'Upload my profile picture (PNG, JPEG or WebP, up to 2 MB)', perm: 'me',
+    method: 'POST', path: '/v1/me/avatar', summary: 'Upload my profile picture (PNG, JPEG or WebP, up to 2 MB)', perm: 'me', replaySafe: true,
     body: z.object({ contentType: z.enum(['image/png', 'image/jpeg', 'image/webp']), dataBase64: z.string().min(1) }),
     async handler({ ctx, db, body }) {
       if (!ctx.userId) throw new HttpError(400, 'user_required', 'API keys have no profile');
@@ -87,6 +87,7 @@ export function registerPeopleRoutes(app: App) {
       if (!signatureMatches(body.contentType, buf)) throw new HttpError(400, 'avatar_invalid', 'The image data does not match its declared type');
       const ext = body.contentType === 'image/png' ? 'png' : body.contentType === 'image/webp' ? 'webp' : 'jpg';
       const key = `${ctx.tenantId}/avatars/${ctx.userId}.${ext}`;
+      const priorKey = (await db.query('select avatar_key from app_user where id = $1', [ctx.userId])).rows[0]?.avatar_key as string | null;
       try {
         await app.storage.put(key, buf);
       } catch (e) {
@@ -94,6 +95,11 @@ export function registerPeopleRoutes(app: App) {
         throw new HttpError(503, 'storage_unavailable', 'The image store is unavailable; try again later');
       }
       await db.query('update app_user set avatar_key = $2 where id = $1', [ctx.userId, key]);
+      // One object per user: a format switch changes the key extension, so the superseded object must be deleted —
+      // but only AFTER the new object is stored and the reference committed, so a failed delete never loses the avatar.
+      if (priorKey && priorKey !== key) {
+        try { await app.storage.delete(priorKey); } catch (e) { app.log.warn({ err: (e as Error).message, key: priorKey }, 'orphaned avatar delete failed'); }
+      }
       return { ok: true };
     },
   });
@@ -181,7 +187,7 @@ export function registerPeopleRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/units/import', summary: 'Validate a units file and preview the changes; returns a job', perm: 'users.edit',
+    method: 'POST', path: '/v1/units/import', summary: 'Validate a units file and preview the changes; returns a job', perm: 'users.edit', replaySafe: true,
     query: z.object({ mode: z.enum(['merge', 'replace']).default('merge'), dryRun: boolQuery() }),
     body: z.record(z.unknown()),
     async handler({ ctx, db, query, body }) {
@@ -300,7 +306,7 @@ export function registerPeopleRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/users/import', summary: 'Validate a users file and preview the changes; returns a job', perm: 'users.edit',
+    method: 'POST', path: '/v1/users/import', summary: 'Validate a users file and preview the changes; returns a job', perm: 'users.edit', replaySafe: true,
     query: z.object({ dryRun: boolQuery() }),
     body: z.record(z.unknown()),
     async handler({ ctx, db, query, body }) {
@@ -321,28 +327,25 @@ export function registerPeopleRoutes(app: App) {
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
       if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
-      const applied = await applyUsers(app, db, ctx.tenantId, ctx.userId, parseUsersDoc(job.doc, locateJsonError));
-      await db.query("update inventory_import set status = 'applied', applied_at = now() where id = $1", [job.id]);
+      const { rollback, ...applied } = await applyUsers(app, db, ctx.tenantId, ctx.userId, parseUsersDoc(job.doc, locateJsonError));
+      // Persist exactly what the job created/overwrote, so rollback restores that state instead of deleting by email.
+      await db.query("update inventory_import set status = 'applied', snapshot = $2, applied_at = now() where id = $1", [job.id, JSON.stringify(rollback)]);
       return { job: job.id, applied };
     },
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/users/import/:job/rollback', summary: 'Withdraw the invitations a users import created', perm: 'users.edit', idempotent: true,
+    method: 'POST', path: '/v1/users/import/:job/rollback', summary: 'Undo a users import: withdraw invitations it created, restore ones it overwrote', perm: 'users.edit', idempotent: true,
     async handler({ ctx, db, params }) {
       const job = (await db.query("select * from inventory_import where id = $1 and kind = 'users' for update", [params.job])).rows[0];
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
-      // A users import only ever creates pending invitations (invite path); rollback withdraws those still pending.
-      const doc = parseUsersDoc(job.doc, locateJsonError);
-      let removed = 0;
-      for (const u of doc.users) {
-        const r = await db.query('delete from membership_invite where email = $1', [u.email.toLowerCase()]);
-        removed += r.rowCount ?? 0;
-      }
+      // Rollback is restorative: it only touches invitations this job created or overwrote (captured in snapshot at
+      // apply time), never every uploaded email. A legacy job with no snapshot has nothing safe to undo.
+      const rb = (job.snapshot ?? { created: [], restored: {} }) as UsersRollback;
+      const rolledBack = await rollbackUsers(db, ctx.tenantId, ctx.userId, rb);
       await db.query("update inventory_import set status = 'rolled_back' where id = $1", [job.id]);
-      await audit(db, ctx.tenantId, ctx.userId, 'users.rollback', 'membership_invite', null, { removed });
-      return { job: job.id, rolledBack: { removed } };
+      return { job: job.id, rolledBack };
     },
   });
 

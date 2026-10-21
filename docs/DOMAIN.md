@@ -12,7 +12,7 @@ screens and docs use the **term**. For who uses the product and the journeys eac
 | **Zone** | A level or area of a site (Basement 1, Visitors). Owns the slot's **level**. | `zone` |
 | **Slot** | One parking space in a zone. Has a type (standard, accessible, EV…), a **level** (from its zone), a **status** (operational/available, reserved, out of service — plus the runtime *occupied*, set only by check-out) and a note. Only `available` slots are assignable at the gate. | `slot` |
 | **Unit** | A home (apartment, house) in the community. A resident belongs to a unit, not to a slot. Has a code, a name, a floor, a note and optionally a site. | `unit` |
-| **Person** | Anyone with an account in a community. Holds one or more **roles**. A resident's unit grant may be **verified** (`membership.unit_verified`): only a verified resident may issue guest passes; staff-placed grants are verified on creation, bulk-imported grants await an admin's verify. | `app_user` + `membership` |
+| **User** | A registered account with access to one or more units in one or more communities. Holds one or more **roles**. Users can self-sign up, but an admin or super admin must **verify** a resident's unit grant (`membership.unit_verified`) before it counts: only a verified resident may issue guest passes; staff-placed grants are verified on creation, bulk-imported and self-signup grants await an admin's verify. | `app_user` + `membership` |
 | **Role** | Cumulative access, least to most: **Resident**, **Attendant**, **Supervisor**, **Admin**. A person can hold several. | `membership.roles` |
 | **Super Admin** | A platform-wide flag on a person: can configure every property and switch between them. Not a role of a property. | `app_user.is_superadmin` |
 | **Invitation** | A pending offer of roles (and a unit) to an email address; claimed at first sign-in. May carry Super Admin. | `membership_invite` |
@@ -32,7 +32,7 @@ screens and docs use the **term**. For who uses the product and the journeys eac
 Property ─┬─ Site ─┬─ Zone ── Slot
           │        └─ Stay ── Vehicle        (a stay occupies one slot at one site)
           ├─ Unit ── Guest pass ── Stay        (a pass is redeemed into a stay)
-          ├─ Person ── (roles, unit)           (Resident ⇒ exactly one unit)
+          ├─ User ── (roles, unit)             (Resident ⇒ exactly one unit)
           │      └─ Invitation                 (roles, unit, Super Admin)
           ├─ Rate plan ── Site (default)       (a stay pins the plan version it was priced with)
           └─ API key · Webhook
@@ -62,7 +62,7 @@ slot stays as history; a unit with residents, invitations or passes cannot be de
 | | name / note | text ≤ 100 / ≤ 500 | text |
 | | site | reference, optional | select |
 | | floor | integer −20…300, optional | number, step 1 |
-| Person | email | email | email |
+| User | email | email | email |
 | | roles | set of Resident, Attendant, Supervisor, Admin (+ Super Admin) | checkboxes |
 | | unit | reference, required for Resident | select (or a link to Units when there are none) |
 | Rate plan | money | integer minor units | number, step 0.01 |
@@ -84,8 +84,8 @@ slot stays as history; a unit with residents, invitations or passes cannot be de
 | Zone | Sites & slots | yes | yes | yes, when empty |
 | Slot | Sites & slots; Import / export for bulk | yes | yes (zone, type, status, note) | retire (blocked while occupied) |
 | Unit | Units; JSON import / export for bulk | yes | yes | yes, when unused |
-| Person | People | yes (Super Admin can pick the property and its units) | yes | yes |
-| Invitation | People | with the person form | yes (roles, unit, Super Admin) | yes |
+| User | Users | yes (Super Admin can pick the community and its units) | yes | yes |
+| Invitation | Users | with the user form | yes (roles, unit, Super Admin) | yes |
 | Rate plan | Rate plans | yes (a new version) | new version | – (versions are immutable) |
 | Guest pass | Resident view; Guest passes (Platform view) | yes | regenerate | cancel |
 | Stay | Attendant flow; Stays (Platform view) | check-in | fee override, void | – |
@@ -96,9 +96,9 @@ slot stays as history; a unit with residents, invitations or passes cannot be de
 ## How the screens connect
 
 - The **menu** is built from the person's roles (see `apps/web/src/menu.ts`); Super Admins also get a **Community** switcher listing every community.
-- **Units** → resident names link to **People**; a person's unit code links back to **Units**; a form that needs a unit but finds none says so and links to Units. **People** shows each resident's verification state and a *Verify unit access* action; only a verified resident may issue passes.
-- **Communities & parking** → a Community settings panel edits the optional address and notes; bulk changes link to **Bulk import/export** (entity tabs: Communities, Slots, Units, Users); a site's AI threshold is the same value as in **AI plate reading**.
-- **Platform** (Super Admin) → *Enter* opens any community; **People** lets a Super Admin place a person in any community with one of its units.
+- **Units** → resident names link to **Users**; a user's unit code links back to **Units**; a form that needs a unit but finds none says so and links to Units. **Users** shows each resident's verification state and a *Verify unit access* action; only a verified resident may issue passes.
+- **Communities & parking** → a Community settings panel edits the optional address and notes; bulk changes link to **Bulk import/export** (entity tabs: Sites, Slots, Units, Users); a site's AI threshold is the same value as in **AI plate reading**.
+- **Platform** (Super Admin) → *Enter* opens any community; **Users** lets a Super Admin place a user in any community with one of its units.
 - API errors are shown in the person's language from the error code; fee lines and timeline events are translated from their codes.
 
 ## Locales

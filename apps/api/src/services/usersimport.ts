@@ -91,22 +91,45 @@ export async function previewUsers(db: Db, doc: UsersDoc): Promise<UsersDiff> {
 
 export interface UsersApplyResult { added: number; changed: number; invited: number; skipped: { email: string; reason: string }[] }
 
+/** The before-state of one invitation this job touched, captured at apply time so rollback restores exactly it. */
+export interface InviteBefore { roles: string[]; unitId: string | null; superadmin: boolean; unitVerified: boolean }
+/**
+ * What a users import changed, persisted so rollback is restorative (never a blanket delete-by-uploaded-email):
+ *  - `created`: emails that had NO prior invitation and NO membership — rollback withdraws only these.
+ *  - `restored`: emails whose pre-existing invitation the job overwrote — rollback puts the prior fields back.
+ * An email absent from both is left untouched by rollback (e.g. a row skipped because it was already a member).
+ */
+export interface UsersRollback { created: string[]; restored: Record<string, InviteBefore> }
+
+async function inviteBefore(db: Db, tenantId: string, email: string): Promise<InviteBefore | null> {
+  const r = (await db.query('select roles, unit_id, superadmin, unit_verified from membership_invite where tenant_id = $1 and email = $2', [tenantId, email])).rows[0];
+  return r ? { roles: r.roles, unitId: r.unit_id, superadmin: r.superadmin, unitVerified: r.unit_verified } : null;
+}
+
 /** Apply the users document in one transaction. Every created row takes the INVITE path (no plaintext OTP in any payload). */
-export async function applyUsers(app: App, db: Db, tenantId: string, actor: string | null, doc: UsersDoc): Promise<UsersApplyResult> {
+export async function applyUsers(app: App, db: Db, tenantId: string, actor: string | null, doc: UsersDoc): Promise<UsersApplyResult & { rollback: UsersRollback }> {
   const diff = await previewUsers(db, doc);
   if (diff.errors.length) throw new HttpError(400, 'schema_invalid', 'Some rows name a unit that does not exist', diff.errors);
   const result: UsersApplyResult = { added: 0, changed: 0, invited: 0, skipped: diff.skipped };
+  const rollback: UsersRollback = { created: [], restored: {} };
   const toApply = [...diff.added, ...diff.changed.map((c) => ({ email: c.email, roles: c.after.roles, unit: c.after.unit }))];
   const want = new Map(doc.users.map((u) => [u.email.toLowerCase(), u]));
   for (const row of toApply) {
-    const src = want.get(row.email.toLowerCase())!;
+    const email = row.email.toLowerCase();
+    const src = want.get(email)!;
     const unitId = row.unit ? (await db.query('select id from unit where code = $1', [row.unit])).rows[0]?.id ?? null : null;
     // verifyUnits marks a whole trusted import verified; otherwise a per-row unitVerified, else unvouched (false).
     const verified = row.roles.includes('resident') ? (doc.verifyUnits || !!src.unitVerified) : false;
+    // Capture exact before-state BEFORE the upsert, so rollback restores an overwritten invite or withdraws a created one.
+    const before = await inviteBefore(db, tenantId, email);
     try {
       // inviteOnly forces the invite path even under local auth: no OTP is generated, so no secret enters any payload.
       const added = await addPerson(app, db, tenantId, actor, { email: row.email, name: src.name ?? undefined, roles: row.roles, unitId, direct: false, inviteOnly: true, unitVerified: verified });
-      if (added.invited) result.invited++;
+      if (added.invited) {
+        result.invited++;
+        if (before) rollback.restored[email] = before; // the job overwrote a pre-existing invitation
+        else rollback.created.push(email); // the job created a brand-new invitation
+      }
       result.added++;
     } catch (e) {
       if (e instanceof HttpError && e.status === 409) result.skipped.push({ email: row.email, reason: 'already a member' });
@@ -115,7 +138,28 @@ export async function applyUsers(app: App, db: Db, tenantId: string, actor: stri
   }
   result.changed = diff.changed.length;
   await audit(db, tenantId, actor, 'users.import', 'membership_invite', null, { added: result.added, invited: result.invited, changed: result.changed, skipped: result.skipped.length });
-  return result;
+  return { ...result, rollback };
+}
+
+/**
+ * Undo a users import using the snapshot captured at apply time. Only touches invitations the job itself created or
+ * overwrote, and only if they still exist as invitations (a claimed invite — the person already joined — is left
+ * alone). Restores overwritten invitations to their exact prior roles/unit/superadmin/verification.
+ */
+export async function rollbackUsers(db: Db, tenantId: string, actor: string | null, rb: UsersRollback): Promise<{ withdrawn: number; restored: number }> {
+  let withdrawn = 0, restored = 0;
+  for (const email of rb.created) {
+    const r = await db.query('delete from membership_invite where tenant_id = $1 and email = $2', [tenantId, email.toLowerCase()]);
+    withdrawn += r.rowCount ?? 0;
+  }
+  for (const [email, b] of Object.entries(rb.restored)) {
+    const r = await db.query(
+      'update membership_invite set roles = $3, unit_id = $4, superadmin = $5, unit_verified = $6 where tenant_id = $1 and email = $2',
+      [tenantId, email.toLowerCase(), b.roles, b.unitId, b.superadmin, b.unitVerified]);
+    restored += r.rowCount ?? 0;
+  }
+  await audit(db, tenantId, actor, 'users.rollback', 'membership_invite', null, { withdrawn, restored });
+  return { withdrawn, restored };
 }
 
 export async function exportUsers(db: Db, tenantSlug: string, now: Date) {

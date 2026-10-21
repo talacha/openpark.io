@@ -75,8 +75,9 @@ export function registerAuthRoutes(app: App) {
            coalesce((settings->>'retentionDays')::int, 30) as retention_days,
            coalesce((settings->>'trainingExport')::boolean, false) as training_export,
            settings->>'address' as address, settings->>'notes' as notes from tenant`)).rows[0];
-      const row = ctx.userId ? (await db.query('select id, email, name, phone, locale, avatar_key from app_user where id = $1', [ctx.userId])).rows[0] : null;
-      const user = row ? { id: row.id, email: row.email, name: row.name, phone: row.phone, locale: row.locale } : null;
+      const row = ctx.userId ? (await db.query('select id, email, name, phone, locale, avatar_key, notify_guest_events from app_user where id = $1', [ctx.userId])).rows[0] : null;
+      // notifyGuestEvents round-trips so the editor rehydrates the saved choice; an unrelated profile edit can never silently re-enable alerts.
+      const user = row ? { id: row.id, email: row.email, name: row.name, phone: row.phone, locale: row.locale, notifyGuestEvents: row.notify_guest_events } : null;
       // A short-lived signed URL, never the raw storage key; null when no avatar has been uploaded.
       const avatarUrl = row?.avatar_key ? signUrl(app.cfg.JWT_SECRET, row.avatar_key, 300) : null;
       const unit = ctx.unitId ? (await db.query('select code, name from unit where id = $1', [ctx.unitId])).rows[0] : null;

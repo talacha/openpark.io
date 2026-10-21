@@ -53,6 +53,21 @@ export const isStalePassLookup = (mySeq: number, latestSeq: number): boolean => 
  */
 export const canConfirm = (s: FlowState, busy: boolean): boolean => !busy && !!s.plate && !s.passPending && !s.passError;
 
+/** A walk-in host value: a chosen community unit, or an "Other" authorizer's name + E.164 phone. Null until complete. */
+export type HostValue = { unit: string } | { name: string; phone: string } | null;
+
+/**
+ * Is the host attribution complete enough to submit a WALK-IN check-in (AC-4.2.4.3/4)? A pass redemption fixes the
+ * host to the pass's unit and needs no walk-in host, so it is always valid. Otherwise a unit must be chosen, or a
+ * complete "Other" authorizer given: a non-empty name AND an E.164 phone. A half-filled "Other" is not valid.
+ */
+export function hostValid(host: HostValue, hasPass: boolean): boolean {
+  if (hasPass) return true;
+  if (!host) return false;
+  if ('unit' in host) return !!host.unit;
+  return !!host.name.trim() && /^\+[1-9]\d{7,14}$/.test(host.phone.trim());
+}
+
 /** Clear read metadata alongside a pass-derived plate, so a stale candidate/confidence never rides on the next pass. */
 const clearedRead = { candidates: [] as Candidate[], confidence: undefined, textRaw: undefined, cropKey: undefined };
 

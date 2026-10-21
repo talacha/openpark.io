@@ -10,7 +10,7 @@ export type Role = (typeof ROLES)[number];
 
 export interface Me {
   roles: Role[];
-  user: { id: string; email: string; name: string | null; phone: string | null; locale: string | null } | null;
+  user: { id: string; email: string; name: string | null; phone: string | null; locale: string | null; notifyGuestEvents?: boolean } | null;
   /** A short-lived signed URL for the resident's profile picture, or null. */
   avatarUrl?: string | null;
   unit: { code: string; name: string } | null;

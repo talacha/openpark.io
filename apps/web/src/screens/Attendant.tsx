@@ -7,7 +7,7 @@ import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
 import { parsePassQr, spaceCode } from '../pass.js';
-import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, capacityBar, clearPassError, emptyFlow, isStalePassLookup, type Candidate, type FlowState } from '../attendant-flow.js';
+import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, capacityBar, clearPassError, emptyFlow, hostValid, isStalePassLookup, type Candidate, type FlowState, type HostValue } from '../attendant-flow.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -31,12 +31,16 @@ function Collapsible({ title, defaultOpen = false, children }: { title: string; 
   );
 }
 
-/** Two-tab Camera / Manual Entry control. Defaults to Camera; the active tab's panel is rendered by the caller. */
-function Tabs({ tab, onTab, labels }: { tab: 'camera' | 'manual'; onTab: (t: 'camera' | 'manual') => void; labels: { camera: string; manual: string } }) {
+/**
+ * Camera / Manual Entry switch. This is an ordinary toggle-button GROUP, not an ARIA tabs widget: each button is a
+ * normal tab-stop with `aria-pressed`, so keyboard traversal is the standard Tab/Space with no roving-focus or
+ * Left/Right contract to half-implement. The active panel is rendered by the caller below the group.
+ */
+function Tabs({ tab, onTab, labels, label }: { tab: 'camera' | 'manual'; onTab: (t: 'camera' | 'manual') => void; labels: { camera: string; manual: string }; label: string }) {
   return (
-    <div className="tabs" role="tablist">
+    <div className="tabs" role="group" aria-label={label}>
       {(['camera', 'manual'] as const).map((k) => (
-        <button key={k} type="button" role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => onTab(k)}>{labels[k]}</button>
+        <button key={k} type="button" aria-pressed={tab === k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => onTab(k)}>{labels[k]}</button>
       ))}
     </div>
   );
@@ -294,9 +298,11 @@ export function CheckInCapture() {
       // filled the plate in the meantime: a hinted pass pre-fills the plate (keypad/camera stay available to correct it);
       // a no-hint pass clears a plate left over from a PREVIOUS pass but keeps one the attendant captured independently.
       update((s) => applyPassAccept(s, { token, guest: r.pass.guestName, unit: r.pass.unit.name, q, regions: me!.tenant.plate_regions }));
-      // A hinted pass reveals the editable prefilled plate (keypad view) so the attendant sees and verifies it, not just the banner.
-      if (q?.plate) setCamera(false);
       setCode('');
+      // Every valid scan ADVANCES off the Camera tab (AC-4.2.2) — a no-hint pass that previously stranded the attendant
+      // on Camera now opens Manual Entry so they can capture the plate. A hinted pass reveals the editable prefilled
+      // plate (keypad view) so the attendant sees and verifies it before advancing to confirm with Next.
+      setCamera(false);
     } catch (e) {
       if (isStalePassLookup(mySeq, passSeq.current)) return;
       update(() => applyPassError(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)));
@@ -356,7 +362,7 @@ export function CheckInCapture() {
           <div><button type="button" className="btn" onClick={() => update(clearPassError)}>{t('att.passDismiss')}</button></div>
         </div>
       )}
-      <Tabs tab={tab} onTab={setTab} labels={{ camera: t('att.camera'), manual: t('att.manualEntry') }} />
+      <Tabs tab={tab} onTab={setTab} label={t('att.captureMethod')} labels={{ camera: t('att.camera'), manual: t('att.manualEntry') }} />
       {camera ? (
         <>
           {!aiOn && <div className="banner">{t('att.cameraAiOff')}</div>}
@@ -403,7 +409,6 @@ export function CheckInReview() {
 interface Opened { session: { id: string; ticketCode: string }; slot: string; warnings: string[] }
 const BODY = ['sedan', 'suv', 'pickup', 'van', 'motorcycle'];
 interface UnitRow { code: string; name: string }
-type HostValue = { unit: string } | { name: string; phone: string } | null;
 
 function Ticket({ code }: { code: string }) { return <QrCode value={code} size={180} />; }
 
@@ -589,7 +594,9 @@ export function CheckInConfirm() {
         </div>
       )}
       {!flow.passPending && !flow.passError && !flow.plate && <div className="banner warn" role="alert">{t('att.needPlate')}</div>}
-      <button className="btn primary big" disabled={!canConfirm(flow, busy)} onClick={() => confirm()}>{t('att.confirm')}</button>
+      {/* A walk-in must name who authorized it: a community unit, or a complete "Other" (name + E.164 phone). */}
+      {!flow.pass && !flow.passPending && !flow.passError && flow.plate && !hostValid(host, false) && <div className="banner warn" role="alert">{t('att.needHost')}</div>}
+      <button className="btn primary big" disabled={!canConfirm(flow, busy) || !hostValid(host, !!flow.pass)} onClick={() => confirm()}>{t('att.confirm')}</button>
       <button type="button" className="btn" onClick={() => nav(`${b}/checkin`)}>{t('att.editPlate')}</button>
     </div>
   );
@@ -763,7 +770,7 @@ export function CheckOut() {
   return (
     <div className="att">
       <h1>{t('att.checkout')}</h1>
-      <Tabs tab={tab} onTab={setTab} labels={{ camera: t('att.camera'), manual: t('att.manualEntry') }} />
+      <Tabs tab={tab} onTab={setTab} label={t('att.captureMethod')} labels={{ camera: t('att.camera'), manual: t('att.manualEntry') }} />
       {tab === 'camera' ? (
         <>
           {scanning ? (

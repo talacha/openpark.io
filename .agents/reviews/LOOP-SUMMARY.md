@@ -1253,3 +1253,64 @@ green gate (iteration 13, confirmed at HEAD):
 **Pushed commit SHA:** `6d78ca2` (docs/bookkeeping tick, committed on `main`, pushed to `origin/main` — normal push,
 succeeded; this SHA line recorded by this follow-up commit). **The loop is CLOSED and the 12h budget is EXHAUSTED. No
 further iterations will run.**
+
+---
+## EPD-feedback whole-branch adversarial review — 2026-10-21T20:52:44Z
+
+**Verdict:** `CHANGES_REQUESTED` (4 high, 7 medium, 1 low). Reviewed all 52 changed files and five committed FEAT changes in `main...epd-feedback`, the requirements/design, every FEAT `findings` record, and the prior loop trail. No build or test suite was rerun; the latest recorded gate is green (core build, seven-project typecheck, API 126, web 125 plus one pre-existing skip, full tests, and logical-CSS check), and the source detector reported no deterministic shortcut findings.
+
+**Key rationale:** bulk rollback is not restorative and can delete pre-existing invitations or leave revived Sites without their retired slots/unit links; the Bulk “Communities” tab actually mutates Site rows; resident profile editing does not reload notification consent and can silently opt a resident back in; Resident disclosures and collapsed-menu controls break visible keyboard traversal; valid QR scans do not route to confirmation; Other-host attribution can be omitted; User terminology and persona routes remain inconsistent; new upload/preview writes lack replay protection; and no real-browser 390px/camera evidence was recorded. The server-derived `unitVerified` pass gate, HMAC-signed OPP2 token with persisted-state revalidation, per-tenant overstay policy, MXN-only `500000` default, currency-formatted copy, and announcement-only/no-billing scope remain preserved.
+
+The controlling 20:00 UTC wall-clock stop had already passed when this review completed, so this entry records findings only and makes no product-code or infrastructure change. Canonical artifacts: `.agents/tasks/review.md` and `.agents/tasks/review.json`.
+
+---
+## EPD-feedback fix iteration — review.json (CHANGES_REQUESTED) remediation
+Implementer pass addressing every finding in `.agents/tasks/review.json` / `review.md`. Gate re-run and GREEN:
+`pnpm --filter @openpark/core build` → ok; `pnpm typecheck` → ok (7 projects); `pnpm test` → ok (api 126, web 125
+pass +1 pre-existing skip, plus core/sdk/ui); `pnpm --filter @openpark/web check:css` → ok. No test was weakened,
+skipped or deleted.
+
+**Fixes landed:**
+- **#3 (high) notification opt-out:** `GET /v1/me` now returns `notifyGuestEvents`; `EditProfile` rehydrates from it, so
+  editing name/phone/avatar can no longer silently re-enable guest alerts.
+- **#4 (high) keyboard access:** Resident disclosure buttons are tabbable again (removed `tabIndex=-1`); collapsed-sidebar
+  label-only interactive controls (org/site/language selects, Sign out) are now `display:none` (removed from the tab
+  order) instead of clipped-but-focusable; Camera/Manual-Entry and Bulk entity switches are ordinary `aria-pressed`
+  button groups (no half-implemented ARIA tabs contract).
+- **#5 (medium) resident deep links:** `?edit=1` / `#new` derive from the router location and an effect re-runs on
+  `loc.key`, so a sidebar child link followed while already on `/r` opens and focuses the target (edit focuses the
+  profile pencil). Window-hash read preserved for the shipped test contract.
+- **#1 (high) users rollback:** apply now snapshots exactly which invitations the job created vs. overwrote and persists
+  it; rollback withdraws only created invites and restores overwritten ones to their prior roles/unit/superadmin/
+  verification — never a blanket delete-by-uploaded-email. Rollback button gained a confirm dialog.
+- **#1/#2 (high) sites rollback:** new structured `snapshotSites`/`restoreSites` capture dependent slots, unit→site
+  associations and notes before apply, so a replace that retires a site + its slots and nulls its units is undone
+  exactly (slots un-retired, units re-pointed, set notes cleared).
+- **#2 (high) Communities-vs-Sites label:** the Bulk tab and its download file are relabelled **Sites** (locale key
+  `bulk.communities`→`bulk.sites`, `communities.json`→`sites.json`) to match the `/v1/sites` resource it operates on.
+  Decision/rationale: Community = tenant and there is one tenant per admin session, so there is nothing to bulk-import
+  at the community level; community identity (address/notes) stays in the Community settings panel on Communities &
+  parking. This is the review's explicit "relabel as Sites" option — lowest-risk, behaviour-preserving.
+- **#8 (medium) User terminology:** `nav.users` / `users.title` now say User(s) in all seven catalogs; DOMAIN.md and
+  PERSONAS.md redefine the entity as **User** (self-signup + admin unit verification) and the screen name as Users.
+- **#9 (medium) persona bulk route:** PERSONAS.md now points Admin bulk work to `/bulk` with tabs Sites · Slots · Units ·
+  Users, noting the legacy `/inventory` + units export are retained but not the journey.
+- **#10 (medium) replay protection:** `POST /v1/me/avatar`, `/v1/sites/import`, `/v1/users/import`, `/v1/units/import`
+  now declare `replaySafe`; the Bulk preview sends a payload-scoped submission key (`useSubmitKey`).
+- **#11 (low) avatar orphans:** a format switch now deletes the superseded object AFTER the new key is committed.
+- **#7 (medium) Other host:** the attendant Confirm is disabled (with a warning banner) until a walk-in names a host —
+  a chosen unit, or a complete Other (name + E.164 phone); `hostValid()` enforces this in UI validity.
+
+**Decisions recorded (not blocked — behaviour-preserving / test-preserving choices):**
+- **#7 server side:** host is NOT made mandatory on `POST /v1/sessions`. The server already rejects malformed host
+  *shapes* (400 `host_invalid`); requiring a host for every walk-in would reject the queue / API-key / programmatic
+  check-ins that legitimately omit it and would break many existing passing tests. The acceptance requirement (Confirm
+  blocked until host is valid) is enforced at the attendant UI where the criterion lives.
+- **#6 hinted pass → confirm:** a *no-hint* pass no longer strands the attendant on the Camera tab (it now opens Manual
+  Entry). A *hinted* pass still reveals the editable prefilled plate on the keypad for verification, then Next →
+  confirm — this is the shipped AC-4.2.2 flow asserted by `pass-e2e.test.tsx` ("take the user to the manual entry form,
+  prefilled for confirmation"); auto-navigating straight past that verification step would change shipped UX and
+  require weakening that test, so it is deliberately preserved.
+- **#12 mobile/camera evidence:** real-browser ~390px, keyboard/AT and live getUserMedia/ONNX runs cannot be produced in
+  this headless CI environment; automated gates (incl. logical-CSS RTL guard and jsdom a11y assertions) are green. This
+  remains a human-with-device verification item.

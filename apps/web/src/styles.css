@@ -43,6 +43,10 @@ a { color: var(--accent); }
 .shell { transition: grid-template-columns 0.18s ease; }
 .shell[data-collapsed='true'] { grid-template-columns: 64px minmax(0, 1fr); }
 .shell[data-collapsed='true'] .menu-label { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* A clipped label-only INTERACTIVE control (the org/site/language selects and Sign out) would be an invisible focus
+   stop for keyboard users, so when collapsed it is removed from layout AND the tab order. The person expands the
+   sidebar (the collapse toggle keeps its icon) to reach them. Label SPANs stay clipped so icon buttons keep their name. */
+.shell[data-collapsed='true'] select.menu-label, .shell[data-collapsed='true'] button.menu-label { display: none; }
 .shell[data-collapsed='true'] .menu-icon { display: inline-block; }
 .shell[data-collapsed='true'] .side { padding-inline: var(--space-2); overflow-x: hidden; }
 .shell[data-collapsed='true'] .menu-top, .shell[data-collapsed='true'] .menu-head { justify-content: center; padding-inline: 0; }

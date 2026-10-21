@@ -5,7 +5,7 @@ import { HttpError, created, defineRoute, boolQuery } from '../http.js';
 import { locateJsonError } from '../jsonpos.js';
 import type { App } from '../server.js';
 import { resolveSite, suggestSlot } from '../services/sessions.js';
-import { applySites, exportSites, parseSitesDoc, previewSites } from '../services/sites.js';
+import { applySites, exportSites, parseSitesDoc, previewSites, restoreSites, snapshotSites, type SitesSnapshot } from '../services/sites.js';
 
 function validTimezone(tz: string) { try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; } }
 
@@ -258,7 +258,7 @@ export function registerSlotRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/sites/import', summary: 'Validate a sites file and preview the changes; returns a job', perm: 'inventory.edit',
+    method: 'POST', path: '/v1/sites/import', summary: 'Validate a sites file and preview the changes; returns a job', perm: 'inventory.edit', replaySafe: true,
     query: z.object({ mode: z.enum(['merge', 'replace']).default('merge'), dryRun: boolQuery() }),
     body: z.record(z.unknown()),
     async handler({ ctx, db, query, body }) {
@@ -280,7 +280,9 @@ export function registerSlotRoutes(app: App) {
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
       if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
-      const snapshot = await exportSites(db, ctx.tenantSlug, app.now());
+      // Capture dependent state (slots, unit associations, cleared notes) BEFORE applying, so a replace that retires a
+      // site + its slots and nulls its units can be undone exactly — exportSites alone cannot carry those facts.
+      const snapshot = await snapshotSites(db);
       const applied = await applySites(db, ctx.tenantId, ctx.userId, parseSitesDoc(job.doc, locateJsonError), job.mode);
       await db.query("update inventory_import set status = 'applied', snapshot = $2, applied_at = now() where id = $1", [job.id, JSON.stringify(snapshot)]);
       return { job: job.id, applied };
@@ -288,15 +290,17 @@ export function registerSlotRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/sites/import/:job/rollback', summary: 'Restore the pre-import sites snapshot', perm: 'inventory.edit', idempotent: true,
+    method: 'POST', path: '/v1/sites/import/:job/rollback', summary: 'Restore the exact pre-import sites state (sites, their slots, unit associations and notes)', perm: 'inventory.edit', idempotent: true,
     async handler({ ctx, db, params }) {
       const job = (await db.query("select * from inventory_import where id = $1 and kind = 'sites' for update", [params.job])).rows[0];
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
-      // Replace restores exactly the snapshot: sites the import added (absent from the snapshot) are retired again.
-      const applied = await applySites(db, ctx.tenantId, ctx.userId, parseSitesDoc(job.snapshot, locateJsonError), 'replace');
+      // Restore from the structured snapshot: un-retire removed sites AND their slots, re-point nulled units, and
+      // clear notes the import set. A legacy job whose snapshot predates this shape would lack slots/units keys.
+      const snap = (job.snapshot ?? { sites: [], slots: [], units: [] }) as SitesSnapshot;
+      const rolledBack = await restoreSites(db, ctx.tenantId, ctx.userId, snap);
       await db.query("update inventory_import set status = 'rolled_back' where id = $1", [job.id]);
-      return { job: job.id, rolledBack: applied };
+      return { job: job.id, rolledBack };
     },
   });
 }

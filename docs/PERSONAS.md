@@ -7,9 +7,12 @@ agree. Access is defined by `can()` in `apps/api/src/auth.ts`; the menu and rout
 
 ## Personas
 
-A **Person** (`app_user` + `membership`) holds one or more cumulative **roles** in a property, least
-to most access: **Resident → Attendant → Supervisor → Admin**. **Super Admin** is not a role but a
-platform-wide flag on the account. A person can hold several roles; their permissions are the union.
+A **User** (`app_user` + `membership`) is a registered account with access to one or more units in one
+or more communities. A user holds one or more cumulative **roles** in a community, least to most
+access: **Resident → Attendant → Supervisor → Admin**. **Super Admin** is not a role but a
+platform-wide flag on the account. A user can hold several roles; their permissions are the union.
+Users can self-sign up, but an admin or super admin verifies the unit access before a resident is
+considered verified (only a verified resident may issue passes).
 
 | Persona | Who they are | Code mapping | Primary journeys |
 | --- | --- | --- | --- |
@@ -67,8 +70,9 @@ Additional permissions over Attendant: `fee.override`, `session.void`, `pass.adm
 - **Units** (`/units`) — homes in the community; residents belong to a unit.
 - **Users** (`/users`) — accounts and their roles; an admin verifies a resident's unit before the
   resident can issue passes.
-- **Bulk import / export** (`/inventory`, plus the units export) — paste or upload JSON, validate,
-  review the diff, apply, roll back.
+- **Bulk import / export** (`/bulk`) — one screen with entity tabs **Sites · Slots · Units · Users**;
+  for each tab: export JSON, paste or upload, validate, review the diff, apply, roll back. (The legacy
+  per-entity routes `/inventory` and the `/units` export still exist but are not the Admin journey.)
 - **Advanced** — Rate plans (`/rates`), Integrations (`/integrations`), AI plate reading (`/ai`).
 - There is **no** Localization route: locales are controlled in code (see the note below).
 

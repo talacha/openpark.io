@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { patch, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
@@ -48,7 +48,7 @@ function Collapsible({ title, open, onToggle, headingRef, children }:
   return (
     <section className="collapsible">
       <h2>
-        <button type="button" ref={headingRef} className="collapsible-head" aria-expanded={open} aria-controls={rid} tabIndex={-1} onClick={() => onToggle(!open)}>
+        <button type="button" ref={headingRef} className="collapsible-head" aria-expanded={open} aria-controls={rid} onClick={() => onToggle(!open)}>
           <span className={`collapsible-caret${open ? ' open' : ''}`} aria-hidden="true">▸</span>{title}
         </button>
       </h2>
@@ -78,15 +78,21 @@ export function ResidentHome() {
   const active = useApi<Active>('/v1/passes/active');
   const history = useApi<PassView[]>('/v1/passes?limit=10');
   const [params] = useSearchParams();
+  const loc = useLocation();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
   // Deep links: ?edit=1 wins over #new. edit opens the profile editor; #new opens the New Guest Parking Pass section.
+  // ?edit=1 comes from the router (useSearchParams); #new is read from the router location OR the window hash (a hash
+  // link to the same route updates window.location.hash but not always the router search). The effect below re-runs on
+  // loc.key so a sidebar child link followed WHILE already on /r still opens/focuses the destination, not just on mount.
+  const windowHash = typeof location !== 'undefined' ? location.hash : '';
   const wantEdit = params.get('edit') != null;
-  const wantNew = !wantEdit && (typeof location !== 'undefined' && location.hash === '#new');
+  const wantNew = !wantEdit && (loc.hash === '#new' || windowHash === '#new');
   const [editing, setEditing] = useState(wantEdit);
   const [newOpen, setNewOpen] = useState(wantNew);
   const [prevOpen, setPrevOpen] = useState(false);
+  const profileHeadRef = useRef<HTMLButtonElement>(null);
 
   const pass = active.data?.pass ?? null;
   const policy = active.data?.policy;
@@ -96,6 +102,14 @@ export function ResidentHome() {
   const newHeadRef = useRef<HTMLButtonElement>(null);
   const guestNameRef = useRef<HTMLInputElement>(null);
   const shareBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Keep the open sections in step with the router location, so a sidebar child link (?edit=1 or #new) followed WHILE
+  // already on /r opens and focuses the right section. edit wins over new (matching the mount-time precedence); #new
+  // opens the pass section. Navigating to plain /r (no query, no hash) leaves whatever the resident has toggled.
+  useEffect(() => {
+    if (wantEdit) { setEditing(true); profileHeadRef.current?.focus(); }
+    else if (wantNew) setNewOpen(true);
+  }, [wantEdit, wantNew, loc.key]); // loc.key changes on every navigation, even to the same path with the same hash
 
   // Residents cannot subscribe to live events, so poll while a pass is open: this is how check-in shows up.
   useEffect(() => {
@@ -150,7 +164,7 @@ export function ResidentHome() {
           <h1>{t(me.user?.name ? 'res.welcomeName' : 'res.title', { name: me.user?.name ?? '' })}</h1>
           <div className="muted">{t('res.unit', { unit: me.unit.name })}</div>
         </div>
-        <button type="button" className="btn icon" aria-label={t('res.editProfile')} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>
+        <button type="button" ref={profileHeadRef} className="btn icon" aria-label={t('res.editProfile')} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>
           <svg className="menu-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
         </button>
       </header>
@@ -228,7 +242,9 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
   const t = useT();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [notify, setNotify] = useState(true); // the server default; the toggle reflects the resident's choice
+  // Rehydrate the saved opt-in (GET /v1/me returns it); missing folds to the server default (true) only for a brand-new
+  // account. An opted-out resident sees the toggle unchecked, so editing name/phone/avatar never re-enables alerts.
+  const [notify, setNotify] = useState(me.user?.notifyGuestEvents ?? true);
 
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
