@@ -22,7 +22,7 @@ export function registerSlotRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/sites', summary: 'Create a site (a parking facility within the property)', perm: 'inventory.edit',
+    method: 'POST', path: '/v1/sites', summary: 'Create a site (a parking facility within the property)', perm: 'inventory.edit', replaySafe: true,
     body: z.object({ code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,29}$/), name: z.string().min(1).max(100), timezone: z.string().refine(validTimezone, 'Unknown time zone'), address: z.string().max(300).nullable().optional(), aiThreshold: z.number().min(0.5).max(1).optional() }),
     async handler({ ctx, db, body }) {
       if (ctx.siteId) throw new HttpError(403, 'forbidden', 'A key limited to one site cannot create sites');
@@ -68,7 +68,7 @@ export function registerSlotRoutes(app: App) {
 
   // ---- zones: a level or area of a site ------------------------------------------------------------------------------
   defineRoute(app, {
-    method: 'POST', path: '/v1/sites/:site/zones', summary: 'Add a zone (level or area) to a site', perm: 'inventory.edit',
+    method: 'POST', path: '/v1/sites/:site/zones', summary: 'Add a zone (level or area) to a site', perm: 'inventory.edit', replaySafe: true,
     body: z.object({ code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,29}$/), name: z.string().min(1).max(100), level: z.number().int().min(-20).max(200).nullable().optional(), labels: z.record(z.string().max(100)).optional() }),
     async handler({ ctx, db, params, body }) {
       const site = await resolveSite(db, ctx, params.site!);
@@ -162,7 +162,7 @@ export function registerSlotRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/slots', summary: 'Add a slot to a zone', perm: 'inventory.edit',
+    method: 'POST', path: '/v1/slots', summary: 'Add a slot to a zone', perm: 'inventory.edit', replaySafe: true,
     query: z.object({ site: z.string() }),
     body: z.object({ code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/), zone: z.string(), type: z.string().min(1).max(30), note: z.string().max(300).nullable().optional() }),
     async handler({ ctx, db, query: q, body }) {

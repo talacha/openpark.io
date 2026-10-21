@@ -280,6 +280,10 @@ export function CheckInConfirm() {
   const [err, setErr] = useState<{ message: string; code?: string; details?: Record<string, unknown> } | null>(null);
   const [done, setDone] = useState<Opened | 'queued' | null>(null);
   const idem = useRef(crypto.randomUUID()); // one key per confirm screen, so a retry never double-redeems
+  const passErrRef = useRef<HTMLDivElement>(null);
+  // A scan that rejected after a camera read navigated here takes focus, so a keyboard/screen-reader attendant
+  // lands on the failure (and the acknowledge control) instead of past it, mirroring the capture screen.
+  useEffect(() => { if (flow.passError) passErrRef.current?.focus(); }, [flow.passError]);
   const suggestion = useApi<{ slot: string | null; zone?: string }>(site ? `/v1/slots/suggest?site=${site.code}${flow.vehicle.bodyType ? `&bodyType=${flow.vehicle.bodyType}` : ''}` : null, [flow.vehicle.bodyType]);
   const v = (k: keyof FlowState['vehicle']) => ({ value: flow.vehicle[k] ?? '', onChange: (e: { target: { value: string } }) => set({ vehicle: { ...flow.vehicle, [k]: e.target.value || undefined } }) });
 
@@ -347,7 +351,7 @@ export function CheckInConfirm() {
       {/* A scan that rejected AFTER a camera plate read navigated here stays visible and blocks the walk-in: the
           attendant must acknowledge (return to scan) before an ordinary check-in can be submitted. */}
       {flow.passError && (
-        <div className="banner bad" role="alert">
+        <div className="banner bad" role="alert" tabIndex={-1} ref={passErrRef}>
           <div>{flow.passError}</div>
           <div><button type="button" className="btn" onClick={() => { update(clearPassError); nav(`${b}/checkin`); }}>{t('att.passDismiss')}</button></div>
         </div>

@@ -89,7 +89,7 @@ export function registerPeopleRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/units', summary: 'Create a unit', perm: 'users.edit',
+    method: 'POST', path: '/v1/units', summary: 'Create a unit', perm: 'users.edit', replaySafe: true,
     body: z.object({ code: z.string().trim().min(1).max(30), name: z.string().trim().min(1).max(100), site: z.string().optional(), floor: z.number().int().min(-20).max(300).nullable().optional(), note: z.string().max(500).nullable().optional() }),
     async handler({ ctx, db, body }) {
       let siteId: string | null = null;

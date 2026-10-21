@@ -265,6 +265,30 @@ describe('slots, quotes and API keys', () => {
     const r = await h.app.inject({ method: 'POST', url: '/v1/alpr/read', headers: own.h, payload: { site: 'DEMO-01', image: 'AAAA' } });
     expect(r.json().error.code).toBe('ai_disabled');
   });
+
+  it('replays a CRUD create on a repeated Idempotency-Key so a lost response is not a false conflict', async () => {
+    const own = await signup(h.app, 'MX');
+    const key = { ...own.h, 'idempotency-key': `crud-${Date.now()}` };
+    // First create wins with a 201 and writes one audit row.
+    const first = await h.app.inject({ method: 'POST', url: '/v1/units', headers: key, payload: { code: 'IDEM-1', name: 'Idem Tower' } });
+    expect(first.statusCode).toBe(201);
+    // A retry with the SAME key replays the stored 201 (same id) instead of a 409 unit_exists — the lost-response case.
+    const replay = await h.app.inject({ method: 'POST', url: '/v1/units', headers: key, payload: { code: 'IDEM-1', name: 'Idem Tower' } });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json().id).toBe(first.json().id);
+    expect(replay.headers['idempotent-replayed']).toBe('true');
+    // Exactly one unit and one create-audit exist despite two POSTs.
+    const units = (await h.app.inject({ method: 'GET', url: '/v1/units', headers: own.h })).json() as { code: string }[];
+    expect(units.filter((u) => u.code === 'IDEM-1')).toHaveLength(1);
+    const audits = (await h.app.db.withTenant(await tenantId(own.slug), (db) =>
+      db.query("select count(*)::int as n from audit_event where action = 'unit.create' and entity = 'unit:IDEM-1'"))).rows[0].n;
+    expect(audits).toBe(1);
+    // The key is optional: a keyless create still works (back-compat for import/internal callers) and a real duplicate is a 409.
+    const keyless = await h.app.inject({ method: 'POST', url: '/v1/units', headers: own.h, payload: { code: 'IDEM-2', name: 'Keyless' } });
+    expect(keyless.statusCode).toBe(201);
+    const dup = await h.app.inject({ method: 'POST', url: '/v1/units', headers: own.h, payload: { code: 'IDEM-2', name: 'Keyless' } });
+    expect(dup.json().error.code).toBe('unit_exists');
+  });
 });
 
 describe('config', () => {

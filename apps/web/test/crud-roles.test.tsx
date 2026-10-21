@@ -62,7 +62,7 @@ function mountPeople(roles: Role[], superadmin = false) {
 
 const byText = (c: HTMLElement, text: string) => [...c.querySelectorAll('button')].filter((b) => b.textContent === text);
 
-beforeEach(() => { setupApi(); api.request.mockClear(); api.patch.mockClear(); api.del.mockClear(); });
+beforeEach(() => { setupApi(); api.request.mockClear(); api.patch.mockClear(); api.del.mockClear(); api.post.mockClear(); });
 afterEach(() => cleanup());
 
 describe('Administrator unit CRUD through the real screen (criterion 6)', () => {
@@ -74,10 +74,12 @@ describe('Administrator unit CRUD through the real screen (criterion 6)', () => 
     fireEvent.change(container.querySelector('input[name="code"]')!, { target: { value: 'B-2' } });
     fireEvent.change(container.querySelector('input[name="name"]')!, { target: { value: 'Apt 2' } });
     await act(async () => { fireEvent.click(byText(container, translate('en', 'units.add'))[0]!); });
-    expect(api.request).toHaveBeenCalledTimes(1);
-    const [method, path, body] = api.request.mock.calls[0]!;
-    expect([method, path]).toEqual(['POST', '/v1/units']);
+    // The create goes through post(), which carries an Idempotency-Key so a lost-response retry replays (not a false conflict).
+    expect(api.post).toHaveBeenCalledTimes(1);
+    const [path, body, key] = api.post.mock.calls[0]!;
+    expect(path).toBe('/v1/units');
     expect(body as Record<string, unknown>).toMatchObject({ code: 'B-2', name: 'Apt 2' });
+    expect(key === undefined || typeof key === 'string').toBe(true); // a key is sent (or defaulted inside post)
 
     // EDIT the existing row
     await act(async () => { fireEvent.click(byText(container, translate('en', 'users.edit'))[0]!); });

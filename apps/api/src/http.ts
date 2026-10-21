@@ -54,6 +54,13 @@ export interface RouteDef<B extends ZodTypeAny, Q extends ZodTypeAny> {
   query?: Q;
   /** Writes require an Idempotency-Key header and replay stored responses. */
   idempotent?: boolean;
+  /**
+   * Replay-safe writes: the Idempotency-Key is OPTIONAL, but when a client sends one the response is stored and
+   * replayed exactly like `idempotent`. Used for CRUD creates (unit/site/zone/slot) so a lost-response retry replays
+   * the original 201 instead of surfacing a false "already exists" conflict — without forcing the header on the many
+   * internal/import callers that create inventory without a key. Money writes keep `idempotent` (key required).
+   */
+  replaySafe?: boolean;
   handler: (a: HandlerArgs<z.infer<B>, z.infer<Q>>) => Promise<unknown | Reply>;
 }
 
@@ -65,12 +72,12 @@ export interface PublicRouteDef<B extends ZodTypeAny> {
   handler: (a: { app: App; req: FastifyRequest; reply: FastifyReply; body: z.infer<B> }) => Promise<unknown | Reply>;
 }
 
-export const registry: { method: string; path: string; summary: string; perm: string; body?: ZodTypeAny; query?: ZodTypeAny; idempotent?: boolean }[] = [];
+export const registry: { method: string; path: string; summary: string; perm: string; body?: ZodTypeAny; query?: ZodTypeAny; idempotent?: boolean; replaySafe?: boolean }[] = [];
 
 const isReply = (x: unknown): x is Reply => !!x && typeof x === 'object' && 'status' in x && 'body' in x;
 
 export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends ZodTypeAny = z.ZodUndefined>(app: App, def: RouteDef<B, Q>) {
-  registry.push({ method: def.method, path: def.path, summary: def.summary, perm: def.perm, body: def.body, query: def.query, idempotent: def.idempotent });
+  registry.push({ method: def.method, path: def.path, summary: def.summary, perm: def.perm, body: def.body, query: def.query, idempotent: def.idempotent, replaySafe: def.replaySafe });
   app.route({
     method: def.method,
     url: def.path,
@@ -81,11 +88,13 @@ export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends Zod
       const query = def.query ? def.query.parse(req.query) : undefined;
       const idemKey = req.headers['idempotency-key'];
       if (def.idempotent && typeof idemKey !== 'string') throw new HttpError(400, 'idempotency_key_required', 'Idempotency-Key header is required');
+      // Replay-safe routes honour a key when the client sends one, but do not require it.
+      const useIdem = def.idempotent || (def.replaySafe && typeof idemKey === 'string');
 
       const afters: (() => void | Promise<void>)[] = [];
       const result = await app.db.withTenant(ctx.tenantId, async (db) => {
         let hash = '';
-        if (def.idempotent) {
+        if (useIdem) {
           hash = createHash('sha256').update(`${def.method} ${req.url} ${JSON.stringify(body ?? null)}`).digest('hex');
           const prior = await db.query('select request_hash, status, response from idempotency_key where key = $1', [idemKey]);
           if (prior.rows[0]) {
@@ -104,13 +113,13 @@ export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends Zod
           await db.query('insert into audit_event (tenant_id, actor_id, action, entity, after) values ($1,$2,$3,$4,$5)',
             [ctx.tenantId, ctx.userId, 'platform.write', `${def.method} ${def.path}`, JSON.stringify({ url: req.url })]);
         }
-        if (def.idempotent) {
+        if (useIdem) {
           await db.query('insert into idempotency_key (tenant_id, key, request_hash, status, response) values ($1,$2,$3,$4,$5)',
             [ctx.tenantId, idemKey, hash, r.status, JSON.stringify(r.body ?? null, (k, v) => (k === 'temporaryPassword' ? null : v))]); // one-time passwords are never stored
         }
         return { replayed: false, ...r };
       }).catch((e) => {
-        if (def.idempotent && e?.code === '23505' && e?.constraint === 'idempotency_key_pkey') {
+        if (useIdem && e?.code === '23505' && e?.constraint === 'idempotency_key_pkey') {
           throw new HttpError(409, 'request_in_progress', 'A request with this Idempotency-Key is still being processed');
         }
         throw e;
@@ -168,7 +177,8 @@ export function openApiDocument() {
       'x-permission': r.perm,
       parameters: [
         ...params, ...queryParams,
-        ...(r.idempotent ? [{ name: 'Idempotency-Key', in: 'header', required: true, schema: { type: 'string' } }] : []),
+        ...(r.idempotent ? [{ name: 'Idempotency-Key', in: 'header', required: true, schema: { type: 'string' } }]
+          : r.replaySafe ? [{ name: 'Idempotency-Key', in: 'header', required: false, schema: { type: 'string' } }] : []),
       ],
       ...(r.body ? { requestBody: { required: true, content: { 'application/json': { schema: zodToJsonSchema(r.body, { target: 'openApi3' }) } } } } : {}),
       responses: { '200': { description: 'OK' }, '4XX': { description: 'Error: { error: { code, message, details? } }' } },

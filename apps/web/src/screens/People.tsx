@@ -38,7 +38,8 @@ export function Units() {
   async function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    try { await request('POST', '/v1/units', { code: f.code, ...body(f), site: f.site || undefined }); form.reset(); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); }
+    // post() carries an Idempotency-Key, so a lost-response retry replays the original create instead of a false "unit exists".
+    try { await post('/v1/units', { code: f.code, ...body(f), site: f.site || undefined }); form.reset(); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); }
   }
   async function saveUnit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();

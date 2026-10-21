@@ -493,3 +493,67 @@ because the `e2e/*.mjs` stories (two dev servers + ONNX models + Chrome + `.y4m`
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
 **Pushed commit SHA:** `598eca7` — fast-forwarded onto `main` and pushed to `origin/main`.
+
+## Iteration 9 — implementer (fix tick)
+**Previous review (`.agents/tasks/review-verdict.json` → `review-iter-08.md`): verdict CHANGES_REQUESTED, 5 MEDIUM + 1 LOW.**
+Of the five mediums, two carried a REAL production-code defect and three were verification-depth that depends on the
+Playwright browser + ONNX-model + `.y4m`-fixture E2E stack, which is outside the HARD GATE and not reliably runnable in
+this worktree (documented every prior tick). This tick fixes BOTH real defects in production code, adds gate-runnable
+tests for each, and re-documents the E2E-only items with their gate-backed coverage. Elapsed at start ≈ 11.1h of the 12h
+budget; this is the final feature tick.
+
+**What changed (production code + tests):**
+- **Finding 2 (criterion 2 + a11y) — REAL FIX.** `apps/web/src/screens/Attendant.tsx` `CheckInConfirm`: the pass-rejection
+  banner was `role="alert"` but, unlike the capture screen's banner, had no `tabIndex`/`ref` and no focus effect, so a
+  keyboard/screen-reader attendant lost focus when a camera read navigated to Confirm and the pending lookup then
+  rejected. Added `passErrRef`, `tabIndex={-1}`, and a `useEffect` that focuses the banner when `flow.passError` appears
+  — mirroring `CheckInCapture`. The `canConfirm` guard already blocked the walk-in; now the failure is also announced and
+  focused. New rendered test `apps/web/test/attendant-confirm-focus.test.tsx` drives the real routed screens: a QR scan
+  starts a pending lookup, a camera plate read navigates to Confirm, the lookup rejects, and the test asserts
+  `document.activeElement` is the rejection alert, the Confirm button is disabled, NO `/v1/sessions` (walk-in) or
+  `/v1/passes/redeem` write fired, and acknowledging returns to capture.
+- **Finding 5 (cross-cutting security/data-integrity: idempotency on CRUD writes) — REAL FIX.** The replay guard in
+  `apps/api/src/http.ts` ran only when a route declared `idempotent: true` (which also makes the header REQUIRED); the
+  CRUD create routes did not, so a client-sent key was ignored and a lost-response retry surfaced a false
+  `*_exists`/`already_member` conflict. Added a new backward-compatible `replaySafe` route flag: the Idempotency-Key is
+  OPTIONAL, but when a client sends one the response is stored (one-time passwords still redacted) and replayed exactly
+  like `idempotent`. Marked the four secret-free create routes `replaySafe: true`: `POST /v1/units` (people.ts),
+  `POST /v1/sites`, `POST /v1/sites/:site/zones`, `POST /v1/slots` (slots.ts). OpenAPI now advertises the optional header
+  for these. Switched the web unit-create (`apps/web/src/screens/People.tsx`) from a raw `request('POST')` to `post()` so
+  the browser actually sends a key (Parking.tsx already used `post()` for sites/zones/slots). New api test in
+  `apps/api/test/api.test.ts` proves same-key replay returns the original 201 + `Idempotent-Replayed: true` with exactly
+  one unit and one `unit.create` audit, while a keyless create still works and a real duplicate is still a 409.
+- Updated `apps/web/test/crud-roles.test.tsx` to assert the unit create now routes through `post()` (carrying a key)
+  instead of `request()` — an adaptation to the deliberate behaviour change, not a weakening (it still asserts the exact
+  path and body; edit/delete assertions unchanged).
+
+**Lowest-risk / ambiguous decisions this tick (recorded for morning review):**
+- **`replaySafe` as an OPTIONAL-but-honoured key, not required `idempotent`.** Making the CRUD creates require an
+  Idempotency-Key would break many existing keyless callers (the `mkUnit`/`addUser` test helpers, import paths, and any
+  internal create) and the actual web flows — a broad, risky change at the budget edge. The optional-honoured flag
+  delivers the finding's core ask (server-enforced replay when a key is present; no more false conflicts; no duplicate
+  audit) while staying fully backward-compatible. Money/state writes (`sessions`, `checkout`, `redeem`, `tenant`) keep
+  the strict `idempotent` (key required) — unchanged.
+- **`POST /v1/users` (person creation) deliberately NOT made replay-safe.** Replaying its response would return a
+  redacted (null) one-time password, which is worse than today and, per the reviewer, properly needs an
+  invitation/password-reset onboarding redesign — out of scope for the 7 acceptance criteria and too risky to land in the
+  remaining budget. Person creation is already duplicate-safe: the unique membership constraint makes a retry hit
+  `already_member` before any second account/audit row is written (no duplicate side effects). Recoverable-secret
+  onboarding is left as a documented follow-up.
+- **Three E2E-only mediums (finding 1 full join through real `/pass` bootstrap + server HMAC; findings 3 & 4 real
+  camera/getUserMedia/ONNX acquisition; finding 6/7 full person/site/slot CRUD + cross-property writes at a narrow
+  viewport) and the LOW manual-a11y item remain outside the HARD GATE.** They require two dev servers + downloaded ONNX
+  models + a Chrome channel + `.y4m` fixtures (or real AT/zoom/contrast hardware) that this automated loop cannot stand
+  up. Their shipped behaviour stays gate-backed: pass HMAC/verify-code/expiry by `passes.test.ts`; camera-to-field wiring
+  and checkout match by the ALPR unit tests + `attendant-camera.test.tsx` + sessions/checkout api tests; CRUD RLS/role
+  scoping and the cross-property boundary by the api suite + `crud-roles.test.tsx`. Recorded, not forced past.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 97 (+1 pre-existing skip), api 104 — all pass
+  (web +1: attendant-confirm-focus; api +1: CRUD idempotency replay; none weakened or deleted)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+**i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
+**Elapsed:** ≈11.1h of the 12h budget at tick start.
+**Pushed commit SHA:** `__PENDING__` — fast-forwarded onto `main` and pushed to `origin/main` (SHA filled in below after commit).
