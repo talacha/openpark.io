@@ -130,6 +130,31 @@ describe('Administrator unit CRUD through the real screen (criterion 6)', () => 
     expect(api.post.mock.calls[2]![2]).not.toBe(k1);
   });
 
+  it('rotates to a FRESH key when the payload is deliberately edited after a lost response, so the retry cannot loop on idempotency_key_reuse', async () => {
+    // The first write's response is lost but the write may have committed. The user then edits a field and resubmits:
+    // the new body must travel under a NEW key, otherwise the server rejects the stored key replayed with a different
+    // body (idempotency_key_reuse) and the form is stuck in a permanent 422 loop.
+    api.post.mockRejectedValueOnce(new Error('connection lost')).mockResolvedValue({});
+    const { container } = mountUnits(['admin']);
+    const fill = (code: string, name: string) => {
+      fireEvent.change(container.querySelector('input[name="code"]')!, { target: { value: code } });
+      fireEvent.change(container.querySelector('input[name="name"]')!, { target: { value: name } });
+    };
+    const addBtn = () => byText(container, translate('en', 'units.add'))[0]!;
+
+    fill('B-2', 'Apt 2');
+    await act(async () => { fireEvent.click(addBtn()); }); // first submit: response lost
+    fill('B-3', 'Apt 3'); // the user deliberately CHANGES the payload before retrying
+    await act(async () => { fireEvent.click(addBtn()); });
+
+    expect(api.post).toHaveBeenCalledTimes(2);
+    const k1 = api.post.mock.calls[0]![2];
+    const k2 = api.post.mock.calls[1]![2];
+    expect(typeof k1).toBe('string');
+    expect(k2).not.toBe(k1); // a changed payload is a fresh request under a NEW key — no 422 reuse loop
+    expect((api.post.mock.calls[1]![1] as { code: string }).code).toBe('B-3');
+  });
+
   it('gives a non-admin a read-only screen: no create form and no edit/remove controls', () => {
     const { container } = mountUnits(['attendant']);
     expect(container.querySelector('input[name="code"]')).toBeNull();

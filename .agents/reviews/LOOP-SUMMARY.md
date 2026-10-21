@@ -625,3 +625,66 @@ findings #1/#2 — out of gate scope, too fragile at the budget edge.
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
 **Elapsed:** ≈11h25m of the (extended) budget at tick start; this is iteration 10 (the 10-iteration cap).
 **Tick commit SHA:** `fddd34b` — fast-forwarded onto `main` and pushed to `origin/main` (normal push).
+
+---
+
+## Iteration 11 — submission key follows deliberate payload/target changes (review-iter-10 finding #1)
+
+**What the previous review (review-iter-10) flagged (6 medium + 1 low):**
+1. MEDIUM — `useSubmitKey` kept one key until success and never rotated when the user deliberately **edited the
+   payload/target** after a lost response, so an edit-then-retry sent the stored key with a new body →
+   server `idempotency_key_reuse` (422) → the form stuck until remount.
+2. MEDIUM — local-auth `addPerson` replay stores `temporaryPassword: null`; a lost-response replay returns 201 with
+   no usable credential and the UI shows `users.invited`. Reviewer wants a recoverable onboarding/credential-recovery flow.
+3. MEDIUM — `POST /v1/platform/tenants/:slug/members` (`definePlatformRoute`) ignores the client key (no replay plumbing).
+4. MEDIUM — pass generate→share→public `/pass` bootstrap→live HMAC/verify-code/expiry chain not executed end-to-end in one process.
+5. MEDIUM — real `getUserMedia`/ONNX model/decoder camera path not executed for check-in and check-out.
+6. MEDIUM — full create/edit/delete for every entity + Super-Admin cross-property writes + real mobile layout not executed.
+7. LOW — manual AT/zoom/contrast WCAG verification outstanding.
+
+**What I changed this tick (finding #1 — the one genuinely code-fixable regression):**
+- `apps/web/src/components/hooks.ts` — `useSubmitKey` now binds its key to a canonical request **fingerprint**
+  (`key(fingerprint)`). When the caller submits a DIFFERENT target/payload than the prior attempt, the key is
+  **rotated before sending**, so an edited resubmit is a fresh request that cannot trip the server's
+  `idempotency_key_reuse` guard. An exact retry keeps the same fingerprint → same key → still replays the original
+  write (lost-response safety preserved). `rotate()` after a definitive success is unchanged. `fingerprint` is
+  optional, so no caller breaks.
+- Call sites now pass a fingerprint of `method path + JSON(payload)` (mirroring the server's
+  `createHash('sha256').update(\`${method} ${url} ${JSON.stringify(body)}\`)`): `apps/web/src/screens/People.tsx`
+  (`Units.add`, `People.invite`) and `apps/web/src/screens/Parking.tsx` (`addSite`, and the shared `create` helper
+  used by `addZone`/`addSlot`).
+- `apps/web/test/crud-roles.test.tsx` — added a rendered test (keeps the REAL `useSubmitKey`): first submit's response
+  is lost, the user **edits the payload** (code B-2 → B-3) and resubmits; the test asserts the retry travels under a
+  **NEW key** and carries the edited body — i.e. no permanent 422 reuse loop. The existing same-payload "reuse-then-
+  rotate" test is untouched, so both halves of the contract are proven.
+
+**Why #2–#7 were not forced past this tick (documented decision, budget edge ~11h33m of the extended box):**
+- #2 and #3 are a credential-recovery / platform-route-idempotency **redesign** that changes onboarding behaviour and
+  touches API+DB; attempting a half-finished version this close to the ceiling risks leaving the HARD GATE red with no
+  recovery time. Prior ticks already made the lost-response person replay **no worse than today** (one membership, no
+  double audit, one-time password never stored) — these stay the documented follow-ups the reviewer and iteration-10
+  note already record.
+- #4/#5/#6 ask for execution of a real Chrome channel + downloaded ONNX models + `.y4m` camera fixtures + a joined
+  unauthenticated `/pass` bootstrap-to-live-HMAC process — none of which this headless `pnpm test` + `check:css` gate
+  can stand up. Shipped behaviour remains gate-backed exactly as recorded in the iteration-10 entry
+  (passes.test.ts HMAC/verify-code/2h-expiry/tamper; pass-e2e QR decode→redeem; attendant-camera wiring;
+  api suite CRUD RLS/role + cross-property boundary). #7 needs real AT/zoom/contrast hardware.
+
+**Lowest-risk / ambiguous decisions this tick:**
+- (a) Fingerprint = `method path + JSON(payload)` to mirror the server hash exactly, so the client only rotates when the
+  server would actually reject — no spurious rotations, no lost replay on exact retry.
+- (b) Kept `fingerprint` optional and left `rotate()`-on-success as-is, so the change is additive and no existing caller
+  or test regresses.
+- (c) Deferred #2–#7 rather than start an unfinishable redesign at the budget edge (per the time-box's "do the minimum
+  to finish cleanly" guidance) — recorded here for the morning review.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 101 (+1 pre-existing skip), api 106 — all pass
+  (web +1: the edited-payload rotate test; none weakened or deleted)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+
+**i18n parity:** no new UI strings this tick; all seven locales unchanged.
+**Elapsed:** ≈11h33m of the extended budget at tick start (under the 12h ceiling).
+**Tick commit SHA:** _(filled in below after commit)_

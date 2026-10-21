@@ -16,15 +16,31 @@ export function useApi<T>(path: string | null, deps: unknown[] = []) {
 }
 
 /**
- * A submission-scoped Idempotency-Key for a CRUD create form. The key stays STABLE across retries of the same
- * payload, so a lost-response retry (or a double-tap) replays the original write instead of surfacing a false
- * "already exists" conflict or duplicating the side effect/audit. It is rotated only after the server gives a
- * definitive answer (a success, or a real error like a genuine duplicate), so a corrected resubmit is a fresh
- * request that cannot trip `idempotency_key_reuse`. Pair with a pending flag to block double submits.
+ * A submission-scoped Idempotency-Key for a CRUD create form. The key stays STABLE across retries of the SAME request,
+ * so a lost-response retry (or a double-tap) replays the original write instead of surfacing a false "already exists"
+ * conflict or duplicating the side effect/audit. It is rotated after a definitive success so the next create is a
+ * distinct request.
+ *
+ * `key(fingerprint)` binds the key to a canonical fingerprint of the request (target path + payload). When the caller
+ * deliberately changes the target or payload after a failed attempt — e.g. the first response was lost but the write
+ * actually committed, so the user edits a field and resubmits — the fingerprint differs and the key is rotated BEFORE
+ * sending. That makes the edited submission a fresh request that cannot trip the server's `idempotency_key_reuse`
+ * guard (which rejects a stored key replayed with a different body), so the form never gets stuck in a 422 loop.
+ * An exact retry keeps the same fingerprint and therefore the same key, preserving replay. Pair with a pending flag
+ * to block double submits.
  */
 export function useSubmitKey() {
-  const ref = useRef(crypto.randomUUID());
-  return { key: () => ref.current, rotate: () => { ref.current = crypto.randomUUID(); } };
+  const ref = useRef({ key: crypto.randomUUID(), fp: null as string | null });
+  return {
+    key: (fingerprint?: string) => {
+      if (fingerprint !== undefined) {
+        if (ref.current.fp !== null && ref.current.fp !== fingerprint) ref.current.key = crypto.randomUUID();
+        ref.current.fp = fingerprint;
+      }
+      return ref.current.key;
+    },
+    rotate: () => { ref.current = { key: crypto.randomUUID(), fp: null }; },
+  };
 }
 
 const POLL_MS = 15_000;

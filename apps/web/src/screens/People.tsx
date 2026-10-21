@@ -45,7 +45,8 @@ export function Units() {
     // The submission-scoped Idempotency-Key is reused on every retry, so a lost-response retry replays the original
     // create instead of a false "unit exists". It rotates only after a success, so the NEXT create is a distinct
     // request; a definitive error stores nothing, so a corrected resubmit with the same key simply proceeds.
-    try { await post('/v1/units', { code: f.code, ...body(f), site: f.site || undefined }, addKey.key()); addKey.rotate(); form.reset(); setErr(''); await units.reload(); }
+    const payload = { code: f.code, ...body(f), site: f.site || undefined };
+    try { await post('/v1/units', payload, addKey.key(`POST /v1/units ${JSON.stringify(payload)}`)); addKey.rotate(); form.reset(); setErr(''); await units.reload(); }
     catch (x) { setErr(errText(x)); }
     finally { setBusy(false); }
   }
@@ -243,8 +244,10 @@ export function People() {
     // The submission-scoped Idempotency-Key is reused on every retry so a lost-response retry replays the original
     // create (one account, one invite, one audit) instead of reaching a false "already belongs" conflict. It rotates
     // only after a success so the next person is a distinct request.
+    const path = prop === me!.tenant.slug ? '/v1/users' : `/v1/platform/tenants/${prop}/members`;
+    const payload = { email: f.email, name: f.name || undefined, roles, unit: roles.includes('resident') ? f.unit : undefined, superadmin: newSuper || undefined };
     try {
-      const r = await post<{ temporaryPassword?: string; invited?: boolean }>(prop === me!.tenant.slug ? '/v1/users' : `/v1/platform/tenants/${prop}/members`, { email: f.email, name: f.name || undefined, roles, unit: roles.includes('resident') ? f.unit : undefined, superadmin: newSuper || undefined }, inviteKey.key());
+      const r = await post<{ temporaryPassword?: string; invited?: boolean }>(path, payload, inviteKey.key(`POST ${path} ${JSON.stringify(payload)}`));
       inviteKey.rotate();
       setMsg(r.temporaryPassword ? t('users.tempPassword', { password: r.temporaryPassword }) : t('users.invited'));
       form.reset(); setRoles(['attendant']); setNewUnit(''); setNewSuper(false); await users.reload();

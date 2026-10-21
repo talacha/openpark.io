@@ -40,7 +40,8 @@ export function Parking() {
     setBusy(true);
     // Submission-scoped Idempotency-Key: reused on every retry so a lost-response retry replays the original create;
     // rotated only after a success so the next site is a distinct request.
-    try { await post('/v1/sites', { code: f.code, name: f.name, timezone: f.timezone, address: f.address || null }, siteKey.key()); siteKey.rotate(); form.reset(); setErr(''); await sites.reload(); await reloadApp(); }
+    const payload = { code: f.code, name: f.name, timezone: f.timezone, address: f.address || null };
+    try { await post('/v1/sites', payload, siteKey.key(`POST /v1/sites ${JSON.stringify(payload)}`)); siteKey.rotate(); form.reset(); setErr(''); await sites.reload(); await reloadApp(); }
     catch (x) { setErr(errText(x)); }
     finally { setBusy(false); }
   }
@@ -88,10 +89,10 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
   // Create with a submission-scoped Idempotency-Key reused on every retry (so a lost-response retry replays the
   // original create), rotated only after a success. A pending flag blocks double submits. `refresh`/`run` surfaces
   // any error; on error the key and form are left intact so the attendant can retry the same submission safely.
-  async function create(k: ReturnType<typeof useSubmitKey>, make: (key: string) => Promise<unknown>, form: HTMLFormElement) {
+  async function create(k: ReturnType<typeof useSubmitKey>, fingerprint: string, make: (key: string) => Promise<unknown>, form: HTMLFormElement) {
     if (busy) return;
     setBusy(true);
-    try { await refresh(async () => { await make(k.key()); k.rotate(); form.reset(); }); }
+    try { await refresh(async () => { await make(k.key(fingerprint)); k.rotate(); form.reset(); }); }
     finally { setBusy(false); }
   }
 
@@ -103,7 +104,8 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
   async function addZone(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    await create(zoneKey, (key) => post(`/v1/sites/${site.code}/zones`, { code: f.code, name: f.name, level: f.level === '' ? null : Number(f.level) }, key), form);
+    const payload = { code: f.code, name: f.name, level: f.level === '' ? null : Number(f.level) };
+    await create(zoneKey, `POST /v1/sites/${site.code}/zones ${JSON.stringify(payload)}`, (key) => post(`/v1/sites/${site.code}/zones`, payload, key), form);
   }
   async function saveZone(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -113,7 +115,8 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
   async function addSlot(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    await create(slotKey, (key) => post(`/v1/slots?site=${site.code}`, { code: f.code, zone: f.zone, type: f.type, note: f.note || null }, key), form);
+    const payload = { code: f.code, zone: f.zone, type: f.type, note: f.note || null };
+    await create(slotKey, `POST /v1/slots?site=${site.code} ${JSON.stringify(payload)}`, (key) => post(`/v1/slots?site=${site.code}`, payload, key), form);
   }
   async function saveSlot(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
