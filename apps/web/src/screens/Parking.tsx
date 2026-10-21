@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { del, patch, post } from '../api.js';
 import { pickLabel, useApp } from '../app-context.js';
-import { useApi } from '../components/hooks.js';
+import { useApi, useSubmitKey } from '../components/hooks.js';
 import { errText } from '../errors.js';
 import { useI18n, useT } from '../i18n.js';
 
@@ -26,6 +26,8 @@ export function Parking() {
   const [err, setErr] = useState('');
   const canEdit = !!me && (me.superadmin || me.roles.includes('admin'));
   const tz = useMemo(() => timezones(), []);
+  const [busy, setBusy] = useState(false);
+  const siteKey = useSubmitKey();
 
   async function run(fn: () => Promise<unknown>) {
     try { await fn(); setErr(''); await sites.reload(); await reloadApp(); } catch (x) { setErr(errText(x)); }
@@ -33,8 +35,14 @@ export function Parking() {
 
   async function addSite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy) return; // block a double submit; the pending button is also disabled
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    await run(async () => { await post('/v1/sites', { code: f.code, name: f.name, timezone: f.timezone, address: f.address || null }); form.reset(); });
+    setBusy(true);
+    // Submission-scoped Idempotency-Key: reused on every retry so a lost-response retry replays the original create;
+    // rotated only after a success so the next site is a distinct request.
+    try { await post('/v1/sites', { code: f.code, name: f.name, timezone: f.timezone, address: f.address || null }, siteKey.key()); siteKey.rotate(); form.reset(); setErr(''); await sites.reload(); await reloadApp(); }
+    catch (x) { setErr(errText(x)); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -52,7 +60,7 @@ export function Parking() {
               <select name="timezone" required defaultValue={me?.tenant.country === 'MX' ? 'America/Mexico_City' : Intl.DateTimeFormat().resolvedOptions().timeZone}>{timezones(Intl.DateTimeFormat().resolvedOptions().timeZone).map((z) => <option key={z}>{z}</option>)}</select></label>
           </div>
           <label className="field">{t('parking.address')}<input name="address" maxLength={300} /></label>
-          <div><button className="btn primary">{t('parking.addSite')}</button></div>
+          <div><button className="btn primary" disabled={busy}>{t('parking.addSite')}</button></div>
         </form>
       )}
       {sites.data?.map((s) => <SiteCard key={s.code} site={s} tz={tz} canEdit={canEdit} run={run} />)}
@@ -73,7 +81,19 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
   const types = me?.tenant.slot_types ?? [];
   const typeLabel = (c: string) => pickLabel(types.find((x) => x.code === c)?.label, locale, c);
   const refresh = async (fn: () => Promise<unknown>) => run(async () => { await fn(); await slots.reload(); });
+  const [busy, setBusy] = useState(false);
+  const zoneKey = useSubmitKey();
+  const slotKey = useSubmitKey();
   const shown = (slots.data ?? []).filter((x) => !zoneFilter || x.zone === zoneFilter);
+  // Create with a submission-scoped Idempotency-Key reused on every retry (so a lost-response retry replays the
+  // original create), rotated only after a success. A pending flag blocks double submits. `refresh`/`run` surfaces
+  // any error; on error the key and form are left intact so the attendant can retry the same submission safely.
+  async function create(k: ReturnType<typeof useSubmitKey>, make: (key: string) => Promise<unknown>, form: HTMLFormElement) {
+    if (busy) return;
+    setBusy(true);
+    try { await refresh(async () => { await make(k.key()); k.rotate(); form.reset(); }); }
+    finally { setBusy(false); }
+  }
 
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -83,7 +103,7 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
   async function addZone(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    await refresh(async () => { await post(`/v1/sites/${site.code}/zones`, { code: f.code, name: f.name, level: f.level === '' ? null : Number(f.level) }); form.reset(); });
+    await create(zoneKey, (key) => post(`/v1/sites/${site.code}/zones`, { code: f.code, name: f.name, level: f.level === '' ? null : Number(f.level) }, key), form);
   }
   async function saveZone(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -93,7 +113,7 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
   async function addSlot(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    await refresh(async () => { await post(`/v1/slots?site=${site.code}`, { code: f.code, zone: f.zone, type: f.type, note: f.note || null }); form.reset(); });
+    await create(slotKey, (key) => post(`/v1/slots?site=${site.code}`, { code: f.code, zone: f.zone, type: f.type, note: f.note || null }, key), form);
   }
   async function saveSlot(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -153,7 +173,7 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
               <label className="field">{t('units.code')}<input name="code" required maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" dir="ltr" /></label>
               <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
               <label className="field">{t('parking.level')}<input name="level" type="number" step={1} min={-20} max={200} dir="ltr" /></label>
-              <button className="btn">{t('parking.addZone')}</button>
+              <button className="btn" disabled={busy}>{t('parking.addZone')}</button>
             </form>
           )}
 
@@ -188,7 +208,7 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
               <label className="field">{t('common.zone')}<select name="zone" required>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</select></label>
               <label className="field">{t('parking.type')}<select name="type" required>{types.map((x) => <option key={x.code} value={x.code}>{pickLabel(x.label, locale, x.code)}</option>)}</select></label>
               <label className="field grow">{t('slots.note')}<input name="note" maxLength={300} /></label>
-              <button className="btn">{t('parking.addSlot')}</button>
+              <button className="btn" disabled={busy}>{t('parking.addSlot')}</button>
             </form>
           ) : <div className="banner warn">{t('parking.needZone')}</div>)}
           <div className="muted">{t('parking.bulk')} <Link to="../inventory">{t('nav.inventory')}</Link></div>

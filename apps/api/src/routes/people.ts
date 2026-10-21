@@ -191,7 +191,7 @@ export function registerPeopleRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/users', summary: 'Add a person with one or more roles. Local auth returns a one-time password; external auth sends an invitation by email', perm: 'users.edit',
+    method: 'POST', path: '/v1/users', summary: 'Add a person with one or more roles. Local auth returns a one-time password; external auth sends an invitation by email', perm: 'users.edit', replaySafe: true,
     body: z.object({ email: z.string().email().max(254), name: z.string().trim().max(100).optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
     async handler({ ctx, db, body }) {
       const email = body.email.toLowerCase();

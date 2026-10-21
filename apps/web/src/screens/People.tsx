@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError, del, patch, post, request } from '../api.js';
 import { ROLES, useApp, type Role } from '../app-context.js';
-import { useApi } from '../components/hooks.js';
+import { useApi, useSubmitKey } from '../components/hooks.js';
 import { useT } from '../i18n.js';
 import { errText } from '../errors.js';
 
@@ -33,13 +33,21 @@ export function Units() {
   const { sites, me } = useApp();
   const canEdit = !!me && (me.superadmin || me.roles.includes('admin'));
   const [editing, setEditing] = useState<UnitRow | null>(null);
+  const [busy, setBusy] = useState(false);
+  const addKey = useSubmitKey();
   const body = (f: Record<string, string>) => ({ name: f.name, site: f.site || null, floor: f.floor === '' || f.floor === undefined ? null : Number(f.floor), note: f.note || null });
 
   async function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy) return; // block a double submit; the pending button is also disabled
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    // post() carries an Idempotency-Key, so a lost-response retry replays the original create instead of a false "unit exists".
-    try { await post('/v1/units', { code: f.code, ...body(f), site: f.site || undefined }); form.reset(); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); }
+    setBusy(true);
+    // The submission-scoped Idempotency-Key is reused on every retry, so a lost-response retry replays the original
+    // create instead of a false "unit exists". It rotates only after a success, so the NEXT create is a distinct
+    // request; a definitive error stores nothing, so a corrected resubmit with the same key simply proceeds.
+    try { await post('/v1/units', { code: f.code, ...body(f), site: f.site || undefined }, addKey.key()); addKey.rotate(); form.reset(); setErr(''); await units.reload(); }
+    catch (x) { setErr(errText(x)); }
+    finally { setBusy(false); }
   }
   async function saveUnit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -85,7 +93,7 @@ export function Units() {
             <label className="field">{t('units.floor')}<input name="floor" type="number" step={1} min={-20} max={300} dir="ltr" /></label>
           </div>
           <label className="field">{t('units.note')}<input name="note" maxLength={500} /></label>
-          <div><button className="btn primary">{t('units.add')}</button></div>
+          <div><button className="btn primary" disabled={busy}>{t('units.add')}</button></div>
         </form>
       )}
       {err && <div className="banner bad" role="alert">{err}</div>}
@@ -218,21 +226,30 @@ export function People() {
   const otherUnits = useApi<UnitRow[]>(me?.superadmin && prop !== me.tenant.slug ? `/v1/platform/tenants/${prop}/units` : null, [prop]);
   const propUnits = prop === me!.tenant.slug ? units.data : otherUnits.loading ? null : otherUnits.data;
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inviteKey = useSubmitKey();
   // Anyone who may edit people sees this screen; only a Super Admin may grant Super Admin.
   const canEdit = !!me && (me.superadmin || me.roles.includes('admin'));
   const canSuper = !!me?.superadmin;
 
   async function invite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy) return; // block a double submit; the pending button is also disabled
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
     setErr(''); setMsg('');
     if (!roles.length) { setErr(t('users.noRole')); return; }
     if (roles.includes('resident') && !f.unit) { setErr(t('err.unit_required')); return; }
+    setBusy(true);
+    // The submission-scoped Idempotency-Key is reused on every retry so a lost-response retry replays the original
+    // create (one account, one invite, one audit) instead of reaching a false "already belongs" conflict. It rotates
+    // only after a success so the next person is a distinct request.
     try {
-      const r = await post<{ temporaryPassword?: string; invited?: boolean }>(prop === me!.tenant.slug ? '/v1/users' : `/v1/platform/tenants/${prop}/members`, { email: f.email, name: f.name || undefined, roles, unit: roles.includes('resident') ? f.unit : undefined, superadmin: newSuper || undefined });
+      const r = await post<{ temporaryPassword?: string; invited?: boolean }>(prop === me!.tenant.slug ? '/v1/users' : `/v1/platform/tenants/${prop}/members`, { email: f.email, name: f.name || undefined, roles, unit: roles.includes('resident') ? f.unit : undefined, superadmin: newSuper || undefined }, inviteKey.key());
+      inviteKey.rotate();
       setMsg(r.temporaryPassword ? t('users.tempPassword', { password: r.temporaryPassword }) : t('users.invited'));
       form.reset(); setRoles(['attendant']); setNewUnit(''); setNewSuper(false); await users.reload();
     } catch (x) { setErr(errText(x)); }
+    finally { setBusy(false); }
   }
   async function remove(id: string) { try { await del(`/v1/users/${id}`); setErr(''); await users.reload(); } catch (x) { setErr(errText(x)); } }
   async function removeInvite(email: string) { try { await del(`/v1/invites/${encodeURIComponent(email)}`); setErr(''); await users.reload(); } catch (x) { setErr(errText(x)); } }
@@ -276,7 +293,7 @@ export function People() {
           </div>
           <RoleBoxes idPrefix="new" roles={roles} superadmin={newSuper} canSuper={canSuper} onChange={(n) => { setRoles(n.roles); setNewSuper(n.superadmin); }} />
           {roles.includes('resident') && unitSelect(newUnit, setNewUnit, propUnits, prop, 'unit')}
-          <div><button className="btn primary">{t('users.invite')}</button></div>
+          <div><button className="btn primary" disabled={busy}>{t('users.invite')}</button></div>
         </form>
       )}
       {msg && <div className="banner" role="status">{msg}</div>}

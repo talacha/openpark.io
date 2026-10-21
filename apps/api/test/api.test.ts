@@ -351,6 +351,60 @@ describe('Supabase Data API exposure', () => {
   });
 });
 
+describe('CRUD create idempotency parity (site, slot, person) and the regular-admin platform boundary', () => {
+  it('replays a repeated Idempotency-Key for a site, a slot, and a person so a lost response is one mutation, not a conflict', async () => {
+    const own = await signup(h.app, 'MX');
+    const tid = await tenantId(own.slug);
+    const auditCount = (action: string, entity: string) => h.app.db.withTenant(tid, (db) =>
+      db.query('select count(*)::int as n from audit_event where action = $1 and entity = $2', [action, entity])).then((r) => r.rows[0].n as number);
+
+    // --- site ---
+    const siteKey = { ...own.h, 'idempotency-key': `site-${Date.now()}` };
+    const s1 = await h.app.inject({ method: 'POST', url: '/v1/sites', headers: siteKey, payload: { code: 'IDEM-S1', name: 'Idem Site', timezone: 'America/Mexico_City' } });
+    expect(s1.statusCode).toBe(201);
+    const s2 = await h.app.inject({ method: 'POST', url: '/v1/sites', headers: siteKey, payload: { code: 'IDEM-S1', name: 'Idem Site', timezone: 'America/Mexico_City' } });
+    expect(s2.statusCode).toBe(201);
+    expect(s2.headers['idempotent-replayed']).toBe('true');
+    expect(s2.json().id).toBe(s1.json().id);
+    const sites = (await h.app.inject({ method: 'GET', url: '/v1/sites', headers: own.h })).json() as { code: string }[];
+    expect(sites.filter((x) => x.code === 'IDEM-S1')).toHaveLength(1);
+    expect(await auditCount('site.create', 'site:IDEM-S1')).toBe(1);
+
+    // --- slot (in the demo site's existing B1 zone) ---
+    const slotKey = { ...own.h, 'idempotency-key': `slot-${Date.now()}` };
+    const sl1 = await h.app.inject({ method: 'POST', url: '/v1/slots?site=DEMO-01', headers: slotKey, payload: { code: 'IDEM-P1', zone: 'B1', type: 'standard' } });
+    expect(sl1.statusCode).toBe(201);
+    const sl2 = await h.app.inject({ method: 'POST', url: '/v1/slots?site=DEMO-01', headers: slotKey, payload: { code: 'IDEM-P1', zone: 'B1', type: 'standard' } });
+    expect(sl2.statusCode).toBe(201);
+    expect(sl2.headers['idempotent-replayed']).toBe('true');
+    expect(sl2.json().id).toBe(sl1.json().id);
+    expect(await auditCount('slot.create', 'slot:DEMO-01/IDEM-P1')).toBe(1);
+
+    // --- person: the one-time password is returned once, never stored, and the retry is still a single account ---
+    const email = `idem-person-${Date.now()}@example.com`;
+    const pKey = { ...own.h, 'idempotency-key': `person-${Date.now()}` };
+    const p1 = await h.app.inject({ method: 'POST', url: '/v1/users', headers: pKey, payload: { email, roles: ['attendant'] } });
+    expect(p1.statusCode).toBe(201);
+    expect(p1.json().temporaryPassword).toBeTruthy(); // the credential is delivered on the first, real write
+    const p2 = await h.app.inject({ method: 'POST', url: '/v1/users', headers: pKey, payload: { email, roles: ['attendant'] } });
+    expect(p2.statusCode).toBe(201);
+    expect(p2.headers['idempotent-replayed']).toBe('true');
+    expect(p2.json().temporaryPassword).toBeFalsy(); // one-time passwords are never stored, so the replay cannot leak it
+    const members = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: own.h })).json() as { members: { email: string }[] };
+    expect(members.members.filter((m) => m.email === email)).toHaveLength(1); // one account despite two POSTs
+    expect(await auditCount('user.add', 'membership')).toBe(1);
+  });
+
+  it('denies a regular administrator any platform (cross-property) read or write', async () => {
+    const own = await signup(h.app, 'MX');
+    const admin = await addUser(h.app, own, 'admin'); // a tenant admin, not a Super Admin
+    const list = await h.app.inject({ method: 'GET', url: '/v1/platform/tenants', headers: admin.h });
+    expect(list.statusCode).toBe(403);
+    const write = await h.app.inject({ method: 'POST', url: `/v1/platform/tenants/${own.slug}/members`, headers: { ...admin.h, 'idempotency-key': `x-${Date.now()}` }, payload: { email: 'x@example.com', roles: ['attendant'] } });
+    expect(write.statusCode).toBe(403);
+  });
+});
+
 describe('AI privacy settings persist', () => {
   it('reads back the retention period and the training opt-in exactly as saved (including turning it off)', async () => {
     const me = async () => (await h.app.inject({ method: 'GET', url: '/v1/me', headers: t.h })).json().tenant;

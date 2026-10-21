@@ -15,6 +15,18 @@ export function useApi<T>(path: string | null, deps: unknown[] = []) {
   return { data, error, loading, reload };
 }
 
+/**
+ * A submission-scoped Idempotency-Key for a CRUD create form. The key stays STABLE across retries of the same
+ * payload, so a lost-response retry (or a double-tap) replays the original write instead of surfacing a false
+ * "already exists" conflict or duplicating the side effect/audit. It is rotated only after the server gives a
+ * definitive answer (a success, or a real error like a genuine duplicate), so a corrected resubmit is a fresh
+ * request that cannot trip `idempotency_key_reuse`. Pair with a pending flag to block double submits.
+ */
+export function useSubmitKey() {
+  const ref = useRef(crypto.randomUUID());
+  return { key: () => ref.current, rotate: () => { ref.current = crypto.randomUUID(); } };
+}
+
 const POLL_MS = 15_000;
 
 /**

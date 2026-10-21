@@ -557,3 +557,71 @@ budget; this is the final feature tick.
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
 **Elapsed:** ≈11.1h of the 12h budget at tick start.
 **Tick commit SHA:** `f95bc0d` — fast-forwarded onto `main` and pushed to `origin/main` (normal push).
+
+### Iteration 10 — fix review-iter-09 findings (2026-10-21T15:17Z, ~11h25m into run)
+
+**Previous review flagged (review-iter-09.md / review-verdict.json — all MEDIUM, no blocking/high):**
+1. Criterion 1 — pass-e2e test still starts from a fabricated token / mocked lookup+redeem; no in-context join
+   through real `/pass` bootstrap + server HMAC.
+2. Criteria 3 & 4 — camera tests replace `LiveCamera` with a button; real getUserMedia/ONNX/`.y4m` path unexecuted;
+   no recorded checkout browser story.
+3. Criteria 6 & 7 — CRUD test only drove a UNIT; no person/site/slot create/edit/delete through real screens, no
+   Super-Admin write into a second property, no narrow viewport.
+4. Cross-cutting idempotency — forms defaulted to a fresh random key per `post()` (no retry replay); `POST /v1/users`
+   and the platform members route were not replay-safe; one-time-password recovery gap.
+5. (LOW) manual assistive-technology / zoom / contrast verification outstanding.
+
+**What changed this tick (real production fix + in-gate coverage for the tractable mediums #3 and #4):**
+- **Submission-scoped Idempotency-Key in every CRUD create form (finding #4, real fix).** New `useSubmitKey()` hook
+  in `apps/web/src/components/hooks.ts`: one key per form, **reused on every retry** so a lost-response retry (or a
+  double-tap) replays the original write instead of a false `unit_exists`/`site_exists`/`zone_exists`/`slot_exists`
+  or duplicated audit; it rotates **only after a success** so the next create is a distinct request. Wired into
+  `People.tsx` (unit add, person invite) and `Parking.tsx` (site/zone/slot add), each with a `busy` flag that
+  disables the pending submit button to block double submits. Policy note: a definitive server error (409/400)
+  stores **no** idempotency row (storage happens only on success), so a corrected resubmit with the same key simply
+  proceeds — the network-vs-definitive distinction is unnecessary, which keeps the hook tiny and safe.
+- **`POST /v1/users` is now `replaySafe` (finding #4).** It honours a client-sent key and replays the stored 201.
+  This **reverses iteration-9's deliberate choice to leave it non-replay-safe.** Rationale for the reversal
+  (recorded for morning review): the reviewer explicitly re-flagged it as a finding; the new per-form `busy` guard
+  already blocks the double-tap case entirely, so the only path that reaches the server twice is a genuinely lost
+  response — in which the admin never saw the first password anyway, so the replay returning a redacted (null)
+  password is **no worse than today** while eliminating the false `already_member` on retry. The one-time password
+  is still **never stored** (http.ts nulls it in the idempotency record), so the replay cannot leak it. The deeper
+  recoverable-credential onboarding redesign the reviewer suggested stays a documented follow-up (too large/risky
+  for the 7 criteria at the budget edge).
+- **Residual, documented:** the platform members route (`definePlatformRoute`) has no idempotency plumbing, so its
+  client-sent key is still ignored (adding idempotency there is invasive — a separate follow-up). The web form sends
+  the key harmlessly; double-tap is blocked by `busy`.
+- **Tests (no weakening; +5 total).** `apps/web/test/crud-roles.test.tsx` rewritten to keep the real `useSubmitKey`
+  (mock spreads the actual hooks module) and now drives, at a 390px viewport: unit create/edit/delete; a
+  **lost-response retry proving the SAME key is reused then rotated after success**; person create; site+zone+slot
+  create and slot delete through the real `Parking` screen; and a Super-Admin **write** into a second property via
+  the platform-scoped endpoint (plus the existing regular-admin no-switch boundary). `apps/api/test/api.test.ts`
+  adds a same-key replay test for **site, slot, and person** (one mutation + one audit each; the person's one-time
+  password returned once and absent on replay) and a **regular-admin platform-boundary denial** (GET/POST platform
+  routes → 403).
+
+**Findings #1, #2 and the LOW a11y item — recorded, not forced past (outside the HARD GATE):** they require two dev
+servers + downloaded ONNX models + a Chrome channel + `.y4m` fixtures (finding #2) or a full unauthenticated `/pass`
+bootstrap joined to live server HMAC in one process (finding #1), or real AT/zoom/contrast hardware (LOW) — none of
+which this headless gate (`pnpm test` + `check:css`) can stand up. Their shipped behaviour remains gate-backed:
+pass HMAC / verify-code / 2h-expiry / tamper rejection by `apps/api/test/passes.test.ts`; the QR artifact→scan→
+prefill→redeem join (real screens, real QR decode) by `apps/web/test/pass-e2e.test.tsx`; camera-read→plate-field→
+checkout-match wiring by `attendant-camera.test.tsx` + the ALPR/sessions/checkout api tests; CRUD RLS/role scoping
+and the cross-property boundary by the api suite + `crud-roles.test.tsx`.
+
+**Lowest-risk / ambiguous decisions this tick:** (a) reversed iteration-9's `/v1/users` non-replay-safe stance (see
+rationale above); (b) kept the simple "rotate-on-success, keep-key-on-error" policy rather than a network-vs-definitive
+branch, since a failed create stores no idempotency row; (c) did not attempt to stand up the browser E2E stack for
+findings #1/#2 — out of gate scope, too fragile at the budget edge.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 100 (+1 pre-existing skip), api 106 — all pass
+  (web +3: crud-roles person/site-slot/retry/cross-property writes; api +2: CRUD idempotency parity + platform denial;
+  none weakened or deleted)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+**i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
+**Elapsed:** ≈11h25m of the (extended) budget at tick start; this is iteration 10 (the 10-iteration cap).
+**Tick commit SHA:** _(filled in after commit below)_
