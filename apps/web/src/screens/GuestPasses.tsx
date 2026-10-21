@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError, patch, post } from '../api.js';
-import { useApp } from '../app-context.js';
+import { canEditPassPolicy, useApp } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import type { PassView } from './Resident.js';
@@ -11,13 +11,14 @@ type StaffPass = PassView & { host: string | null; site: string };
 
 export function GuestPasses() {
   const t = useT();
-  const { me, can } = useApp();
+  const { me } = useApp();
   const fmt = useFormat(undefined, me?.tenant.currency);
   const res = useApi<PolicyRes>('/v1/pass-policy');
   const list = useApi<StaffPass[]>('/v1/passes?limit=50');
   const [p, setP] = useState<Policy | null>(null);
   const [msg, setMsg] = useState('');
-  const canEdit = can('override');
+  // The policy editor must match the server's settings.edit permission (admin/super admin only); supervisors see it read-only.
+  const canEdit = canEditPassPolicy(me);
   useEffect(() => { if (res.data) setP(res.data.policy); }, [res.data]);
 
   async function save() {

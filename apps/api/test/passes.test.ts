@@ -153,6 +153,24 @@ describe('QR lifetime and regeneration', () => {
     fields[2] = '2';
     expect((await redeem(fields.join('|'), plateOf())).statusCode).toBe(400); // the signature covers every field, version included
   });
+
+  it('rejects a validly-signed QR whose stored verify code no longer matches (the second tamper layer)', async () => {
+    // The forged/edited cases above fail the HMAC first, so they only prove signature rejection. This exercises the
+    // SEPARATE verify_code check: the token keeps a valid signature AND the matching qr_version, but the code stored in
+    // the database is rotated out from under it. That is the one tamper state the signature cannot catch, so the
+    // server's constant-time verify_code comparison must reject it as pass_invalid.
+    const r = await resident();
+    const p = (await create(r)).json();
+    const rotated = p.verifyCode === 'ZZZZZZZZ' ? 'YYYYYYYY' : 'ZZZZZZZZ'; // a different valid 8-char Crockford code
+    await h.app.db.withTenant(await tenantId(owner.slug), (db) =>
+      db.query('update pass set verify_code = $2 where id = $1', [p.id, rotated])); // qr_version is left untouched
+
+    const look = (await h.app.inject({ method: 'GET', url: `/v1/passes/lookup?token=${encodeURIComponent(p.qr)}`, headers: attendant.h })).json();
+    expect(look).toMatchObject({ valid: false, reason: 'pass_invalid' }); // the token still parses (valid HMAC + version) but the code mismatches
+    const redeemed = await redeem(p.qr, plateOf());
+    expect(redeemed.statusCode).toBe(400);
+    expect(redeemed.json().error.code).toBe('pass_invalid');
+  });
 });
 
 describe('cancelling', () => {

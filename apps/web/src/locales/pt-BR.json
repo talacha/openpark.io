@@ -242,6 +242,7 @@
   "att.passInvalid": "Este passe não pode ser usado.",
   "att.passUse": "Usar este passe",
   "att.passRemove": "Remover passe",
+  "att.passDismiss": "Descartar e escanear novamente",
   "att.passChecking": "Verificando o passe…",
   "att.needPlate": "Adicione a placa antes de confirmar a entrada.",
   "att.editPlate": "Voltar para editar a placa",

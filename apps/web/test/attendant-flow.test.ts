@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, emptyFlow, isStalePassLookup, type FlowState, type PassAccept } from '../src/attendant-flow.js';
+import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, clearPassError, emptyFlow, isStalePassLookup, type FlowState, type PassAccept } from '../src/attendant-flow.js';
 import { parsePassQr } from '../src/pass.js';
 
 // A hinted pass (plate ABC123) and the same pass with no plate hint.
@@ -70,18 +70,20 @@ function lookupHarness() {
       s = { ...s, ...applyPassAccept(s, accept) };
       return true;
     },
-    /** A lookup resolves invalid/failed: ignored if stale, else clears pending with no pass attached. */
-    resolveInvalid(mySeq: number) {
+    /** A lookup resolves invalid/failed: ignored if stale, else clears pending and PERSISTS the reason (no pass attached). */
+    resolveInvalid(mySeq: number, reason = 'This QR is not valid') {
       if (isStalePassLookup(mySeq, latestSeq)) return false;
-      s = { ...s, ...applyPassError() };
+      s = { ...s, ...applyPassError(reason) };
       return true;
     },
+    /** The attendant acknowledges a rejected scan, clearing the persisted error so a walk-in may proceed. */
+    acknowledge() { s = { ...s, ...clearPassError() }; },
     /**
      * A scan rejected locally (e.g. a wrong-site QR) still claims the latest generation BEFORE the early return, then
-     * clears pending — mirroring `const mySeq = ++passSeq.current` running ahead of the wrong-site branch in usePass.
+     * persists the reason — mirroring `const mySeq = ++passSeq.current` running ahead of the wrong-site branch in usePass.
      * This is what lets a newer wrong-site scan supersede an older in-flight lookup.
      */
-    beginWrongSite() { latestSeq += 1; s = { ...s, ...applyPassError() }; return latestSeq; },
+    beginWrongSite(reason = 'This pass is for another site') { latestSeq += 1; s = { ...s, ...applyPassError(reason) }; return latestSeq; },
   };
 }
 
@@ -102,15 +104,24 @@ describe('a pass lookup is a sequenced pending operation', () => {
     expect(canConfirm(h.state, false)).toBe(true);
   });
 
-  it('an invalid lookup clears pending and leaves no pass, so a walk-in can proceed', () => {
+  it('a rejection that lands AFTER the camera navigated to confirm stays visible and blocks the walk-in until acknowledged', () => {
+    // This locks the high-severity defect: usePass marks pending, the live camera reads a plate and navigates to
+    // Confirm, THEN the lookup rejects. Because the reason is persisted on the flow (not in the unmounted capture
+    // screen), it is still shown on Confirm and Confirm stays disabled — the attendant cannot silently submit the
+    // ordinary /v1/sessions walk-in branch that would hide the failed pass.
     const h = lookupHarness();
     const seq = h.begin();
-    h.patch({ plate: 'WALK01', plateFromPass: false });
-    expect(canConfirm(h.state, false)).toBe(false);
-    expect(h.resolveInvalid(seq)).toBe(true);
+    h.patch({ plate: 'WALK01', plateFromPass: false }); // camera plate read lands and the flow navigates to Confirm
+    expect(canConfirm(h.state, false)).toBe(false); // pending blocks confirm
+    expect(h.resolveInvalid(seq, 'The verification code on this QR does not match')).toBe(true);
     expect(h.state.pass).toBeNull();
     expect(h.state.passPending).toBe(false);
-    expect(canConfirm(h.state, false)).toBe(true); // the plate stands as an ordinary paid stay
+    expect(h.state.passError).toBe('The verification code on this QR does not match'); // the rejection survives the navigation
+    expect(canConfirm(h.state, false)).toBe(false); // STILL blocked: the walk-in is not possible while the failure is unacknowledged
+    // Only an explicit acknowledgment clears the error; then the captured plate may stand as an ordinary paid stay.
+    h.acknowledge();
+    expect(h.state.passError).toBeNull();
+    expect(canConfirm(h.state, false)).toBe(true);
   });
 
   it('when two QR lookups resolve out of order, the newest scan wins', () => {
@@ -141,11 +152,13 @@ describe('a pass lookup is a sequenced pending operation', () => {
     const h = lookupHarness();
     const first = h.begin(); // scan A (valid site) goes pending
     expect(h.state.passPending).toBe(true);
-    // Scan B is for the wrong site: it is rejected locally but still claims the latest generation and clears pending.
+    // Scan B is for the wrong site: it is rejected locally but still claims the latest generation and persists its reason.
     h.beginWrongSite();
     expect(h.state.passPending).toBe(false);
+    expect(h.state.passError).toBe('This pass is for another site'); // B's rejection is shown, not silently dropped
     // A now resolves valid but is stale, so it must NOT attach — the attendant saw B's rejection, not A's host.
     expect(h.resolveValid(first, { token: 'A', guest: 'Ana', unit: 'A-1', q: noHint, regions: ['MX'] })).toBe(false);
     expect(h.state.pass).toBeNull();
+    expect(canConfirm(h.state, false)).toBe(false); // the wrong-site rejection keeps confirm disabled
   });
 });

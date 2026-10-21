@@ -37,6 +37,13 @@ interface AppCtx {
 const Ctx = createContext<AppCtx>(null as never);
 export const useApp = () => useContext(Ctx);
 
+/**
+ * May this person edit tenant settings (the guest-pass policy)? This MUST mirror the server's `settings.edit`
+ * permission, which only admins and super admins hold — supervisors deliberately do not. Gating the policy editor on
+ * `can('override')` wrongly enabled it for supervisors, who then hit a guaranteed 403 on PATCH /v1/pass-policy.
+ */
+export const canEditPassPolicy = (me: Me | null): boolean => !!me && (me.superadmin || me.roles.includes('admin'));
+
 /** Pick a localized label from a string or locale map: exact locale, then language, then en, then first. */
 export function pickLabel(label: string | Record<string, string> | undefined, locale: string, fallback = ''): string {
   if (!label) return fallback;

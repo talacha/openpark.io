@@ -14,18 +14,32 @@ export interface FlowState {
    * attendant can never submit the ordinary walk-in branch (leaving a valid pass unredeemed) mid-lookup.
    */
   passPending: boolean;
+  /**
+   * A rejected scan's message, PERSISTED on the flow (not in a screen that unmounts). A live camera plate read can
+   * navigate away from the capture screen while the lookup is still in flight; if the lookup then rejects, the message
+   * must survive so it is shown on Review/Confirm. While it is set, Confirm stays disabled, so the attendant cannot
+   * silently submit an ordinary walk-in that hides a failed pass — they must explicitly acknowledge the rejection first.
+   */
+  passError: string | null;
   vehicle: { make?: string; model?: string; color?: string; bodyType?: string };
   /** A scanned resident guest pass: check-in is then free and tied to the pass. */
   pass: { token: string; guest: string; unit: string; plateHint?: string; verifyCode?: string } | null;
 }
 
-export const emptyFlow = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null, plateFromPass: false, passPending: false });
+export const emptyFlow = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null, plateFromPass: false, passPending: false, passError: null });
 
-/** The patch that marks a pass lookup as in flight. Apply it the instant a QR/code is accepted, before the round trip. */
-export const beginPassLookup = (): Partial<FlowState> => ({ passPending: true });
+/** The patch that marks a pass lookup as in flight. Apply it the instant a QR/code is accepted, before the round trip; it also clears any prior rejection, since a new scan supersedes it. */
+export const beginPassLookup = (): Partial<FlowState> => ({ passPending: true, passError: null });
 
-/** The patch when a pass lookup fails or is rejected: clear the pending flag; no pass is attached, so a walk-in stands. */
-export const applyPassError = (): Partial<FlowState> => ({ passPending: false });
+/**
+ * The patch when a pass lookup fails or is rejected: clear the pending flag and PERSIST the reason on the flow, so a
+ * rejection that lands after the camera already navigated away is still shown and still blocks confirm. No pass is
+ * attached. The attendant must acknowledge (see {@link clearPassError}) before an ordinary walk-in can be submitted.
+ */
+export const applyPassError = (message: string): Partial<FlowState> => ({ passPending: false, passError: message });
+
+/** The patch when the attendant explicitly acknowledges a rejected scan: clear the message so a walk-in may proceed. */
+export const clearPassError = (): Partial<FlowState> => ({ passError: null });
 
 /**
  * Is a resolved pass lookup stale? Each lookup is tagged with the sequence it was issued at; if a newer scan has since
@@ -33,8 +47,11 @@ export const applyPassError = (): Partial<FlowState> => ({ passPending: false })
  */
 export const isStalePassLookup = (mySeq: number, latestSeq: number): boolean => mySeq !== latestSeq;
 
-/** Whether the attendant may submit check-in: a plate is present, nothing else is in flight, and no pass lookup is pending. */
-export const canConfirm = (s: FlowState, busy: boolean): boolean => !busy && !!s.plate && !s.passPending;
+/**
+ * Whether the attendant may submit check-in: a plate is present, nothing else is in flight, no pass lookup is pending,
+ * and no rejected scan is awaiting acknowledgment (an unacknowledged rejection must not be hidden behind a walk-in).
+ */
+export const canConfirm = (s: FlowState, busy: boolean): boolean => !busy && !!s.plate && !s.passPending && !s.passError;
 
 /** Clear read metadata alongside a pass-derived plate, so a stale candidate/confidence never rides on the next pass. */
 const clearedRead = { candidates: [] as Candidate[], confidence: undefined, textRaw: undefined, cropKey: undefined };
@@ -52,7 +69,7 @@ export function applyPassAccept(s: FlowState, a: PassAccept): Partial<FlowState>
   const patch = passAcceptPatch({ plate: s.plate, plateFromPass: s.plateFromPass }, a.q);
   return {
     pass: { token: a.token, guest: a.guest, unit: a.unit, plateHint: a.q?.plate || undefined, verifyCode: a.q?.code },
-    plate: patch.plate, plateFromPass: patch.plateFromPass, passPending: false,
+    plate: patch.plate, plateFromPass: patch.plateFromPass, passPending: false, passError: null,
     ...(patch.plate ? { region: a.regions[0] ?? s.region, source: 'manual' as const } : {}),
     ...(patch.clearRead ? clearedRead : {}),
   };
@@ -61,5 +78,5 @@ export function applyPassAccept(s: FlowState, a: PassAccept): Partial<FlowState>
 /** The state patch when the current pass is removed: drop a plate that came from it, keep one the attendant captured. */
 export function applyPassRemove(s: FlowState): Partial<FlowState> {
   const patch = passRemovePatch({ plate: s.plate, plateFromPass: s.plateFromPass });
-  return { pass: null, passPending: false, plate: patch.plate, plateFromPass: patch.plateFromPass, ...(patch.clearRead ? clearedRead : {}) };
+  return { pass: null, passPending: false, passError: null, plate: patch.plate, plateFromPass: patch.plateFromPass, ...(patch.clearRead ? clearedRead : {}) };
 }

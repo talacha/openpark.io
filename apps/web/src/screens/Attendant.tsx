@@ -7,7 +7,7 @@ import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
 import { parsePassQr, spaceCode } from '../pass.js';
-import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, emptyFlow, isStalePassLookup, type Candidate, type FlowState } from '../attendant-flow.js';
+import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, clearPassError, emptyFlow, isStalePassLookup, type Candidate, type FlowState } from '../attendant-flow.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -119,16 +119,18 @@ export function CheckInCapture() {
   const b = base(me!.tenant.slug);
   const [scanning, setScanning] = useState(false);
   const [code, setCode] = useState('');
-  const [passErr, setPassErr] = useState('');
   const passBannerRef = useRef<HTMLDivElement>(null);
+  const passErrRef = useRef<HTMLDivElement>(null);
 
   // When a pass is accepted, move focus to its banner so keyboard and screen-reader users land on the result and hear it.
   useEffect(() => { if (flow.pass) passBannerRef.current?.focus(); }, [flow.pass?.token]);
+  // A rejected scan likewise takes focus, so a keyboard/screen-reader attendant lands on the failure, not past it.
+  useEffect(() => { if (flow.passError) passErrRef.current?.focus(); }, [flow.passError]);
 
   /** Look a scanned or typed pass up before taking the plate, so a bad QR is caught at the gate, not after. */
   async function usePass(raw: string) {
     const token = raw.trim();
-    setScanning(false); setPassErr('');
+    setScanning(false);
     if (!token) return;
     // The QR carries the guest, unit, plate hint and expiry, so an expired or foreign code is rejected before any round trip.
     const q = parsePassQr(token);
@@ -138,9 +140,8 @@ export function CheckInCapture() {
     const mySeq = ++passSeq.current;
     // Expiry is the server's call: this phone's clock may be wrong, and a wrong clock must not turn a valid guest away.
     if (q && site && q.site !== site.code) {
-      // Clear any pending flag an older lookup left set: this current rejection, as the latest scan, owns that state.
-      update(applyPassError);
-      setPassErr(t('pass.reason_pass_wrong_site'));
+      // Persist the rejection (as the latest scan, this owns the state) so it is shown and blocks confirm until acknowledged.
+      update(() => applyPassError(t('pass.reason_pass_wrong_site')));
       return;
     }
     // Mark the lookup in flight so Confirm stays disabled until it settles: a concurrent camera plate read may have
@@ -149,7 +150,9 @@ export function CheckInCapture() {
     try {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
       if (isStalePassLookup(mySeq, passSeq.current)) return; // a newer scan superseded this one; it owns the pending state
-      if (!r.valid) { update(applyPassError); setPassErr(passReason(t, r.reason ?? 'pass_invalid')); return; }
+      // A rejection is PERSISTED on the flow, not in this (possibly-unmounted) screen: if a camera plate read already
+      // navigated to Confirm, the failure still shows there and still blocks the walk-in until it is acknowledged.
+      if (!r.valid) { update(() => applyPassError(passReason(t, r.reason ?? 'pass_invalid'))); return; }
       // Apply the pass against the LATEST flow state, because this lands after an await and a live camera read may have
       // filled the plate in the meantime: a hinted pass pre-fills the plate (keypad/camera stay available to correct it);
       // a no-hint pass clears a plate left over from a PREVIOUS pass but keeps one the attendant captured independently.
@@ -159,8 +162,7 @@ export function CheckInCapture() {
       setCode('');
     } catch (e) {
       if (isStalePassLookup(mySeq, passSeq.current)) return;
-      update(applyPassError);
-      setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e));
+      update(() => applyPassError(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)));
     }
   }
 
@@ -209,8 +211,13 @@ export function CheckInCapture() {
             <input className="grow" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('att.passCode')} aria-label={t('att.passCode')} dir="ltr" autoCapitalize="off" />
             <button type="button" className="btn" disabled={!code.trim()} onClick={() => { void usePass(code); }}>{t('att.passUse')}</button>
           </div>
-          {passErr && <div className="banner bad" role="alert">{passErr}</div>}
         </section>
+      )}
+      {flow.passError && (
+        <div className="banner bad" role="alert" tabIndex={-1} ref={passErrRef}>
+          <div>{flow.passError}</div>
+          <div><button type="button" className="btn" onClick={() => update(clearPassError)}>{t('att.passDismiss')}</button></div>
+        </div>
       )}
       {aiOn && <div className="row"><button className={`btn ${camera ? 'primary' : ''}`} onClick={() => setCamera(true)}>{t('att.camera')}</button><button data-mode="keypad" className={`btn ${!camera ? 'primary' : ''}`} onClick={() => setCamera(false)}>{t('att.keypad')}</button></div>}
       {camera ? (
@@ -266,7 +273,7 @@ export function CheckInConfirm() {
   const t = useT();
   const nav = useNavigate();
   const { me, site } = useApp();
-  const { flow, set, reset } = useFlow();
+  const { flow, set, update, reset } = useFlow();
   const b = base(me!.tenant.slug);
   const [slot, setSlot] = useState('');
   const [busy, setBusy] = useState(false);
@@ -337,7 +344,15 @@ export function CheckInConfirm() {
         </div>
       )}
       {flow.passPending && <div className="banner" role="status" aria-live="polite">{t('att.passChecking')}</div>}
-      {!flow.passPending && !flow.plate && <div className="banner warn" role="alert">{t('att.needPlate')}</div>}
+      {/* A scan that rejected AFTER a camera plate read navigated here stays visible and blocks the walk-in: the
+          attendant must acknowledge (return to scan) before an ordinary check-in can be submitted. */}
+      {flow.passError && (
+        <div className="banner bad" role="alert">
+          <div>{flow.passError}</div>
+          <div><button type="button" className="btn" onClick={() => { update(clearPassError); nav(`${b}/checkin`); }}>{t('att.passDismiss')}</button></div>
+        </div>
+      )}
+      {!flow.passPending && !flow.passError && !flow.plate && <div className="banner warn" role="alert">{t('att.needPlate')}</div>}
       <button className="btn primary big" disabled={!canConfirm(flow, busy)} onClick={() => confirm()}>{t('att.confirm')}</button>
       <button type="button" className="btn" onClick={() => nav(`${b}/checkin`)}>{t('att.editPlate')}</button>
     </div>

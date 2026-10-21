@@ -144,7 +144,7 @@ export function ResidentHome() {
  * Send the live pass to the guest. Prefers the Web Share API with the QR as an image file; degrades to text-only
  * share, then to copying the message and downloading the QR image. Never throws on an unsupported browser.
  */
-function SharePass({ qr, guest, property, unit, code, expiresMinutes }: { qr: string; guest: string; property: string; unit: string; code: string; expiresMinutes: number }) {
+export function SharePass({ qr, guest, property, unit, code, expiresMinutes }: { qr: string; guest: string; property: string; unit: string; code: string; expiresMinutes: number }) {
   const t = useT();
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -165,12 +165,17 @@ function SharePass({ qr, guest, property, unit, code, expiresMinutes }: { qr: st
       // Every Web Share carries the guest link, so the guest can open it and present a scannable QR on their own device.
       if (plan.method === 'file') { await nav.share({ title, text, url, files: [file] }); return; }
       if (plan.method === 'text') { await nav.share({ title, text, url }); return; }
-      // No Web Share API (most desktops): download the QR image, and copy the message + link only when the Clipboard API exists.
-      if (plan.copies) await navigator.clipboard.writeText(`${text}\n${url}`);
+      // No Web Share API (most desktops): the QR download is the actual share artifact and must ALWAYS happen. Copying
+      // the message is a best-effort extra, so a Clipboard that exists but rejects (permission policy, NotAllowedError)
+      // must NOT skip the download. Catch it on its own and report honestly whether the copy also succeeded.
+      let copied = false;
+      if (plan.copies) {
+        try { await navigator.clipboard.writeText(`${text}\n${url}`); copied = true; } catch { /* clipboard denied: download still proceeds */ }
+      }
       const a = document.createElement('a');
       a.href = dataUrl; a.download = 'parking-pass.gif'; a.rel = 'noopener';
       a.click();
-      setStatus(t(plan.statusKey || 'res.shareDownloaded'));
+      setStatus(t(copied ? 'res.shareCopied' : 'res.shareDownloaded'));
     } catch (e) {
       if ((e as { name?: string })?.name === 'AbortError') return; // guest dismissed the share sheet: not an error
       setStatus(t('res.shareFailed'));

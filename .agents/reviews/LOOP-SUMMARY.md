@@ -296,3 +296,78 @@ no placeholders; `en-XA.json` left generated. Locale parity test green.
 
 **Pushed commit SHA:** `be40389` (iteration-5 tick) + this bookkeeping follow-up — fast-forwarded onto `main` and pushed to `origin/main`.
 
+
+---
+
+## Iteration 6 — fix pass of review-iter-05 findings (verdict: CHANGES_REQUESTED)
+
+Fix iteration. Run start `2026-10-21T03:52:23Z`; this tick ≈ `2026-10-21T14:16Z`, ~10h24m elapsed (inside the 12h budget).
+Source of findings: `.agents/tasks/review-verdict.json` → `.agents/reviews/review-iter-05.md` (1 HIGH, 7 MEDIUM, 1 LOW).
+
+**What the previous review flagged (and how this tick resolved it):**
+
+1. **HIGH crit-2/3 — a live-camera plate read could navigate away while a pass lookup was still pending; when the lookup
+   later rejected, the rejection text lived only in the now-unmounted capture screen, so Confirm ended up with a plate,
+   no pass and no visible error and its button re-enabled → the attendant could silently submit the ordinary
+   `/v1/sessions` walk-in branch, hiding a failed pass. REAL FIX.**
+   - New persisted `FlowState.passError: string | null` (in `apps/web/src/attendant-flow.ts`). `beginPassLookup` clears
+     it (a new scan supersedes a prior rejection); `applyPassError(message)` now PERSISTS the reason on the flow;
+     `applyPassAccept`/`applyPassRemove` clear it; new `clearPassError()` is the explicit acknowledgment. `canConfirm`
+     now also requires `!passError`, so an unacknowledged rejection blocks the walk-in.
+   - `apps/web/src/screens/Attendant.tsx`: `usePass()` writes the rejection to the flow (wrong-site, invalid, and
+     network/`ApiError` branches) instead of local `useState`; the capture screen and `CheckInConfirm` both render
+     `flow.passError` as a `role="alert"` banner with a "Dismiss and scan again" button that calls `clearPassError()`
+     (and, on Confirm, returns to the scan screen). Focus moves to the rejection banner for keyboard/SR users.
+     A rejection raised after navigation therefore stays visible on Confirm and Confirm stays disabled until it is
+     acknowledged — the reviewer's correction ("persist lookup outcome/error in Flow and surface it on Review/Confirm;
+     a rejected scan must require an explicit return/acknowledgment before an ordinary walk-in can be submitted").
+   - New i18n key `att.passDismiss` added to all 7 locales (en, es-MX, es-ES, pt-BR, fr, de, ar); parity test green.
+   - Regression: `apps/web/test/attendant-flow.test.ts` now drives the exact race — begin lookup, camera plate read
+     lands and navigates, lookup REJECTS after navigation → `passError` persists, `canConfirm` stays false, and only an
+     explicit `acknowledge()` re-enables the walk-in. Wrong-site case also asserts the persisted reason + blocked confirm.
+2. **MEDIUM crit-1 — the no-Web-Share fallback awaited `clipboard.writeText` BEFORE the QR download, so a present-but-
+   rejecting Clipboard (permission policy / `NotAllowedError`) skipped the download entirely. REAL FIX.**
+   `apps/web/src/screens/Resident.tsx`: the clipboard copy is now wrapped in its own try/catch; the QR download always
+   runs; the status reports `res.shareCopied` only when the copy actually succeeded, else `res.shareDownloaded`.
+   `SharePass` is exported and covered by new executed-React test `apps/web/test/share-pass.test.tsx` (clipboard reject →
+   still downloads + download-only status; clipboard ok → copied status; no Clipboard → download-only).
+3. **MEDIUM crit-1 — verify-code tamper rejection had no executed test (existing forged/edited cases fail the HMAC
+   first). ADDED TEST.** `apps/api/test/passes.test.ts`: issue a valid pass, rotate the stored `verify_code` WITHOUT
+   bumping `qr_version`, then assert lookup → `{valid:false, reason:'pass_invalid'}` and redeem → 400 `pass_invalid`.
+   This reaches the server's constant-time `verify_code` comparison with a still-valid signature + matching version —
+   the one tamper state the HMAC cannot catch.
+4. **MEDIUM crit-5/authorization — `GuestPasses` gated the policy editor on `can('override')`, which is true for
+   supervisors, but the server's `PATCH /v1/pass-policy` requires `settings.edit` (admins/super admins only), so a
+   supervisor saw an editable form whose Save always 403s. REAL FIX.** New pure helper `canEditPassPolicy(me)` in
+   `apps/web/src/app-context.tsx` (`me.superadmin || me.roles.includes('admin')`) mirrors the server exactly;
+   `GuestPasses.tsx` uses it, so supervisor controls stay disabled. Unit-tested in `apps/web/test/policy-access.test.ts`.
+5. **MEDIUM crit-2 (prepopulate/focus/edit/redeem) / crit-3-4 (camera-to-field check-in + checkout) / crit-6-7 (Admin &
+   Super Admin cross-property CRUD) — the `e2e/*.mjs` browser stories were not run.** Lowest-risk decision (unchanged
+   from prior ticks, documented again): these Playwright stories need two live dev servers, a downloaded ONNX model set,
+   a Chrome channel and `.y4m` camera fixtures — infrastructure outside the HARD GATE and not reliably available in this
+   worktree, and a failing E2E is not part of the gate. `@testing-library/react` is still not a dependency, so full
+   screen renders are not added; instead this tick adds executed-React coverage with already-installed deps for the two
+   findings that exposed a real BEHAVIOUR defect (the pass-rejection race #1 and the share clipboard branch #2). The
+   remaining items identify no behaviour defect — the underlying server behaviour (configured overstay amount in all
+   three 12h notices, redeem vs walk-in branch selection, policy PATCH authorization, CRUD RLS/role scoping) is already
+   covered by gate-backed API tests — so they are left for a full-stack E2E run. No test was weakened or deleted.
+6. **LOW a11y — manual AT / zoom / contrast review** cannot be performed by this automated loop; left outstanding.
+
+**Lowest-risk / ambiguous decisions this tick:**
+- Chose to PERSIST the rejection on `Flow` and block Confirm until an explicit dismiss (rather than merely preventing
+  plate navigation while pending). This keeps the camera's fast plate capture working, needs no new navigation guards,
+  and is the more robust of the reviewer's two suggested corrections.
+- `att.passDismiss` is a single new string; translated into all 7 locales to keep the parity test green.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 77 (+1 pre-existing skip), api 103 — all pass
+  (web +5 this tick: 1 reworked + ... race case in `attendant-flow.test.ts`, 3 in `share-pass.test.tsx`, 2 in
+  `policy-access.test.ts`; api +1 verify-code tamper case in `passes.test.ts`; none weakened)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+
+**i18n parity:** one new key `att.passDismiss` added to all seven locales; parity test green.
+
+**Pushed commit SHA:** `e6ed3d5` — fast-forwarded onto `main` and pushed to `origin/main`.
+
