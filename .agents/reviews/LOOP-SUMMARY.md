@@ -1449,3 +1449,40 @@ finding in `.agents/tasks/review.json` (verdict CHANGES_REQUESTED: 5 HIGH, 6 MED
   `pass-e2e.test.tsx` updated to the corrected AC-4.2.2 navigation, still asserting the full redeem path)
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 - Postgres at :54329 was reachable; api tests ran against a fresh migrated DB (global-setup), migration 018 applied cleanly.
+
+
+---
+
+## Iteration 7 — fix reviewer finding from `review.json` / `review.md` (2026-10-21, docs terminology sweep)
+
+**Previous review flagged** (`CHANGES_REQUESTED`, 1 MEDIUM, the sole remaining blocker):
+- Finding #11 (docs half): the locale catalogs were already swept clean, but the three docs still named the
+  Community entity "property/Property" in reachable prose/diagrams/tables, PERSONAS.md:22 mislabelled the Sites
+  journey as "Communities (Sites/Zones/Slots)", and neither DOMAIN.md nor PERSONAS.md listed the new Community
+  bulk tab.
+
+**What changed (docs only — no code, no behaviour):**
+- `docs/DOMAIN.md`: renamed reachable "property/Property" → Community in the Super Admin row, the API-key row,
+  the relationships diagram root (`Community ─┬─ Site` + `Super Admin ── any Community`, realigned ASCII), the
+  data-rules line ("a community keeps at least one Admin"), the field-types "community's slot types", and the
+  entity-management table row (`Community | Platform`). Added Community to the documented bulk tabs
+  ("entity tabs: Community, Sites, Slots, Units, Users"). Kept the deliberate schema note at line 10.
+- `docs/PERSONAS.md`: Admin/Super Admin persona rows → Community; fixed the Sites-journey label from
+  "Communities (Sites/Zones/Slots)" to "Sites (Sites/Zones/Slots)"; slug note, overstay-alerts line, Admin
+  section header, and Super Admin Platform journeys → Community; added Community to the bulk-tab list
+  ("Community · Sites · Slots · Units · Users").
+- `ARCHITECTURE.md`: Supervisor row "per property" → "per community" and Super Admin row "role of a property:
+  configures every property" → "role of a community: configures every community". Kept the deliberate schema
+  note at line 303 ("the surfaced name for a property") and the unrelated "CSS logical properties" at line 222.
+
+**Decision recorded (lowest-risk):** docs-only edit; preserved the two explicit schema-term notes
+(DOMAIN.md:10, ARCHITECTURE.md:303) exactly as the review instructed so the schema↔surface mapping stays
+documented, and the "CSS logical properties" phrase is unrelated vocabulary and was left untouched. No code,
+locale catalog, schema, or test changed.
+
+**Gate status:** GREEN (re-run in full this iteration).
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → web 127 (+1 pre-existing skip), api 135, plus core/sdk-ts/ui/marketing — all pass; no test
+  weakened, skipped, or deleted. Postgres at :54329 was reachable; api tests ran for real against the migrated DB.
+- `pnpm --filter @openpark/web check:css` → "logical properties only"

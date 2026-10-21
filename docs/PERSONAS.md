@@ -19,12 +19,12 @@ considered verified (only a verified resident may issue passes).
 | **Resident** | Lives in the community and issues guest parking passes for a unit they belong to. | `membership.roles` contains `resident`, plus a **verified** unit (`membership.unit_verified`); only a verified resident may issue passes. | Edit profile · Issue new parking pass · Share pass · Previous passes |
 | **Operator / Parking Attendant** | Works the gate: checks cars in and out, takes payment, scans plates and QR codes. | `membership.roles` contains `attendant`. | Attendant home (capacity bar, recent activity) · Check in · Check out · Queue |
 | **Supervisor** | Everything an Attendant does, plus fee overrides, voids and the monitoring console; is alerted when a car overstays. | `membership.roles` contains `supervisor`. | All Attendant journeys · Occupancy dashboard · Stays · Slots · Guest passes · Overstay alerts |
-| **Admin** | Configures a single property: communities, slots, units, users, rates, integrations and AI. | `membership.roles` contains `admin`. | Communities (Sites/Zones/Slots) · Units · Users · Bulk import / export · Advanced (Rates, Integrations, AI) |
-| **Super Admin** | A platform-wide operator who can act in any property and switch between them. Never a membership role. | `app_user.is_superadmin` flag. | Platform (property list + switcher) · any property's journeys · place users in any property's units |
+| **Admin** | Configures a single community: sites, slots, units, users, rates, integrations and AI. | `membership.roles` contains `admin`. | Sites (Sites/Zones/Slots) · Units · Users · Bulk import / export · Advanced (Rates, Integrations, AI) |
+| **Super Admin** | A platform-wide operator who can act in any community and switch between them. Never a membership role. | `app_user.is_superadmin` flag. | Platform (community list + switcher) · any community's journeys · place users in any community's units |
 
 ## Journeys by persona
 
-Routes are those in `apps/web/src/App.tsx`; the leading `/t/:slug` is the current property's slug.
+Routes are those in `apps/web/src/App.tsx`; the leading `/t/:slug` is the current community's slug.
 
 ### Resident — `/t/:slug/r`
 
@@ -56,7 +56,7 @@ Permissions: `checkin`, `checkout`, `payment`, `slot.status`, `pass.redeem`.
 - Everything an Attendant can do, plus:
 - **Occupancy dashboard** (`/dashboard`), **Stays** (`/sessions`), **Slots** (`/slots`),
   **Guest passes** (`/passes`).
-- **Overstay alerts** — notified per property when a guest car passes the policy thresholds. The
+- **Overstay alerts** — notified per community when a guest car passes the policy thresholds. The
   thresholds are **policy-derived**, not fixed: reminders fire at `policy.reminderHours` and the
   overstay at `policy.maxStayHours` (10 h / 11 h / 12 h are only the shipped defaults). The 12 h
   overstay message states the configured charge, currency-formatted from
@@ -64,13 +64,13 @@ Permissions: `checkin`, `checkout`, `payment`, `slot.status`, `pass.redeem`.
 
 Additional permissions over Attendant: `fee.override`, `session.void`, `pass.admin`.
 
-### Admin — property configuration
+### Admin — community configuration
 
 - **Communities → Sites / Zones / Slots** (`/parking`) — the estate structure.
 - **Units** (`/units`) — homes in the community; residents belong to a unit.
 - **Users** (`/users`) — accounts and their roles; an admin verifies a resident's unit before the
   resident can issue passes.
-- **Bulk import / export** (`/bulk`) — one screen with entity tabs **Sites · Slots · Units · Users**;
+- **Bulk import / export** (`/bulk`) — one screen with entity tabs **Community · Sites · Slots · Units · Users**;
   for each tab: export JSON, paste or upload, validate, review the diff, apply, roll back. (The legacy
   per-entity routes `/inventory` and the `/units` export still exist but are not the Admin journey.)
 - **Advanced** — Rate plans (`/rates`), Integrations (`/integrations`), AI plate reading (`/ai`).
@@ -80,9 +80,9 @@ Permissions: everything except `tenant.delete`.
 
 ### Super Admin — `/platform`
 
-- **Platform** (`/platform`) — list every property and switch between them; *Enter* opens any
-  property and all of its journeys.
-- Place users in any property, choosing the property and one of its units.
+- **Platform** (`/platform`) — list every community and switch between them; *Enter* opens any
+  community and all of its journeys.
+- Place users in any community, choosing the community and one of its units.
 
 Super Admin bypasses every permission check (`can()` returns true for any permission).
 

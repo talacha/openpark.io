@@ -299,9 +299,9 @@ A person can hold several roles; access is the union. Roles, least to most acces
 | --- | --- |
 | Resident | Lives in the complex (belongs to a unit) and issues guest parking passes by QR code |
 | Attendant | Check in, check out, take payment, scan plates and QR codes, mark a slot out of service |
-| Supervisor | Everything an Attendant can, plus override fees, void sessions, manage guest passes; is notified per property when a car passes 10, 11 and 12 hours |
+| Supervisor | Everything an Attendant can, plus override fees, void sessions, manage guest passes; is notified per community when a car passes 10, 11 and 12 hours |
 | Admin | Configures one community (the surfaced name for a property): sites, zones, slots, units, people (verifying residents' unit access), bulk import/export, and — under Advanced — rates, integrations and AI. Localization is code-controlled, not an admin screen. |
-| Super Admin | A platform-wide flag, not a role of a property: configures every property and switches between them |
+| Super Admin | A platform-wide flag, not a role of a community: configures every community and switches between them |
 
 See `docs/DOMAIN.md` for the vocabulary and how the entities relate.
 
