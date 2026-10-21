@@ -59,6 +59,7 @@ async function resolveExternalUser(app: App, ext: ExternalIdentity): Promise<Ide
       if (!u) u = (await db.query('insert into app_user (email, name, auth_id) values ($1, $2, $3) returning id, is_superadmin', [ext.email, ext.name, ext.sub])).rows[0];
       if (isSuper(ext.email) && !u.is_superadmin) { await db.query('update app_user set is_superadmin = true where id = $1', [u.id]); u.is_superadmin = true; }
       await db.query('select claim_invites($1, $2)', [u.id, ext.email]);
+      u.is_superadmin = (await db.query('select is_superadmin from app_user where id = $1', [u.id])).rows[0].is_superadmin; // an invitation can carry Super Admin
       await db.query('commit');
       return { userId: u.id as string, email: ext.email, superadmin: !!u.is_superadmin };
     } catch (e) {

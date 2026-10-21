@@ -12,7 +12,7 @@ export interface AddedPerson { userId?: string; temporaryPassword?: string; invi
  * account (returning a one-time password) and external auth records an invitation that is claimed at first sign-in.
  */
 export async function addPerson(app: App, db: Db, tenantId: string, invitedBy: string | null,
-  p: { email: string; name?: string | null; roles: string[]; unitId: string | null }): Promise<AddedPerson> {
+  p: { email: string; name?: string | null; roles: string[]; unitId: string | null; superadmin?: boolean }): Promise<AddedPerson> {
   const email = p.email.toLowerCase();
   const existing = (await db.query('select id from app_user where email = $1', [email])).rows[0];
   let userId: string | undefined = existing?.id;
@@ -28,7 +28,7 @@ export async function addPerson(app: App, db: Db, tenantId: string, invitedBy: s
     return { userId, ...(temp ? { temporaryPassword: temp } : {}) };
   }
   await db.query(
-    'insert into membership_invite (tenant_id, email, roles, unit_id, invited_by) values ($1,$2,$3,$4,$5) on conflict (tenant_id, email) do update set roles = excluded.roles, unit_id = excluded.unit_id',
-    [tenantId, email, p.roles, p.unitId, invitedBy]);
+    'insert into membership_invite (tenant_id, email, roles, unit_id, invited_by, superadmin) values ($1,$2,$3,$4,$5,$6) on conflict (tenant_id, email) do update set roles = excluded.roles, unit_id = excluded.unit_id, superadmin = excluded.superadmin',
+    [tenantId, email, p.roles, p.unitId, invitedBy, !!p.superadmin]);
   return { invited: true };
 }

@@ -119,7 +119,7 @@ export function registerPeopleRoutes(app: App) {
         `select a.id, a.email, a.name, a.phone, m.roles, a.is_superadmin as superadmin, un.code as unit from membership m join app_user a on a.id = m.user_id
          left join unit un on un.id = m.unit_id order by a.is_superadmin desc, cardinality(m.roles) desc, a.email`)).rows;
       const invites = (await db.query(
-        `select i.email, i.roles, un.code as unit, i.created_at from membership_invite i left join unit un on un.id = i.unit_id order by i.email`)).rows;
+        `select i.email, i.roles, i.superadmin, un.code as unit, i.created_at from membership_invite i left join unit un on un.id = i.unit_id order by i.email`)).rows;
       return { members, invites };
     },
   });
@@ -135,11 +135,11 @@ export function registerPeopleRoutes(app: App) {
         unitId = (await db.query('select id from unit where code = $1', [body.unit ?? ''])).rows[0]?.id ?? null;
         if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
       }
-      const r = await addPerson(app, db, ctx.tenantId, ctx.userId, { email, name: body.name, roles: body.roles, unitId });
+      const r = await addPerson(app, db, ctx.tenantId, ctx.userId, { email, name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin });
       await audit(db, ctx.tenantId, ctx.userId, r.invited ? 'user.invite' : 'user.add', r.invited ? 'membership_invite' : 'membership', null, { email, roles: body.roles, unit: body.unit });
       if (body.superadmin && !r.invited) await db.query('update app_user set is_superadmin = true where id = $1', [r.userId]);
-      // An invited person has no account yet, so Super Admin is granted from Edit once they have joined.
-      return created(r.invited ? { invited: true, email, ...(body.superadmin ? { superadminPending: true } : {}) } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) });
+      // An invited person has no account yet: the flag waits on the invitation and is applied when they sign in.
+      return created(r.invited ? { invited: true, email } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) });
     },
   });
 
@@ -182,9 +182,10 @@ export function registerPeopleRoutes(app: App) {
 
   defineRoute(app, {
     method: 'PATCH', path: '/v1/invites/:email', summary: "Change a pending invitation's roles or unit", perm: 'users.edit',
-    body: z.object({ roles: RoleList, unit: z.string().nullable().optional() }),
+    body: z.object({ roles: RoleList, unit: z.string().nullable().optional(), superadmin: z.boolean().optional() }),
     async handler({ ctx, db, params, body }) {
       const email = decodeURIComponent(params.email!).toLowerCase();
+      if (body.superadmin !== undefined && !ctx.superadmin) throw new HttpError(403, 'forbidden', 'Only a Super Admin can change Super Admin access');
       const cur = (await db.query('select roles, unit_id from membership_invite where email = $1', [email])).rows[0];
       if (!cur) throw new HttpError(404, 'invite_not_found', 'No such pending invitation');
       let unitId: string | null = null;
@@ -193,7 +194,7 @@ export function registerPeopleRoutes(app: App) {
         unitId = code === null ? cur.unit_id : (await db.query('select id from unit where code = $1', [code])).rows[0]?.id ?? null;
         if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
       }
-      await db.query('update membership_invite set roles = $2, unit_id = $3 where email = $1', [email, body.roles, unitId]);
+      await db.query('update membership_invite set roles = $2, unit_id = $3, superadmin = coalesce($4, superadmin) where email = $1', [email, body.roles, unitId, body.superadmin ?? null]);
       await audit(db, ctx.tenantId, ctx.userId, 'user.invite_update', `invite:${email}`, cur, { roles: body.roles, unitId });
       return { ok: true };
     },
@@ -214,6 +215,38 @@ export function registerPeopleRoutes(app: App) {
   definePlatformRoute(app, {
     method: 'GET', path: '/v1/platform/tenants', summary: 'All tenants with usage counts',
     handler: async () => (await app.db.raw((db) => db.query('select * from platform_tenants()'))).rows,
+  });
+
+  // A Super Admin assigns people to any property, with the unit of that property.
+  definePlatformRoute(app, {
+    method: 'GET', path: '/v1/platform/tenants/:slug/units', summary: "A property's units (for assigning people)",
+    async handler({ req }) {
+      const { slug } = req.params as { slug: string };
+      const t = (await app.db.raw((db) => db.query('select id from tenant_by_slug($1)', [slug]))).rows[0];
+      if (!t) throw new HttpError(404, 'tenant_not_found', `No tenant ${slug}`);
+      return (await app.db.withTenant(t.id, (db) => db.query('select code, name from unit order by code'))).rows;
+    },
+  });
+
+  definePlatformRoute(app, {
+    method: 'POST', path: '/v1/platform/tenants/:slug/members', summary: 'Add a person to any property with roles and (for residents) a unit of that property',
+    body: z.object({ email: z.string().email(), name: z.string().optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
+    async handler({ req, body, userId }) {
+      const { slug } = req.params as { slug: string };
+      const t = (await app.db.raw((db) => db.query('select id from tenant_by_slug($1)', [slug]))).rows[0];
+      if (!t) throw new HttpError(404, 'tenant_not_found', `No tenant ${slug}`);
+      return created(await app.db.withTenant(t.id, async (db) => {
+        let unitId: string | null = null;
+        if (body.roles.includes('resident')) {
+          unitId = (await db.query('select id from unit where code = $1', [body.unit ?? ''])).rows[0]?.id ?? null;
+          if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
+        }
+        const r = await addPerson(app, db, t.id, userId, { email: body.email.toLowerCase(), name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin });
+        if (body.superadmin && r.userId) await db.query('update app_user set is_superadmin = true where id = $1', [r.userId]);
+        await audit(db, t.id, userId, r.invited ? 'user.invite' : 'user.add', r.invited ? 'membership_invite' : 'membership', null, { email: body.email, roles: body.roles, unit: body.unit, by: 'platform' });
+        return r.invited ? { invited: true, email: body.email } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) };
+      }));
+    },
   });
 
   // Closed preview: platform admins create organisations for invited testers (public signup is off).

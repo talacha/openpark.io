@@ -397,5 +397,6 @@
   "ev.device_clock_gap": "[Dévîçé çlôçk dîfférs one two ]",
   "ev.pass_redeemed": "[Gûést pàss ûséd one tw]",
   "ev.plate_format_mismatch": "[Plàté fôrmàt ûñûsûàl one two ]",
-  "users.superPending": "[Sûpér Àdmîñ àççéss îs àddéd frôm Édît ôñçé théý hàvé jôîñéd. one two three four five ]"
+  "users.noUnits": "[Thîs prôpértý hàs ñô ûñîts ýét. one two three]",
+  "users.addUnits": "[Àdd ûñîts one ]"
 }

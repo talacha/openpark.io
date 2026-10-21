@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiError, del, patch, post, request } from '../api.js';
 import { ROLES, useApp, type Role } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
@@ -8,7 +9,7 @@ import { errText } from '../errors.js';
 
 interface UnitRow { code: string; name: string; site: string | null; residents: { id: string; email: string; name: string | null }[]; pass_status: string | null }
 interface Member { id: string; email: string; name: string | null; roles: Role[]; superadmin: boolean; unit: string | null }
-interface Invite { email: string; roles: Role[]; unit: string | null }
+interface Invite { email: string; roles: Role[]; superadmin: boolean; unit: string | null }
 
 interface UDiff {
   added: { code: string; name: string }[]; changed: { before: { name: string }; after: { code: string; name: string } }[];
@@ -170,6 +171,11 @@ export function People() {
   const [err, setErr] = useState('');
   const [newUnit, setNewUnit] = useState('');
   const [newSuper, setNewSuper] = useState(false);
+  // A Super Admin can place a person in any property, with a unit of that property.
+  const [prop, setProp] = useState(me!.tenant.slug);
+  const allProps = useApi<{ slug: string; name: string }[]>(me?.superadmin ? '/v1/platform/tenants' : null);
+  const otherUnits = useApi<UnitRow[]>(me?.superadmin && prop !== me.tenant.slug ? `/v1/platform/tenants/${prop}/units` : null, [prop]);
+  const propUnits = prop === me!.tenant.slug ? units.data : otherUnits.loading ? null : otherUnits.data;
   const [editing, setEditing] = useState<Editing | null>(null);
   // Anyone who may edit people sees this screen; only a Super Admin may grant Super Admin.
   const canEdit = !!me && (me.superadmin || me.roles.includes('admin'));
@@ -179,10 +185,11 @@ export function People() {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
     setErr(''); setMsg('');
-    if (!roles.length && !newSuper) { setErr(t('users.noRole')); return; }
+    if (!roles.length) { setErr(t('users.noRole')); return; }
+    if (roles.includes('resident') && !f.unit) { setErr(t('err.unit_required')); return; }
     try {
-      const r = await post<{ temporaryPassword?: string; invited?: boolean; superadminPending?: boolean }>('/v1/users', { email: f.email, name: f.name || undefined, roles: roles.length ? roles : ['attendant'], unit: roles.includes('resident') ? f.unit : undefined, superadmin: newSuper || undefined });
-      setMsg((r.temporaryPassword ? t('users.tempPassword', { password: r.temporaryPassword }) : t('users.invited')) + (r.superadminPending ? ` ${t('users.superPending')}` : ''));
+      const r = await post<{ temporaryPassword?: string; invited?: boolean }>(prop === me!.tenant.slug ? '/v1/users' : `/v1/platform/tenants/${prop}/members`, { email: f.email, name: f.name || undefined, roles, unit: roles.includes('resident') ? f.unit : undefined, superadmin: newSuper || undefined });
+      setMsg(r.temporaryPassword ? t('users.tempPassword', { password: r.temporaryPassword }) : t('users.invited'));
       form.reset(); setRoles(['attendant']); setNewUnit(''); setNewSuper(false); await users.reload();
     } catch (x) { setErr(errText(x)); }
   }
@@ -190,20 +197,25 @@ export function People() {
   async function removeInvite(email: string) { try { await del(`/v1/invites/${encodeURIComponent(email)}`); setErr(''); await users.reload(); } catch (x) { setErr(errText(x)); } }
   async function save() {
     if (!editing) return;
-    if (!editing.roles.length && !(editing.kind === 'member' && editing.superadmin)) { setErr(t('users.noRole')); return; }
+    if (!editing.roles.length) { setErr(t('users.noRole')); return; }
     const unit = editing.roles.includes('resident') ? editing.unit : null;
     try {
       if (editing.kind === 'member') await patch(`/v1/users/${editing.id}`, { roles: editing.roles, unit, ...(canSuper ? { superadmin: editing.superadmin } : {}) });
-      else await patch(`/v1/invites/${encodeURIComponent(editing.id)}`, { roles: editing.roles, unit });
+      else await patch(`/v1/invites/${encodeURIComponent(editing.id)}`, { roles: editing.roles, unit, ...(canSuper ? { superadmin: editing.superadmin } : {}) });
       setErr(''); setEditing(null); await users.reload();
     } catch (x) { setErr(errText(x)); }
   }
-  const unitSelect = (value: string, onChange: (v: string) => void, name?: string) => (
-    <label className="field">{t('users.unit')}
-      <select name={name} required value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="" disabled>–</option>
-        {units.data?.map((u) => <option key={u.code} value={u.code}>{u.name}</option>)}
-      </select></label>
+  /** The unit picker for a property. With no units it says so and links to where they are made, instead of asking for one that cannot exist. */
+  const unitSelect = (value: string, onChange: (v: string) => void, list: UnitRow[] | null | undefined, slug: string, name?: string) => (
+    list && list.length === 0 ? (
+      <div className="banner warn" role="status">{t('users.noUnits')} <Link to={`/t/${slug}/units`}>{t('users.addUnits')}</Link></div>
+    ) : (
+      <label className="field">{t('users.unit')}
+        <select name={name} required value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="" disabled>–</option>
+          {list?.map((u) => <option key={u.code} value={u.code}>{u.name}</option>)}
+        </select></label>
+    )
   );
 
   return (
@@ -215,9 +227,14 @@ export function People() {
           <div className="row">
             <label className="field grow">{t('auth.email')}<input name="email" type="email" required dir="ltr" /></label>
             <label className="field">{t('auth.name')}<input name="name" /></label>
+            {me?.superadmin && !!allProps.data?.length && (
+              <label className="field">{t('nav.property')}
+                <select value={prop} onChange={(e) => { setProp(e.target.value); setNewUnit(''); }}>
+                  {allProps.data.map((x) => <option key={x.slug} value={x.slug}>{x.name}</option>)}</select></label>
+            )}
           </div>
           <RoleBoxes idPrefix="new" roles={roles} superadmin={newSuper} canSuper={canSuper} onChange={(n) => { setRoles(n.roles); setNewSuper(n.superadmin); }} />
-          {roles.includes('resident') && unitSelect(newUnit, setNewUnit, 'unit')}
+          {roles.includes('resident') && unitSelect(newUnit, setNewUnit, propUnits, prop, 'unit')}
           <div><button className="btn primary">{t('users.invite')}</button></div>
         </form>
       )}
@@ -227,9 +244,9 @@ export function People() {
       {editing && (
         <section className="card stack" aria-label={t(editing.kind === 'member' ? 'users.editing' : 'users.editInvite', { who: editing.who })}>
           <h2>{t(editing.kind === 'member' ? 'users.editing' : 'users.editInvite', { who: editing.who })}</h2>
-          <RoleBoxes idPrefix="edit" roles={editing.roles} superadmin={editing.superadmin} canSuper={canSuper && editing.kind === 'member'}
+          <RoleBoxes idPrefix="edit" roles={editing.roles} superadmin={editing.superadmin} canSuper={canSuper}
             onChange={(n) => setEditing({ ...editing, ...n })} />
-          {editing.roles.includes('resident') && unitSelect(editing.unit, (v) => setEditing({ ...editing, unit: v }))}
+          {editing.roles.includes('resident') && unitSelect(editing.unit, (v) => setEditing({ ...editing, unit: v }), units.data, me!.tenant.slug)}
           <div className="row">
             <button className="btn primary" onClick={save}>{t('common.save')}</button>
             <button className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
@@ -260,10 +277,10 @@ export function People() {
         <section><h2>{t('users.pending')}</h2>
           <div className="tablewrap"><table><tbody>{users.data.invites.map((i) => (
             <tr key={i.email}>
-              <td>{i.email}</td><td>{roleLabel(t, i.roles)}</td><td>{i.unit ?? '–'}</td>
+              <td>{i.email}</td><td>{roleLabel(t, i.roles, i.superadmin)}</td><td>{i.unit ?? '–'}</td>
               <td>{canEdit && (
                 <div className="row">
-                  <button className="btn" onClick={() => setEditing({ kind: 'invite', id: i.email, who: i.email, roles: i.roles, superadmin: false, unit: i.unit ?? '' })}>{t('users.edit')}</button>
+                  <button className="btn" onClick={() => setEditing({ kind: 'invite', id: i.email, who: i.email, roles: i.roles, superadmin: i.superadmin, unit: i.unit ?? '' })}>{t('users.edit')}</button>
                   <button className="btn danger" onClick={() => removeInvite(i.email)}>{t('common.remove')}</button>
                 </div>
               )}</td>

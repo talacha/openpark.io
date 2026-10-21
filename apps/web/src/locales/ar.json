@@ -397,5 +397,6 @@
   "ev.device_clock_gap": "ساعة الجهاز مختلفة",
   "ev.pass_redeemed": "استُخدم تصريح الضيف",
   "ev.plate_format_mismatch": "صيغة لوحة غير معتادة",
-  "users.superPending": "تُضاف صلاحية المشرف العام من تعديل بعد انضمام الشخص."
+  "users.noUnits": "لا توجد وحدات في هذا العقار بعد.",
+  "users.addUnits": "إضافة وحدات"
 }

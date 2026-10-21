@@ -159,6 +159,22 @@ describe('platform super admin', () => {
     expect((await h.app.inject({ method: 'GET', url: '/v1/platform/tenants' })).statusCode).toBe(401);
   });
 
+  it('invites someone as Super Admin: the flag waits on the invitation and applies at first sign-in; only a Super Admin can set it', async () => {
+    const t = await org();
+    const su = await root();
+    const email = `future-sa-${uniq()}@example.com`;
+    // An admin cannot.
+    expect((await h.app.inject({ method: 'POST', url: '/v1/users', headers: t.headers, payload: { email: `x-${uniq()}@example.com`, roles: ['admin'], superadmin: true } })).statusCode).toBe(403);
+    // A Super Admin can, and can change it on the pending invitation.
+    expect((await h.app.inject({ method: 'POST', url: '/v1/users', headers: su.h(t.slug), payload: { email, roles: ['admin'] } })).statusCode).toBe(201);
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/invites/${encodeURIComponent(email)}`, headers: t.headers, payload: { roles: ['admin'], superadmin: true } })).statusCode).toBe(403);
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/invites/${encodeURIComponent(email)}`, headers: su.h(t.slug), payload: { roles: ['admin'], superadmin: true } })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers: t.headers })).json().invites).toEqual([expect.objectContaining({ email, superadmin: true })]);
+    const joined = await person(email);
+    const m = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: joined.bearer })).json();
+    expect(m.superadmin).toBe(true);
+  });
+
   it('can enter any tenant with owner powers, and every write it makes is audited in that tenant', async () => {
     const t = await org();
     const su = await root();

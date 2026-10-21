@@ -68,4 +68,17 @@ await p.selectOption('select[aria-label="Property"]', other.tenant.slug);
 await p.waitForURL(new RegExp(other.tenant.slug)); 
 ok(true, 'switching property enters that property');
 ok(p.errs.length === 0, 'no page errors');
+
+// A property with no units says so and links to Units instead of asking for one.
+const empty = await mk('empty');
+execSync(`docker exec openpark-pg psql -U openpark -d openpark -c "update app_user set is_superadmin = true where email = 'empty-${sfx}@example.com'"`, { stdio: 'ignore' });
+const q = await session(`empty-${sfx}@example.com`);
+await q.goto(`${WEB}/t/${empty.tenant.slug}/users`); await q.waitForSelector('.roles');
+await q.check('#new-resident');
+ok(await q.locator('form .banner a[href$="/units"]').isVisible(), 'no units yet: the form links to Units instead of asking for a unit');
+// Super Admin picks another property (with its own units) for a new person.
+await q.selectOption('form select:not([name])', su.tenant.slug);
+await q.waitForSelector('form select[name=unit] option[value=U1]', { state: 'attached' });
+const unitOpts = await q.$$eval('form select[name=unit] option', (o) => o.map((x) => x.value).filter(Boolean));
+ok(unitOpts.includes('U1') && unitOpts.includes('U2'), `choosing another property offers that property's units (${unitOpts.join(', ')})`);
 await b.close();

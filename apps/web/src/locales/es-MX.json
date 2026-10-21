@@ -397,5 +397,6 @@
   "ev.device_clock_gap": "Reloj del dispositivo distinto",
   "ev.pass_redeemed": "Pase de invitado usado",
   "ev.plate_format_mismatch": "Formato de placa inusual",
-  "users.superPending": "El acceso de superadministrador se agrega desde Editar cuando se hayan unido."
+  "users.noUnits": "Esta propiedad aún no tiene unidades.",
+  "users.addUnits": "Agregar unidades"
 }

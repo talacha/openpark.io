@@ -397,5 +397,6 @@
   "ev.device_clock_gap": "Device clock differs",
   "ev.pass_redeemed": "Guest pass used",
   "ev.plate_format_mismatch": "Plate format unusual",
-  "users.superPending": "Super Admin access is added from Edit once they have joined."
+  "users.noUnits": "This property has no units yet.",
+  "users.addUnits": "Add units"
 }

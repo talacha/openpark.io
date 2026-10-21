@@ -39,6 +39,18 @@ describe('closed preview, local accounts (TRIAL_SIGNUP off)', () => {
     const dup = await h.app.inject({ method: 'POST', url: '/v1/platform/tenants', headers: root, payload: { organisation: 'Again', country: 'MX', ownerEmail: 'y@example.com', slug } });
     expect(dup.statusCode).toBe(409);
 
+    // A Super Admin assigns a person to any property and to a unit of THAT property, without being a member of it.
+    const ownerLogin = (await h.app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: ownerEmail, password: made.json().temporaryPassword } })).json();
+    const oh = { authorization: `Bearer ${ownerLogin.token}`, 'x-tenant': slug };
+    await h.app.inject({ method: 'POST', url: '/v1/units', headers: oh, payload: { code: 'T-1', name: 'Tower 1' } });
+    expect((await h.app.inject({ method: 'GET', url: `/v1/platform/tenants/${slug}/units`, headers: root })).json()).toEqual([{ code: 'T-1', name: 'Tower 1' }]);
+    expect((await h.app.inject({ method: 'GET', url: `/v1/platform/tenants/${slug}/units`, headers: oh })).statusCode).toBe(403);
+    const placed = await h.app.inject({ method: 'POST', url: `/v1/platform/tenants/${slug}/members`, headers: root, payload: { email: `res-${uniq()}@example.com`, roles: ['resident', 'attendant'], unit: 'T-1' } });
+    expect(placed.statusCode, placed.body).toBe(201);
+    expect((await h.app.inject({ method: 'POST', url: `/v1/platform/tenants/${slug}/members`, headers: root, payload: { email: `res-${uniq()}@example.com`, roles: ['resident'], unit: 'NOPE' } })).statusCode).toBe(400);
+    const listed = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: oh })).json().members;
+    expect(listed.find((m: { unit: string }) => m.unit === 'T-1')).toMatchObject({ roles: ['resident', 'attendant'] });
+
     const owner = (await h.app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: ownerEmail, password: made.json().temporaryPassword } })).json();
     const headers = { authorization: `Bearer ${owner.token}`, 'x-tenant': slug };
     const occ = (await h.app.inject({ method: 'GET', url: '/v1/occupancy', headers })).json();
