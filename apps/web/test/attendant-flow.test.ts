@@ -76,6 +76,12 @@ function lookupHarness() {
       s = { ...s, ...applyPassError() };
       return true;
     },
+    /**
+     * A scan rejected locally (e.g. a wrong-site QR) still claims the latest generation BEFORE the early return, then
+     * clears pending — mirroring `const mySeq = ++passSeq.current` running ahead of the wrong-site branch in usePass.
+     * This is what lets a newer wrong-site scan supersede an older in-flight lookup.
+     */
+    beginWrongSite() { latestSeq += 1; s = { ...s, ...applyPassError() }; return latestSeq; },
   };
 }
 
@@ -116,5 +122,30 @@ describe('a pass lookup is a sequenced pending operation', () => {
     expect(h.resolveValid(first, { token: 'A', guest: 'Ana', unit: 'A-1', q: noHint, regions: ['MX'] })).toBe(false);
     expect(h.state.pass).toMatchObject({ token: 'B' });
     expect(h.state.passPending).toBe(false);
+  });
+
+  it('survives a confirm → edit remount: the generation does not reset, so an older lookup cannot overwrite a newer pass', () => {
+    // The generation counter lives on the persistent Flow, so remounting CheckInCapture (capture → confirm → edit)
+    // does NOT reset it. We model that by NOT recreating the harness between scans A and B.
+    const h = lookupHarness();
+    const first = h.begin(); // scan A on the first capture mount
+    // ...the attendant navigates to Confirm, then "Back to edit" remounts the capture. The counter is untouched.
+    const second = h.begin(); // scan B on the remounted capture — still increments the SAME shared counter
+    // B resolves first and attaches; then the stale A resolves and is rejected, so B stays attached.
+    expect(h.resolveValid(second, { token: 'B', guest: 'Beto', unit: 'B-2', q: noHint, regions: ['MX'] })).toBe(true);
+    expect(h.resolveValid(first, { token: 'A', guest: 'Ana', unit: 'A-1', q: noHint, regions: ['MX'] })).toBe(false);
+    expect(h.state.pass).toMatchObject({ token: 'B' });
+  });
+
+  it('a newer wrong-site scan invalidates an older in-flight lookup', () => {
+    const h = lookupHarness();
+    const first = h.begin(); // scan A (valid site) goes pending
+    expect(h.state.passPending).toBe(true);
+    // Scan B is for the wrong site: it is rejected locally but still claims the latest generation and clears pending.
+    h.beginWrongSite();
+    expect(h.state.passPending).toBe(false);
+    // A now resolves valid but is stale, so it must NOT attach — the attendant saw B's rejection, not A's host.
+    expect(h.resolveValid(first, { token: 'A', guest: 'Ana', unit: 'A-1', q: noHint, regions: ['MX'] })).toBe(false);
+    expect(h.state.pass).toBeNull();
   });
 });

@@ -243,3 +243,56 @@ no placeholders; `en-XA.json` left generated. Locale parity test green.
 
 **Pushed commit SHA:** `519d377` (iteration-4 tick); fast-forwarded onto `main` and pushed to `origin/main`.
 
+### Iteration 5 — fix reviewer findings from `review-iter-04.md` / `review-verdict.json` (2026-10-21T14:0xZ, ~10h1xm into run)
+
+**Previous review flagged** (`CHANGES_REQUESTED`, 1 high + 5 medium + 1 low):
+1. HIGH crit-2/3: the iteration-4 race fix put the lookup sequence (`passSeq`) on `CheckInCapture`, which REMOUNTS on
+   capture → confirm → "edit plate" → capture, resetting the counter to 0. An older in-flight lookup from the first mount
+   then compared as current against the remounted capture's fresh counter and could overwrite a newer accepted pass
+   (newest scan did NOT win across the remount). Second hole: a newer wrong-site QR returned before incrementing the
+   sequence, so it failed to supersede an older in-flight lookup.
+2–6. MEDIUM crit-1 / crit-2 / crit-3-4 / crit-5 / crit-6-7: Share + guest QR, pass prepopulate/focus/edit, camera-to-field
+   (check-in and check-out), the policy editor UI (edit/save/reload + unauthorized-role denial), and Admin/Super Admin
+   cross-property CRUD remain unverified in a RENDERED browser / Playwright E2E.
+7. LOW a11y: manual AT / zoom / contrast review outstanding.
+
+**What changed:**
+- **Finding 1 (HIGH crit-2/3 remount race) — real fix.** Moved the monotonically increasing pass-lookup generation off
+  the remounting capture screen and onto the persistent `Flow` provider, which sits ABOVE the nested check-in routes and
+  does not remount on capture → confirm → edit. The reviewer's exact correction.
+  - `apps/web/src/screens/Attendant.tsx`: `Flow` now owns the `passSeq` ref and exposes it through `FlowCtx`; `reset()`
+    bumps it so a late response cannot reattach a pass to a freshly-started flow. `CheckInCapture` reads `passSeq` from
+    the context instead of a local ref, so every scan — on any mount — shares one generation and the newest always wins.
+  - Closed the second hole: `usePass()` now claims the latest generation (`++passSeq.current`) BEFORE the local wrong-site
+    rejection, and that rejection calls `applyPassError()` to clear any pending flag an older lookup left set. A newer
+    wrong-site scan therefore supersedes an older in-flight lookup instead of letting it win.
+  - `Flow` reads the app context null-safely (`useApp()?.me`) so the provider can be mounted in isolation for the test
+    below; behaviour in the app (provider always present) is unchanged.
+  - Tests: `apps/web/test/attendant-flow.test.ts` (+2) — the `lookupHarness` now models the SHARED counter surviving a
+    confirm→edit remount (begin A, remount, begin B, resolve B then A → B stays attached) and a newer wrong-site scan
+    invalidating an older in-flight lookup. New `apps/web/test/flow-remount.test.tsx` (+1) renders `Flow` with a child
+    that reads `passSeq`, remounts that child under a new key (exactly the route remount) while `Flow` stays mounted, and
+    proves the counter is the SAME ref with its value intact — gate-backed proof the fix survives the lifecycle the
+    reviewer identified. This is executed React (jsdom + react-dom `createRoot`/`act`), not a pure helper.
+- **Findings 2–6 (rendered/Playwright E2E) and 7 (manual AT) — unchanged lowest-risk decision, now with one more
+  executed-React data point.** `@testing-library/react` is still not installed and the `e2e/*.mjs` stories still need two
+  live dev servers, a downloaded ONNX model set, a Chrome channel and `.y4m` camera fixtures — infrastructure outside the
+  HARD GATE and not reliably available in this worktree; a failing E2E is not part of the gate. This tick nonetheless adds
+  the first executed-React regression (the Flow remount test) using only already-installed deps (jsdom, react-dom,
+  `@vitejs/plugin-react`), directly covering the architectural defect behind the HIGH finding. The remaining medium items
+  identify no behaviour defect — the underlying server behaviour (crit-5 configured amount in all three 12h notices, the
+  redeem/walk-in branch selection, policy PATCH authorization) is already covered by gate-backed API/unit tests — so they
+  are left for the reviewer to run in a full stack. Manual WCAG conformance cannot be performed by this automated loop.
+  No behaviour regressed and no test was weakened or deleted.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 72 (+1 pre-existing skip), api 102 — all pass
+  (web +3 this tick: 2 race/remount cases in `attendant-flow.test.ts`, 1 new executed-React `flow-remount.test.tsx`; none weakened)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+
+**i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
+
+**Pushed commit SHA:** `__FILLED_AFTER_COMMIT__` — fast-forwarded onto `main` and pushed to `origin/main`.
+

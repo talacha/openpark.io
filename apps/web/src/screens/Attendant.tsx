@@ -25,19 +25,29 @@ const FlowCtx = createContext<{
   set: (f: Partial<FlowState>) => void;
   /** Merge a patch computed from the LATEST state — use this for anything that lands after an await, so a concurrent camera read is never overwritten by a stale snapshot. */
   update: (fn: (s: FlowState) => Partial<FlowState>) => void;
+  /**
+   * The monotonically increasing pass-lookup generation. It lives HERE, above the nested check-in routes, so it
+   * survives CheckInCapture remounts (capture → confirm → "edit plate" → capture). A ref owned by the capture screen
+   * would reset to 0 on every remount, letting an older in-flight lookup compare as current and overwrite a newer
+   * pass; keeping it on the persistent Flow makes "newest scan wins" hold across the whole flow lifecycle.
+   */
+  passSeq: { current: number };
   reset: () => void;
 }>(null as never);
-const useFlow = () => useContext(FlowCtx);
+export const useFlow = () => useContext(FlowCtx);
 
 export function Flow({ children }: { children: ReactNode }) {
-  const { me } = useApp();
+  const me = useApp()?.me;
   const region0 = me?.tenant.plate_regions[0] ?? 'US';
   const [flow, setFlow] = useState<FlowState>(emptyFlow(region0));
+  const passSeq = useRef(0);
   const value = useMemo(() => ({
     flow,
+    passSeq,
     set: (f: Partial<FlowState>) => setFlow((s) => ({ ...s, ...f })),
     update: (fn: (s: FlowState) => Partial<FlowState>) => setFlow((s) => ({ ...s, ...fn(s) })),
-    reset: () => setFlow(emptyFlow(region0)),
+    // Starting a fresh flow also retires any lookup still in flight, so a late response cannot reattach a pass to it.
+    reset: () => { passSeq.current++; setFlow(emptyFlow(region0)); },
   }), [flow, region0]);
   return <FlowCtx.Provider value={value}>{children}</FlowCtx.Provider>;
 }
@@ -101,7 +111,7 @@ export function CheckInCapture() {
   const t = useT();
   const nav = useNavigate();
   const { me, site } = useApp();
-  const { flow, set, update } = useFlow();
+  const { flow, set, update, passSeq } = useFlow();
   const aiOn = me!.tenant.ai_mode !== 'off';
   const [camera, setCamera] = useState(aiOn);
   const [busy, setBusy] = useState(false);
@@ -111,9 +121,6 @@ export function CheckInCapture() {
   const [code, setCode] = useState('');
   const [passErr, setPassErr] = useState('');
   const passBannerRef = useRef<HTMLDivElement>(null);
-  // The sequence of the latest pass lookup we started. A lookup that resolves while a newer one is in flight is stale
-  // and must be ignored, so two QR scans that resolve out of order never leave the older pass attached.
-  const passSeq = useRef(0);
 
   // When a pass is accepted, move focus to its banner so keyboard and screen-reader users land on the result and hear it.
   useEffect(() => { if (flow.pass) passBannerRef.current?.focus(); }, [flow.pass?.token]);
@@ -125,11 +132,19 @@ export function CheckInCapture() {
     if (!token) return;
     // The QR carries the guest, unit, plate hint and expiry, so an expired or foreign code is rejected before any round trip.
     const q = parsePassQr(token);
+    // Claim the latest generation BEFORE anything else — including the local wrong-site rejection below. This newest
+    // scan owns the pending state, so any earlier lookup still in flight is now stale and cannot win when it resolves,
+    // even if this scan is rejected locally without a round trip.
+    const mySeq = ++passSeq.current;
     // Expiry is the server's call: this phone's clock may be wrong, and a wrong clock must not turn a valid guest away.
-    if (q && site && q.site !== site.code) { setPassErr(t('pass.reason_pass_wrong_site')); return; }
+    if (q && site && q.site !== site.code) {
+      // Clear any pending flag an older lookup left set: this current rejection, as the latest scan, owns that state.
+      update(applyPassError);
+      setPassErr(t('pass.reason_pass_wrong_site'));
+      return;
+    }
     // Mark the lookup in flight so Confirm stays disabled until it settles: a concurrent camera plate read may have
     // navigated to confirm already, and the attendant must not submit the walk-in branch while a valid pass is resolving.
-    const mySeq = ++passSeq.current;
     update(beginPassLookup);
     try {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
