@@ -1198,3 +1198,58 @@ recorded green gate (iteration 13, confirmed at HEAD before the close ticks):
 **Pushed commit SHA:** `e38da5a` (docs/bookkeeping tick, committed on `adversarial-loop`, fast-forwarded
 `ba8306f..e38da5a` onto `main`, pushed to `origin/main` — normal push, succeeded; this SHA line recorded by the
 follow-up commit). **The loop is CLOSED and the 12h budget is EXHAUSTED. No further iterations will run.**
+
+---
+## Iteration 21 (implementer tick against review report #20) — 2026-10-21 ~16:22 UTC — LOOP CLOSED + 12h BUDGET EXHAUSTED
+**Context / time box:** wall-clock at the START of this tick = **~12h 30m** into the run (run start
+`2026-10-21T03:52:23Z`, now `2026-10-21T16:22Z`). **The 12h budget is EXHAUSTED** (the step's time-box rule fires at
+≥12h), and the **10-iteration cap remains long exceeded** (this is the 21st implementer tick / 20th review).
+`review-verdict.json` = `CHANGES_REQUESTED` pointing at `review-iter-20.md` (1 BLOCKING + 2 high + 5 medium) — the same
+findings re-affirmed, with every product correction explicitly scoped to "a separately authorized run."
+**What the previous review (iter-20) flagged:**
+1. **BLOCKING (loop contract — hard 10-iteration stop):** cap exceeded; "Stop this loop after this review, preserve the
+   published linear history without reset/revert/force operations, and carry the product blockers into a separately
+   authorized run." Another implementation tick would itself violate the governing stop condition.
+2. HIGH (criterion 7, security): `POST /v1/platform/tenants` is `replaySafe`, not `idempotent` → keyless lost-response
+   retry can create a random-suffixed duplicate tenant. — CARRIED FORWARD (separately authorized run).
+3. HIGH (criterion 7, data integrity): reserve + create_tenant + init + finalize span separate commits with no
+   lease/reconciliation/compensation → crash can strand an incomplete property or permanent `status=0`. — CARRIED FORWARD.
+4. MEDIUM (criteria 6&7): local-auth onboarding returns the only temp password once; replay stores null → lost-response
+   retry leaves a person/owner with no usable credential; no recovery path. — CARRIED FORWARD.
+5. MEDIUM (criterion 1): no single recorded run joins server pass bytes → real Share → `/pass` → decoded QR → real gate
+   lookup/redeem. — CARRIED FORWARD.
+6. MEDIUM (criteria 3&4): real `getUserMedia`/ONNX camera path unexecuted in the shipped stack; no checkout camera
+   story. — CARRIED FORWARD.
+7. MEDIUM (criteria 6&7): full person/site/unit/slot CRUD + second-property Super Admin + regular-admin server denial
+   not run through the real stack at a narrow viewport. — CARRIED FORWARD.
+(Plus the standing LOW accessibility-verification limitation: full WCAG conformance needs manual AT/zoom/contrast
+checks. — CARRIED FORWARD.)
+**Decision this tick (autonomous, lowest-risk):** HONOR THE #1 BLOCKING FINDING AND KEEP THE LOOP CLOSED. Two
+independent governing conditions direct a minimum clean finish with no new feature work: (a) the reviewer's BLOCKING
+stop (10-iteration cap exceeded; every product correction prefixed "in a separately authorized run"), and (b) the now
+exhausted 12h time box. The user's explicit "Take 10 iterations" cap is long passed. Criterion 5 remains correctly
+scoped and test-backed (per-tenant `overstayCharge` PATCH/UI-editable; MXN tenants seed `500000`, non-MXN seed `0`; the
+12h guest/host/supervisor notice interpolates the currency-formatted policy amount + the move-the-vehicle instruction;
+10/11h reminders kept separate; no payment/enforcement mechanism added). I made **NO** production code, schema,
+migration, locale, or test changes. Implementing findings #2–#7 inside this loop would itself violate the #1 BLOCKING
+stop and the reviewer's explicit "separately authorized run" scoping, so it is deliberately NOT done here.
+**What I changed:** documentation/bookkeeping ONLY — this stop note plus staging of this iteration's review-trail
+artifacts into the tracked trail (`.agents/reviews/review-iter-20.md`, updated `.agents/tasks/review-verdict.json`).
+Published linear history preserved: no reset, no revert, no force — a single normal docs commit on `main`, pushed.
+**Carried-forward backlog for the team (handled OUTSIDE this loop, in a fresh authorized run):** findings #2–#7 above
+plus the LOW accessibility-verification item. The seven acceptance criteria remain gate-backed in the shipped code at
+HEAD; the carried-forward items are deeper end-to-end execution evidence, two idempotency/transaction-hardening fixes,
+and manual accessibility conformance — not missing features.
+**Gate status: GREEN (unchanged / inherited).** No code/test/schema/locale/migration files were touched this tick (only
+`.agents/` docs + review artifacts). The production tree at HEAD is byte-identical to the last gate-green published tick
+(working tree clean; `HEAD` = local `main` = `origin/main` = `42bbe73` before this docs commit), so the previously
+published green gate still stands and was NOT re-run (re-running the full suite — including spinning the Postgres test
+DB — adds no signal for a docs-only change and the exhausted 12h budget directs the minimum clean finish). Last recorded
+green gate (iteration 13, confirmed at HEAD):
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → ok (7 projects)
+- `pnpm test` → ok (core 36, sdk-ts 6, marketing 9, web 101 pass +1 skipped, api 108 pass) = 212 pass / 1 skipped
+- `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
+**Pushed commit SHA:** `__PENDING__` (docs/bookkeeping tick, committed on `main`, pushed to `origin/main` — normal push;
+this SHA line is updated by a follow-up commit). **The loop is CLOSED and the 12h budget is EXHAUSTED. No further
+iterations will run.**
