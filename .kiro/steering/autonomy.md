@@ -21,8 +21,10 @@ Do not pause the run to pose a question. Keep moving and leave a reviewable trai
   `adversarial-loop` branch, fast-forward `main` in the user's checkout, and
   `git push origin main`. Normal push only.
 - **Loop stop condition:** 10 fix-and-review iterations, OR the reviewer reports no
-  remaining blocking/high/medium findings, OR 12 hours of wall-clock from run start —
-  whichever comes first.
+  remaining blocking/high/medium findings, OR the wall-clock reaches **2:00 PM America/Mexico_City
+  (20:00 UTC) on 2026-10-21** — whichever comes first. (This supersedes the earlier 12h-from-start
+  ceiling; the user extended the time box. The 10-iteration and no-findings caps are unchanged, so
+  the 10-iteration cap is the likely stop before the clock.)
 - **Model/agent per step:** best high-capability model for planning, implementation,
   and adversarial review (reviewer on a different model from the implementer); the most
   affordable capable model for mechanical git/bookkeeping steps.
