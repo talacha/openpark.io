@@ -369,5 +369,5 @@ Source of findings: `.agents/tasks/review-verdict.json` → `.agents/reviews/rev
 
 **i18n parity:** one new key `att.passDismiss` added to all seven locales; parity test green.
 
-**Pushed commit SHA:** `e6ed3d5` — fast-forwarded onto `main` and pushed to `origin/main`.
+**Pushed commit SHA:** `fb4aa39` (iteration-6 tick) + this bookkeeping follow-up — fast-forwarded onto `main` and pushed to `origin/main`.
 
