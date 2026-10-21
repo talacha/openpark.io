@@ -556,4 +556,4 @@ budget; this is the final feature tick.
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
 **Elapsed:** ≈11.1h of the 12h budget at tick start.
-**Pushed commit SHA:** `__PENDING__` — fast-forwarded onto `main` and pushed to `origin/main` (SHA filled in below after commit).
+**Tick commit SHA:** `f95bc0d` — fast-forwarded onto `main` and pushed to `origin/main` (normal push).
