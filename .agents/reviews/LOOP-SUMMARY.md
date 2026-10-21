@@ -929,4 +929,6 @@ suite adds no signal for a docs-only change). Last recorded green gate (iteratio
 - `pnpm typecheck` → ok (7 projects)
 - `pnpm test` → ok (core 36, sdk-ts 6, marketing 9, web 101 pass +1 skipped, api 108 pass) = 212 pass / 1 skipped
 - `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
-**Pushed commit SHA:** _recorded below after commit+ff+push._ **The loop is CLOSED. No further iterations will run.**
+**Pushed commit SHA:** `916e5e8` (loop-close docs tick, committed on `adversarial-loop`, fast-forwarded
+`9190657..916e5e8` onto `main`, pushed to `origin/main` — normal push, succeeded). **The loop is CLOSED. No further
+iterations will run.**
