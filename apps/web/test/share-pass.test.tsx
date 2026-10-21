@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider, translate } from '../src/i18n.js';
 import { SharePass } from '../src/screens/Resident.js';
+import { passShareUrl } from '../src/pass.js';
 
 // Render React 18 trees under act() without warnings.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,5 +80,60 @@ describe('SharePass download path (no Web Share API)', () => {
     const status = await renderAndShare();
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(status).toBe(translate('en', 'res.shareDownloaded'));
+  });
+});
+
+/**
+ * The Web Share path (phones, the primary target). The reviewer noted neither navigator.share branch was executed, so
+ * these mount SharePass, click Share, and assert the payload the guest actually receives — crucially that it carries
+ * the public guest-link fragment URL and the signed token, so a text-only share still delivers a scannable pass.
+ */
+interface ShareArg { title?: string; text?: string; url?: string; files?: File[] }
+function setWebShare(opts: { files: boolean; outcome: 'ok' | 'cancel' | 'fail' }) {
+  const err = opts.outcome === 'cancel'
+    ? Object.assign(new Error('dismissed'), { name: 'AbortError' })
+    : new Error('share failed');
+  const share = vi.fn((_d: ShareArg) => (opts.outcome === 'ok' ? Promise.resolve() : Promise.reject(err)));
+  Object.defineProperty(navigator, 'share', { configurable: true, value: share });
+  Object.defineProperty(navigator, 'canShare', { configurable: true, value: opts.files ? vi.fn(() => true) : undefined });
+  // A Clipboard is present but must be IGNORED on the Web Share path — only the download fallback copies.
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(() => Promise.resolve()) } });
+  return share;
+}
+
+describe('SharePass Web Share path', () => {
+  it('shares the QR image file plus the guest link + token when the browser can share files', async () => {
+    const share = setWebShare({ files: true, outcome: 'ok' });
+    const status = await renderAndShare();
+    expect(share).toHaveBeenCalledTimes(1);
+    const arg = share.mock.calls[0]![0] as ShareArg;
+    expect(arg.url).toBe(passShareUrl(location.origin, qr)); // the guest opens this to render a scannable QR
+    expect(arg.files).toHaveLength(1);
+    expect(arg.text).toContain(qr); // the signed token rides along as a redeemable fallback
+    expect(clickSpy).not.toHaveBeenCalled(); // the OS sheet handled it; no download fallback fired
+    expect(status).toBe(''); // the share sheet owns the outcome, so no status is claimed
+  });
+
+  it('falls back to a text + link share (no file) when files are unsupported', async () => {
+    const share = setWebShare({ files: false, outcome: 'ok' });
+    await renderAndShare();
+    expect(share).toHaveBeenCalledTimes(1);
+    const arg = share.mock.calls[0]![0] as ShareArg;
+    expect(arg.files).toBeUndefined();
+    expect(arg.url).toBe(passShareUrl(location.origin, qr));
+    expect(arg.text).toContain(qr);
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  it('treats a dismissed share sheet as a non-error (no failure message)', async () => {
+    setWebShare({ files: true, outcome: 'cancel' });
+    const status = await renderAndShare();
+    expect(status).toBe(''); // AbortError = the resident closed the sheet, not a failure
+  });
+
+  it('reports a genuine share failure honestly', async () => {
+    setWebShare({ files: true, outcome: 'fail' });
+    const status = await renderAndShare();
+    expect(status).toBe(translate('en', 'res.shareFailed'));
   });
 });

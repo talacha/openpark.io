@@ -371,3 +371,75 @@ Source of findings: `.agents/tasks/review-verdict.json` → `.agents/reviews/rev
 
 **Pushed commit SHA:** `fb4aa39` (iteration-6 tick) + this bookkeeping follow-up — fast-forwarded onto `main` and pushed to `origin/main`.
 
+
+---
+## Iteration 7 — fix pass of review-iter-06 findings (verdict: CHANGES_REQUESTED)
+Fix iteration. Run start `2026-10-21T03:52:23Z`; this tick ≈ `2026-10-21T14:34Z`, ~10h42m elapsed (inside the 12h budget).
+Source of findings: `.agents/tasks/review-verdict.json` → `.agents/reviews/review-iter-06.md` (0 blocking, 0 high, 5 MEDIUM, 1 LOW).
+
+**What the previous review flagged:** every finding was a VERIFICATION gap, not a behaviour defect. The reviewer
+accepted the iteration-6 code fixes but held that the acceptance-critical paths were only exercised by pure-helper /
+hand-built-harness tests (or by browser stories that were not run), so the behaviour remained "unverified in context":
+crit-1 Web Share branches + the public `/pass` QR page; crit-2 scan→prepopulate→reject→acknowledge in the real screen;
+crit-5 the rendered policy editor save/reload + supervisor read-only UX; plus crit-3/4 camera and crit-6/7 CRUD browser
+stories. The LOW was outstanding manual AT/zoom/contrast review.
+
+**What this tick changed (TESTS ONLY — no production code touched; the iteration-6 fixes already satisfied the
+behaviour, so adding execution evidence is the correct, lowest-risk response to verification findings):**
+- Added `@testing-library/react` + `@testing-library/user-event` + `@testing-library/dom` + `@testing-library/jest-dom`
+  as **dev** dependencies so the REAL screens can be mounted and driven (jsdom + `@vitejs/plugin-react` were already
+  present). This is the dependency the reviewer's "mount the real routed screens" corrections required; it is dev-only,
+  well-maintained, and does not touch the production bundle.
+- **crit-1 (resident share) — `apps/web/test/share-pass.test.tsx` (+4 cases).** The existing file only drove the
+  no-Web-Share download branch. Added executed coverage of BOTH `navigator.share` branches: the file-share path
+  (QR image file + the public guest-link fragment URL + the signed token in the body) and the text-only fallback
+  (link + token, no file). Asserts `arg.url === passShareUrl(location.origin, qr)` and that the token rides along, so
+  even a text-only share delivers a scannable pass. Also covers a dismissed sheet (`AbortError` → no failure message)
+  and a genuine failure (`res.shareFailed`). On both Web Share branches the clipboard/download fallback is asserted NOT
+  to fire.
+- **crit-1 (public guest page) — NEW `apps/web/test/guest-pass.test.tsx` (3 cases).** Mounts the real unauthenticated
+  `GuestPass` screen, feeding the token through the exact `#t=…` URL fragment the share button emits. Asserts the QR is
+  rendered client-side (`role="img"`, encoded `<svg>`), the guest/unit line, the spaced verification code; that an
+  expired pass shows the expiry notice and NO QR; and that a missing/malformed fragment shows the invalid-link notice.
+- **crit-2 (scan prepopulates + verifies) — NEW `apps/web/test/attendant-screen.test.tsx` (2 cases).** Mounts the REAL
+  `CheckInCapture` inside `Flow` + `MemoryRouter` with `tenant.ai_mode='off'` (so the camera stays out of jsdom) and a
+  stubbed `/v1/passes/lookup`. Case 1: a valid hinted pass → the lookup is called with the exact token, the accepted
+  banner announces guest/unit + verification code + plate hint, the hint FILLS the visible editable plate field
+  (`.platebox` shows `ABC123`), and focus lands on the result banner (keyboard/SR a11y). Case 2: a rejected pass →
+  the rejection shows as a persisted `role="alert"` banner that takes focus, no accepted-pass banner appears, and it is
+  cleared only by the explicit "Dismiss and scan again" acknowledgment — the iteration-6 safety behaviour, now executed
+  in the real screen.
+- **crit-5 (configurable policy editor + authorization UX) — NEW `apps/web/test/policy-editor.test.tsx` (2 cases).**
+  Mounts the REAL `GuestPasses` screen (real `canEditPassPolicy`, stubbed `useApp`/`useApi`, spied `patch`). Admin:
+  the overstay-charge input is enabled and shows the per-tenant value (500000 minor → `5000`); editing it to `6000`
+  and clicking Save fires `PATCH /v1/pass-policy` with `overstayCharge: 600000` (integer minor units). Supervisor: the
+  input is disabled, the Save control is not rendered at all, and no PATCH is possible — the corrected read-only UX.
+
+**crit-3/4 (fake-camera check-in/checkout) and crit-6/7 (mobile CRUD + Super Admin cross-property + regular-admin
+boundary):** these corrections explicitly require running the Playwright `e2e/*.mjs` browser stories (two live dev
+servers, a downloaded ONNX model set, a Chrome channel and `.y4m` camera fixtures). That infrastructure is outside the
+HARD GATE and is not reliably available in this worktree, and a failing/with-no-browser E2E is not part of the gate.
+Lowest-risk decision (consistent with prior ticks, recorded again): these were left to a full-stack E2E run. The
+underlying behaviour is still gate-backed — checkout plate matching and camera-to-field wiring by the ALPR unit tests
+and the sessions/checkout API tests; CRUD RLS/role scoping and cross-property access by the api suite. This tick closed
+every verification finding that could be executed inside the gate (crit-1, crit-2, crit-5) by mounting the real screens.
+
+**LOW a11y (manual AT / zoom / contrast):** still cannot be performed by this automated loop; left outstanding, but
+the new rendered tests now assert programmatic focus management on both the accepted-pass and rejected-pass banners.
+
+**Lowest-risk / ambiguous decisions this tick:**
+- Add `@testing-library/react` (dev-only) rather than re-implement a bespoke harness: it is the standard tool the
+  reviewer's corrections implied, keeps the new tests close to real user behaviour, and changes nothing shipped.
+- Stub `useApp`/`useApi`/the network write at the module boundary (keeping `canEditPassPolicy`, `ApiError`, i18n,
+  routing and the screens themselves REAL) so the tests exercise the actual components without needing a backend,
+  Supabase, or a browser — the smallest surface that still proves the acceptance behaviour.
+- No production code changed, so no new i18n keys and no CSS: locale parity and the RTL/logical-CSS guard are untouched.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 88 (+1 pre-existing skip), api 103 — all pass
+  (web +11 this tick: share-pass +4, guest-pass 3, attendant-screen 2, policy-editor 2; none weakened or deleted)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+**i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
+**Pushed commit SHA:** _(filled in after commit/push below)_
