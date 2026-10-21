@@ -981,5 +981,6 @@ docs-only change). Last recorded green gate (iteration 13, confirmed at HEAD bef
 - `pnpm test` → ok (core 36, sdk-ts 6, marketing 9, web 101 pass +1 skipped, api 108 pass) = 212 pass / 1 skipped
 - `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
 
-**Pushed commit SHA:** `ad13b65` (docs/bookkeeping tick, committed on `adversarial-loop`, fast-forwarded onto `main`,
-pushed to `origin/main` — normal push). **The loop is CLOSED. No further iterations will run.**
+**Pushed commit SHA:** `fc1a6b7` (docs/bookkeeping tick, committed on `adversarial-loop`, fast-forwarded
+`8eb69bd..fc1a6b7` onto `main`, pushed to `origin/main` — normal push, succeeded). **The loop is CLOSED. No further
+iterations will run.**
