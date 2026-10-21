@@ -1195,6 +1195,6 @@ recorded green gate (iteration 13, confirmed at HEAD before the close ticks):
 - `pnpm typecheck` → ok (7 projects)
 - `pnpm test` → ok (core 36, sdk-ts 6, marketing 9, web 101 pass +1 skipped, api 108 pass) = 212 pass / 1 skipped
 - `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
-**Pushed commit SHA:** _(recorded by the follow-up commit below)_ — docs/bookkeeping tick, committed on
-`adversarial-loop`, fast-forwarded onto `main`, pushed to `origin/main` (normal push). **The loop is CLOSED and the 12h
-budget is EXHAUSTED. No further iterations will run.**
+**Pushed commit SHA:** `e38da5a` (docs/bookkeeping tick, committed on `adversarial-loop`, fast-forwarded
+`ba8306f..e38da5a` onto `main`, pushed to `origin/main` — normal push, succeeded; this SHA line recorded by the
+follow-up commit). **The loop is CLOSED and the 12h budget is EXHAUSTED. No further iterations will run.**
