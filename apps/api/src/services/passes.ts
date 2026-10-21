@@ -96,6 +96,7 @@ interface PassRow {
   id: string; unit_id: string; status: 'active' | 'checked_in' | 'completed' | 'cancelled'; qr_version: number; expires_at: Date; created_at: Date;
   checked_in_at: Date | null; completed_at: Date | null; cancelled_at: Date | null; guest_name: string; guest_phone: string | null;
   guest_email: string | null; plate_hint: string | null; verify_code: string; unit_code: string; unit_name: string; site_code: string; overstay_charge: number | null;
+  host_user_id: string; created_by: string | null;
   host_name?: string | null; host_email?: string | null;
 }
 
@@ -105,11 +106,15 @@ const PASS_SQL = `select p.*, u.code as unit_code, u.name as unit_name, s.code a
 export function presentPass(secret: string, p: PassRow, now: Date, includeQr: boolean) {
   const expired = p.status === 'active' && p.expires_at.getTime() <= now.getTime();
   const displayStatus = expired ? 'expired' : p.status;
+  // A stable role hint, derived from two stored columns (never a live membership lookup). The resident's own pass has
+  // created_by == host_user_id; any other non-null creator is staff (attendant/admin); a legacy NULL is 'unknown'.
+  // Only the hint string is surfaced — never the staff member's name, email or id.
+  const issuedByRole = p.created_by == null ? 'unknown' : p.created_by === p.host_user_id ? 'host' : 'staff';
   return {
     id: p.id, status: p.status, displayStatus,
     unit: { code: p.unit_code, name: p.unit_name }, site: p.site_code,
     guestName: p.guest_name, guestPhone: p.guest_phone, guestEmail: p.guest_email, plateHint: p.plate_hint,
-    host: p.host_name || p.host_email || null,
+    host: p.host_name || p.host_email || null, issuedByRole,
     createdAt: p.created_at, expiresAt: p.expires_at, checkedInAt: p.checked_in_at, completedAt: p.completed_at, cancelledAt: p.cancelled_at,
     overstayCharge: p.overstay_charge,
     // Only a live, unredeemed pass has a QR; an expired one must be regenerated.
@@ -163,10 +168,10 @@ export async function createPass(app: App, db: Db, ctx: Ctx, input: z.infer<type
   await db.query('savepoint new_pass');
   try {
     const r = await db.query(
-      `insert into pass (tenant_id, site_id, unit_id, host_user_id, guest_name, guest_phone, guest_email, plate_hint, expires_at, verify_code)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
+      `insert into pass (tenant_id, site_id, unit_id, host_user_id, guest_name, guest_phone, guest_email, plate_hint, expires_at, verify_code, created_by)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
       [ctx.tenantId, siteId, unit.id, host, input.guestName, input.guestPhone ?? null, input.guestEmail ?? null, input.plateHint ?? null,
-        new Date(now.getTime() + policy.qrTtlMin * 60_000), newVerifyCode()]);
+        new Date(now.getTime() + policy.qrTtlMin * 60_000), newVerifyCode(), ctx.userId]);
     await db.query('release savepoint new_pass');
     return getPass(app, db, r.rows[0].id, now, true);
   } catch (e) {
@@ -343,7 +348,7 @@ interface Party { recipient: Recipient; locale: string; message: MessageKey }
 export async function sendPassNotification(app: App, tenantId: string, passId: string, kind: Kind) {
   const ctxInfo = await app.db.withTenant(tenantId, async (db) => {
     const row = (await db.query(
-      `select p.*, u.code as unit_code, u.name as unit_name, s.code as site_code, h.email as host_email, h.phone as host_phone, h.locale as host_locale
+      `select p.*, u.code as unit_code, u.name as unit_name, s.code as site_code, h.email as host_email, h.phone as host_phone, h.locale as host_locale, h.notify_guest_events as host_notify
        from pass p join unit u on u.id = p.unit_id join site s on s.id = p.site_id join app_user h on h.id = p.host_user_id where p.id = $1`, [passId])).rows[0];
     const session = row?.session_id ? (await db.query(
       `select s.in_at, s.out_at, v.plate_display, st.timezone from session s join vehicle v on v.id = s.vehicle_id join site st on st.id = s.site_id where s.id = $1`, [row.session_id])).rows[0] : null;
@@ -363,7 +368,8 @@ export async function sendPassNotification(app: App, tenantId: string, passId: s
   const staffParties: Party[] = staff.map((s) => ({ recipient: s, locale, message: 'overstay_staff' }));
   if (kind === 'checked_in' || kind === 'checked_out') {
     const m: MessageKey = kind;
-    if (policy.alertRecipients.includes('host')) parties.push({ ...host, message: m });
+    // The resident host only hears about guest arrivals/departures when they have opted in (default true).
+    if (policy.alertRecipients.includes('host') && row.host_notify !== false) parties.push({ ...host, message: m });
     if (policy.alertRecipients.includes('guest')) parties.push({ ...guest, message: m });
     if (policy.alertRecipients.includes('supervisors')) parties.push(...staffParties.map((p) => ({ ...p, message: m })));
   } else if (kind === 'overstay') {

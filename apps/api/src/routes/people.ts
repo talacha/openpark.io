@@ -62,13 +62,37 @@ export function registerPeopleRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'PATCH', path: '/v1/me/profile', summary: 'Update my name, phone (for pass alerts) and language', perm: 'me',
-    body: z.object({ name: z.string().max(100).optional(), phone: z.string().regex(/^\+[1-9]\d{7,14}$/).nullable().optional(), locale: z.string().max(10).optional() }),
+    method: 'PATCH', path: '/v1/me/profile', summary: 'Update my name, phone (for pass alerts), language and guest-alert opt-in', perm: 'me',
+    body: z.object({ name: z.string().max(100).optional(), phone: z.string().regex(/^\+[1-9]\d{7,14}$/).nullable().optional(), locale: z.string().max(10).optional(), notifyGuestEvents: z.boolean().optional() }),
     async handler({ ctx, db, body }) {
       if (!ctx.userId) throw new HttpError(400, 'user_required', 'API keys have no profile');
       await db.query(
-        'update app_user set name = coalesce($2, name), phone = case when $3::boolean then $4 else phone end, locale = coalesce($5, locale) where id = $1',
-        [ctx.userId, body.name ?? null, 'phone' in body, body.phone ?? null, body.locale ?? null]);
+        'update app_user set name = coalesce($2, name), phone = case when $3::boolean then $4 else phone end, locale = coalesce($5, locale), notify_guest_events = coalesce($6, notify_guest_events) where id = $1',
+        [ctx.userId, body.name ?? null, 'phone' in body, body.phone ?? null, body.locale ?? null, body.notifyGuestEvents ?? null]);
+      return { ok: true };
+    },
+  });
+
+  // A resident's profile picture: base64 JSON upload (same transport as plate crops), stored via app.storage and
+  // served only through short-lived signed URLs (GET /v1/me returns the URL, never the key).
+  defineRoute(app, {
+    method: 'POST', path: '/v1/me/avatar', summary: 'Upload my profile picture (PNG, JPEG or WebP, up to 2 MB)', perm: 'me',
+    body: z.object({ contentType: z.enum(['image/png', 'image/jpeg', 'image/webp']), dataBase64: z.string().min(1) }),
+    async handler({ ctx, db, body }) {
+      if (!ctx.userId) throw new HttpError(400, 'user_required', 'API keys have no profile');
+      let buf: Buffer;
+      try { buf = Buffer.from(body.dataBase64, 'base64'); } catch { throw new HttpError(400, 'avatar_invalid', 'The image could not be decoded'); }
+      if (buf.length === 0 || buf.length > 2_097_152) throw new HttpError(400, 'avatar_invalid', 'The image must be a valid file no larger than 2 MB');
+      if (!signatureMatches(body.contentType, buf)) throw new HttpError(400, 'avatar_invalid', 'The image data does not match its declared type');
+      const ext = body.contentType === 'image/png' ? 'png' : body.contentType === 'image/webp' ? 'webp' : 'jpg';
+      const key = `${ctx.tenantId}/avatars/${ctx.userId}.${ext}`;
+      try {
+        await app.storage.put(key, buf);
+      } catch (e) {
+        app.log.warn({ err: (e as Error).message }, 'avatar storage put failed');
+        throw new HttpError(503, 'storage_unavailable', 'The image store is unavailable; try again later');
+      }
+      await db.query('update app_user set avatar_key = $2 where id = $1', [ctx.userId, key]);
       return { ok: true };
     },
   });
@@ -356,6 +380,14 @@ export function registerPeopleRoutes(app: App) {
       return { ok: true };
     },
   });
+}
+
+/** Cheap magic-byte check so a declared MIME cannot smuggle a mismatched (or non-image) payload. */
+function signatureMatches(contentType: 'image/png' | 'image/jpeg' | 'image/webp', buf: Buffer): boolean {
+  if (contentType === 'image/png') return buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  if (contentType === 'image/jpeg') return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  // WebP: 'RIFF' .... 'WEBP'
+  return buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
 }
 
 /** A property must always keep at least one admin, or nobody could configure it. */

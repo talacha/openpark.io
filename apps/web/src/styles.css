@@ -165,3 +165,18 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .rolebox small { color: var(--muted, #666); }
 .verify { display: grid; justify-items: center; gap: 0.15rem; }
 .verify strong { font-size: 1.6rem; letter-spacing: 0.12em; }
+
+/* Resident profile header */
+.profile-head { display: flex; align-items: center; gap: var(--space-4); }
+.avatar { position: relative; inline-size: 72px; block-size: 72px; flex: 0 0 auto; }
+.avatar-img, .avatar-initials { inline-size: 72px; block-size: 72px; border-radius: 999px; object-fit: cover; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); font-weight: 750; font-size: 1.5rem; }
+.avatar-pill { position: absolute; inset-block-end: -6px; inset-inline-start: 50%; transform: translateX(-50%); padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; background: var(--accent); color: var(--accent-ink); white-space: nowrap; box-shadow: var(--shadow); }
+.btn.icon { min-inline-size: 42px; padding-inline: 10px; display: grid; place-items: center; }
+.row.gap { gap: var(--space-2); }
+
+/* Collapsible sections (button-driven disclosure) */
+.collapsible { display: grid; gap: var(--space-3); }
+.collapsible > h2 { margin: 0; }
+.collapsible-head { inline-size: 100%; text-align: start; display: flex; align-items: center; gap: var(--space-2); background: transparent; border: 0; padding: var(--space-2) 0; font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; }
+.collapsible-caret { display: inline-block; transition: transform 0.15s; }
+.collapsible-caret.open { transform: rotate(90deg); }

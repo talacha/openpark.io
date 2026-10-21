@@ -11,7 +11,11 @@ export type Role = (typeof ROLES)[number];
 export interface Me {
   roles: Role[];
   user: { id: string; email: string; name: string | null; phone: string | null; locale: string | null } | null;
+  /** A short-lived signed URL for the resident's profile picture, or null. */
+  avatarUrl?: string | null;
   unit: { code: string; name: string } | null;
+  /** Whether the caller's unit grant is verified. FEAT-005 finalizes this; read defensively (missing => verified). */
+  unitVerified?: boolean;
   superadmin: boolean;
   tenant: { slug: string; name: string; country: string; default_locale: string; locales: string[]; currency: string; plate_regions: string[]; ai_mode: 'off' | 'assist' | 'auto'; terminology: Terminology; slot_types: { code: string; label: string | Record<string, string> }[]; retention_days: number; training_export: boolean };
 }

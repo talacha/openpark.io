@@ -64,6 +64,46 @@ describe('resident access', () => {
   });
 });
 
+describe('resident profile: avatar and notify opt-in', () => {
+  const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('tiny png body')]);
+  const b64 = (b: Buffer) => b.toString('base64');
+
+  it('uploads a valid avatar, returns a signed URL from /v1/me (never the key), and rejects oversize and bad MIME', async () => {
+    const r = await resident();
+    // No avatar yet.
+    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json().avatarUrl).toBeNull();
+
+    const ok = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/png', dataBase64: b64(PNG) } });
+    expect(ok.statusCode, ok.body).toBe(200);
+    const me = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json();
+    expect(me.avatarUrl).toMatch(/^\/v1\/files\/.+\?exp=\d+&sig=/); // a signed, short-lived URL
+    expect(me.avatarUrl).not.toContain('avatars/'); // the raw storage key is never surfaced (it is URL-encoded in the path, but the key path itself is not exposed as plain text)
+
+    // Oversize: a decoded payload over 2 MB is rejected.
+    const big = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(2_097_153 - 8)]);
+    const over = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/png', dataBase64: b64(big) } });
+    expect(over.statusCode).toBe(400);
+    expect(over.json().error.code).toBe('avatar_invalid');
+
+    // Bad MIME/signature: JPEG declared but PNG bytes.
+    const bad = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/jpeg', dataBase64: b64(PNG) } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.code).toBe('avatar_invalid');
+  });
+
+  it('persists the guest-alert opt-in and suppresses the host alert when the resident opts out', async () => {
+    const r = await resident();
+    // Opt out of guest alerts.
+    expect((await h.app.inject({ method: 'PATCH', url: '/v1/me/profile', headers: r.h, payload: { notifyGuestEvents: false } })).statusCode).toBe(200);
+    const plate = plateOf();
+    const pass = (await create(r)).json();
+    expect((await redeem(pass.qr, plate)).statusCode).toBe(201);
+    // No check-in alert reaches the opted-out host; give background sends a moment and assert nothing arrived.
+    await new Promise((res) => setTimeout(res, 150));
+    expect(h.notifier.to({ email: r.email }).filter((m) => m.body.includes(plate))).toHaveLength(0);
+  });
+});
+
 describe('creating a pass', () => {
   it('issues a QR that lasts 2 hours and needs a way to reach the guest', async () => {
     h.clock.now = T0;
@@ -79,6 +119,48 @@ describe('creating a pass', () => {
     const r2 = await resident();
     expect((await create(r2, { guestPhone: undefined, guestEmail: undefined })).statusCode).toBe(400);
     expect((await create(r2, { guestPhone: '5512345678' })).statusCode).toBe(400); // not international format
+  });
+
+  it('labels the issuer role without exposing staff identity: self vs attendant vs legacy', async () => {
+    h.clock.now = T0;
+    const code = `U-${randomBytes(3).toString('hex')}`;
+    await addUnit(h.app, owner, code);
+    const r = await addResident(h.app, owner, code);
+
+    // The resident issues their own pass: issuedByRole === 'host'.
+    const own = (await create(r)).json();
+    expect(own.issuedByRole).toBe('host');
+    expect(own).not.toHaveProperty('createdBy'); // the raw creator id is never surfaced
+    expect(own).not.toHaveProperty('createdByName');
+
+    // Check it out so the unit frees up, then an attendant issues a pass for the SAME unit on the resident's behalf.
+    const plate = plateOf();
+    expect((await redeem(own.qr, plate)).statusCode).toBe(201);
+    h.clock.now = at(1);
+    expect((await checkout(plate)).statusCode).toBe(200);
+    // An admin (the owner) issues a pass for the SAME unit on the resident's behalf. created_by is the admin, but the
+    // host is still the unit's resident, so the pass reads as 'staff'.
+    const byStaffRes = await create(owner, { unit: code });
+    if (byStaffRes.statusCode !== 201) throw new Error(`staff pass failed: ${byStaffRes.body}`);
+    const byStaff = byStaffRes.json();
+    expect(byStaff.issuedByRole).toBe('staff');
+    expect(byStaff).not.toHaveProperty('createdBy');
+
+    // The resident's own history lists the staff-issued pass labelled 'staff', its own labelled 'host',
+    // and never leaks the staff member's identity (no creator id/name/email on the projection).
+    const hist = (await h.app.inject({ method: 'GET', url: '/v1/passes?limit=10', headers: r.h })).json();
+    const roles = hist.map((p: { issuedByRole: string }) => p.issuedByRole).sort();
+    expect(roles).toEqual(['host', 'staff']);
+    for (const p of hist) {
+      expect(p).not.toHaveProperty('createdBy');
+      expect(p).not.toHaveProperty('createdByName');
+      expect(p).not.toHaveProperty('createdByEmail');
+    }
+
+    // A legacy pass (created_by NULL, predating this migration) labels neutrally as 'unknown'.
+    await h.app.db.withTenant(await tenantId(owner.slug), (db) => db.query('update pass set created_by = null where id = $1', [byStaff.id]));
+    const legacy = (await h.app.inject({ method: 'GET', url: `/v1/passes/${byStaff.id}`, headers: supervisor.h })).json();
+    expect(legacy.issuedByRole).toBe('unknown');
   });
 
   it('allows one active pass per unit at a time', async () => {
