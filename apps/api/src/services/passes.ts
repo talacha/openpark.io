@@ -274,7 +274,7 @@ export async function redeemPass(app: App, db: Db, ctx: Ctx, after: After, input
   const { token: _t, ...rest } = input;
   const out = await checkIn(app, db, ctx, after, rest, { pass: { id: pass.id, guestName: pass.guest_name } });
   await db.query("update pass set status = 'checked_in', checked_in_at = $2, session_id = $3 where id = $1", [pass.id, app.now(), out.session.id]);
-  await addEvent(db, ctx, out.session.id, 'pass_redeemed', { passId: pass.id, guest: pass.guest_name });
+  await addEvent(db, ctx, out.session.id, 'pass_redeemed', { passId: pass.id, guest: pass.guest_name }, { at: app.now() });
   await queueNotification(app, db, ctx, after, pass.id, 'checked_in');
   return { ...out, pass: await getPass(app, db, pass.id, app.now(), false) };
 }

@@ -269,6 +269,7 @@ describe('reminders and the 12-hour overstay notice', () => {
     expect(guestMsgs()[0]!.subject).toContain('10 horas');
     expect(guestMsgs()[0]!.body).toContain('12 horas');
     expect(guestMsgs()[0]!.body).toContain('5,000'); // the charge they are warned about
+    expect(guestMsgs()[0]!.body).not.toContain('del estacionamiento'); // the 10h reminder does NOT yet tell them to move the car
 
     expect(await w.cron()).toMatchObject({ passes: 0 }); // idempotent: never sent twice
     expect(guestMsgs()).toHaveLength(1);
@@ -287,7 +288,8 @@ describe('reminders and the 12-hour overstay notice', () => {
     expect(to(w.r.email)!.subject).toBe('Tu invitado excedió el límite de estacionamiento');
     expect(to(w.sup.email)!.subject).toContain('Límite de estacionamiento de visitas excedido');
     expect(fresh).toHaveLength(3); // guest, host, the supervisor: and not the owner or attendant
-    for (const m of fresh) { expect(m.body).toContain('$5,000.00'); expect(m.body).toContain('plataforma del HOA'); }
+    // Every 12h overstay notice states the currency-formatted charge AND tells the host to move the vehicle.
+    for (const m of fresh) { expect(m.body).toContain('$5,000.00'); expect(m.body).toContain('plataforma del HOA'); expect(m.body).toContain('el vehículo del estacionamiento'); }
 
     const events = await w.events(session.session.id);
     expect(events.find((e) => e.type === 'overstay_charge')!.payload).toMatchObject({ amount: 500000, currency: 'MXN', platform: 'hoa', status: 'pending' });
@@ -351,6 +353,8 @@ describe('reminders and the 12-hour overstay notice', () => {
 
   it('honours the tenant policy (reminder hours, stay limit, charge) and rejects an inconsistent one', async () => {
     const w = await world('US');
+    // The overstay default is keyed off currency: a USD tenant seeds 0 (an MXN tenant seeds 500000, asserted above).
+    expect((await h.app.inject({ method: 'GET', url: '/v1/pass-policy', headers: w.t.h })).json().policy.overstayCharge).toBe(0);
     const bad = await h.app.inject({ method: 'PATCH', url: '/v1/pass-policy', headers: w.t.h, payload: { reminderHours: [11, 10] } });
     expect(bad.statusCode).toBe(400);
     const ok = await h.app.inject({ method: 'PATCH', url: '/v1/pass-policy', headers: w.t.h, payload: { qrTtlMin: 60, maxStayHours: 4, reminderHours: [2, 3], overstayCharge: 2500 } });

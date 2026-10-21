@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, patch, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
-import { spaceCode } from '../pass.js';
+import { dataUrlToBlob, passShareMessage, qrGifDataUrl, spaceCode } from '../pass.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -103,6 +103,8 @@ export function ResidentHome() {
               {pass.verifyCode && <div className="verify"><span className="muted">{t('res.verifyCode')}</span><strong className="num" dir="ltr">{spaceCode(pass.verifyCode)}</strong></div>}
               <p className="muted">{t('res.qrHelp')}</p>
               <div className="feetotal num" aria-live="off">{t('res.expiresIn', { time: countdown.text })}</div>
+              <SharePass qr={pass.qr} guest={pass.guestName} property={me.tenant.name} unit={me.unit.name} code={pass.verifyCode ?? ''}
+                expiresMinutes={Math.max(0, Math.round((new Date(pass.expiresAt).getTime() - Date.now()) / 60000))} />
             </>
           )}
           {expired && <div className="banner warn">{t('res.expired')}</div>}
@@ -134,6 +136,44 @@ export function ResidentHome() {
           ))}</div>
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * Send the live pass to the guest. Prefers the Web Share API with the QR as an image file; degrades to text-only
+ * share, then to copying the message and downloading the QR image. Never throws on an unsupported browser.
+ */
+function SharePass({ qr, guest, property, unit, code, expiresMinutes }: { qr: string; guest: string; property: string; unit: string; code: string; expiresMinutes: number }) {
+  const t = useT();
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function share() {
+    setBusy(true); setStatus('');
+    const { title, text } = passShareMessage(t, { guest, unit, property, code, expiresMinutes });
+    const nav = navigator as Navigator & { canShare?: (d?: { files?: File[] }) => boolean };
+    try {
+      const dataUrl = qrGifDataUrl(qr);
+      const file = new File([dataUrlToBlob(dataUrl)], 'parking-pass.gif', { type: 'image/gif' });
+      if (nav.share && nav.canShare?.({ files: [file] })) { await nav.share({ title, text, files: [file] }); return; }
+      if (nav.share) { await nav.share({ title, text }); return; }
+      // No Web Share API (most desktops): copy the message and offer the QR image as a download.
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      const a = document.createElement('a');
+      a.href = dataUrl; a.download = 'parking-pass.gif'; a.rel = 'noopener';
+      a.click();
+      setStatus(t('res.shareCopied'));
+    } catch (e) {
+      if ((e as { name?: string })?.name === 'AbortError') return; // guest dismissed the share sheet: not an error
+      setStatus(t('res.shareFailed'));
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="stack">
+      <button type="button" className="btn primary grow" disabled={busy} onClick={() => void share()}>{t('res.share')}</button>
+      <p className="muted" role="status" aria-live="polite">{status}</p>
     </div>
   );
 }

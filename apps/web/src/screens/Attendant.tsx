@@ -6,7 +6,7 @@ import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
-import { parsePassQr, spaceCode } from '../pass.js';
+import { parsePassQr, passPrefillPlate, spaceCode } from '../pass.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -119,7 +119,14 @@ export function CheckInCapture() {
     try {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
       if (!r.valid) { setPassErr(passReason(t, r.reason ?? 'pass_invalid')); return; }
-      set({ pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name, plateHint: q?.plate || undefined, verifyCode: q?.code } }); setCode('');
+      // A pass that carries a plate hint pre-fills the plate field so the attendant only verifies it; the keypad and
+      // camera stay available to correct it. Without a hint the plate is left for the attendant to capture as before.
+      const prefill = passPrefillPlate(q);
+      set({
+        pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name, plateHint: q?.plate || undefined, verifyCode: q?.code },
+        ...(prefill ? { plate: prefill, region: me!.tenant.plate_regions[0] ?? flow.region, source: 'manual' as const, candidates: [] } : {}),
+      });
+      setCode('');
     } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)); }
   }
 

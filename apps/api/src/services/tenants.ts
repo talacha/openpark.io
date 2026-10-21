@@ -61,8 +61,11 @@ export async function provisionTenant(app: App, input: { organisation: string; c
       `insert into rate_plan (tenant_id, site_id, name, version, rules, currency, tax_mode) values ($1,$2,'Visitor hourly',1,$3,$4,$5) returning id`,
       [tenantId, site, JSON.stringify(c.rules), c.currency, c.rules.taxMode]);
     await db.query('update site set default_rate_plan_id = $1 where id = $2', [plan.rows[0].id, site]);
+    // Overstay default is keyed off the tenant CURRENCY, not the country: MXN tenants seed the 5,000 MXN HOA
+    // charge (500000 minor units), every other currency seeds 0. It stays a configurable policy editable via
+    // PATCH /v1/pass-policy — not a hardcoded or enforced fine.
     await db.query("update tenant set settings = settings || jsonb_build_object('passPolicy', $1::jsonb)",
-      [JSON.stringify({ ...DEFAULT_POLICY, overstayCharge: input.country === 'MX' ? 500000 : 0 })]);
+      [JSON.stringify({ ...DEFAULT_POLICY, overstayCharge: c.currency === 'MXN' ? 500000 : 0 })]);
     await audit(db, tenantId, id, 'tenant.signup', 'tenant', null, { slug, country: input.country, owner: o.kind });
     return id;
   });

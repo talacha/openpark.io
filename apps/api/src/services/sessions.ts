@@ -38,10 +38,12 @@ export async function resolveSite(db: Db, ctx: Ctx, code: string) {
   return site as { id: string; code: string; timezone: string; default_rate_plan_id: string | null; settings: { aiThreshold?: number } };
 }
 
-export async function addEvent(db: Db, ctx: Ctx, sessionId: string, type: string, payload: unknown, extra: { deviceId?: string; gate?: string; deviceAt?: string } = {}) {
+export async function addEvent(db: Db, ctx: Ctx, sessionId: string, type: string, payload: unknown, extra: { deviceId?: string; gate?: string; deviceAt?: string; at?: Date } = {}) {
+  // Stamp server_at from the authoritative app clock (app.now()) when the caller passes it, so audit/report
+  // timestamps match session.in_at/out_at and day-bucketed reports stay consistent; falls back to DB now().
   await db.query(
-    'insert into session_event (tenant_id, session_id, type, actor_id, device_id, gate, device_at, payload) values ($1,$2,$3,$4,$5,$6,$7,$8)',
-    [ctx.tenantId, sessionId, type, ctx.userId, extra.deviceId ?? null, extra.gate ?? null, extra.deviceAt ?? null, JSON.stringify(payload)]);
+    'insert into session_event (tenant_id, session_id, type, actor_id, device_id, gate, device_at, server_at, payload) values ($1,$2,$3,$4,$5,$6,$7,coalesce($8, now()),$9)',
+    [ctx.tenantId, sessionId, type, ctx.userId, extra.deviceId ?? null, extra.gate ?? null, extra.deviceAt ?? null, extra.at ?? null, JSON.stringify(payload)]);
 }
 
 /** Free slot for a body type: preferred type first, then ordinary types; never EV/accessible/assigned. */
@@ -151,7 +153,7 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
         input.read.textRaw ? normalizePlate(input.read.textRaw) : null, region, input.read.confidence ?? null, input.read.engine ?? null,
         input.read.latencyMs ?? null, input.read.textRaw && normalizePlate(input.read.textRaw) !== norm ? norm : null, ctx.userId]);
   }
-  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt };
+  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt, at: now };
   await addEvent(db, ctx, sess.id, 'check_in', { plate: display, region, source: input.source, confidence: input.read?.confidence ?? null, ...(opts.pass ? { passId: opts.pass.id } : {}) }, extra);
   await addEvent(db, ctx, sess.id, 'slot_assigned', { slot: slot.code, reason }, extra);
 
@@ -239,11 +241,11 @@ export async function checkOut(app: App, db: Db, ctx: Ctx, after: After, s: Open
   if (s.slot_id) await db.query("update slot set status = 'available' where id = $1 and status = 'occupied'", [s.slot_id]);
   const pass = s.pass_id ? await completePass(app, db, ctx, after, { id: s.id, pass_id: s.pass_id, in_at: s.in_at }, now) : null;
 
-  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt };
+  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt, at: now };
   await addEvent(db, ctx, s.id, 'check_out', { matchMethod: method, minutes: fee.minutes, fee: final, lostTicket: !!input.lostTicket, ...(s.pass_id ? { passId: s.pass_id } : {}) }, extra);
-  if (input.override) await addEvent(db, ctx, s.id, 'fee_override', { original: fee.total, override: input.override.fee, reason: input.override.reason });
+  if (input.override) await addEvent(db, ctx, s.id, 'fee_override', { original: fee.total, override: input.override.fee, reason: input.override.reason }, { at: now });
   let receipt: string | null = null;
-  if (input.payment) receipt = await recordPayment(db, ctx, s.id, s.ticket_code, input.payment);
+  if (input.payment) receipt = await recordPayment(db, ctx, s.id, s.ticket_code, input.payment, now);
 
   const out = {
     session: { id: s.id, ticketCode: s.ticket_code, site: s.site_code, inAt: s.in_at, outAt: now.toISOString() },
@@ -256,9 +258,9 @@ export async function checkOut(app: App, db: Db, ctx: Ctx, after: After, s: Open
   return out;
 }
 
-export async function recordPayment(db: Db, ctx: Ctx, sessionId: string, ticket: string, p: NonNullable<CheckOutInput['payment']>) {
+export async function recordPayment(db: Db, ctx: Ctx, sessionId: string, ticket: string, p: NonNullable<CheckOutInput['payment']>, at?: Date) {
   const n = (await db.query("select count(*)::int as n from session_event where session_id = $1 and type = 'payment'", [sessionId])).rows[0].n;
   const receiptNo = p.receiptNo ?? `R-${ticket}-${n + 1}`;
-  await addEvent(db, ctx, sessionId, 'payment', { amount: p.amount, method: p.method, receiptNo });
+  await addEvent(db, ctx, sessionId, 'payment', { amount: p.amount, method: p.method, receiptNo }, { at });
   return receiptNo;
 }

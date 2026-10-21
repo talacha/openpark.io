@@ -77,7 +77,7 @@ export function registerSessionRoutes(app: App) {
       const s = (await db.query('select id, status, ticket_code, site_id from session where id = $1', [params.id])).rows[0];
       if (!s || (ctx.siteId && s.site_id !== ctx.siteId)) throw new HttpError(404, 'session_not_found', 'No such session');
       if (s.status !== 'closed') throw new HttpError(409, 'not_closed', 'Payments are recorded on closed sessions');
-      return created({ receiptNo: await recordPayment(db, ctx, s.id, s.ticket_code, body) });
+      return created({ receiptNo: await recordPayment(db, ctx, s.id, s.ticket_code, body, app.now()) });
     },
   });
 
@@ -90,7 +90,7 @@ export function registerSessionRoutes(app: App) {
       await db.query("update session set status = 'void' where id = $1", [s.id]);
       if (s.status === 'open' && s.slot_id) await db.query("update slot set status = 'available' where id = $1 and status = 'occupied'", [s.slot_id]);
       await db.query("update pass set status = 'completed', completed_at = now() where session_id = $1 and status = 'checked_in'", [s.id]);
-      await addEvent(db, ctx, s.id, 'void', { reason: body.reason, before: s.status, after: 'void' });
+      await addEvent(db, ctx, s.id, 'void', { reason: body.reason, before: s.status, after: 'void' }, { at: app.now() });
       await emit(db, ctx.tenantId, 'session.voided', { id: s.id });
       return { ok: true };
     },
