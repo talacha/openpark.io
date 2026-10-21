@@ -126,7 +126,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   if (!loaded) return null;
   return (
     <Ctx.Provider value={value}>
-      <I18nProvider onLocaleChange={(l) => { if (me || who) void patch('/v1/me/profile', { locale: l }).catch(() => undefined); }} defaultLocale={me?.user?.locale ?? who?.user?.locale ?? me?.tenant.default_locale ?? navigator.language ?? 'en'} terminology={me?.tenant.terminology ?? {}}>
+      {/* AC-5.4: Spanish is the default. The final fallback is '' (no preference), which surfaceLocale resolves to
+          es-MX; an explicit user/tenant/browser locale is still honoured and folded onto the two-locale surface. */}
+      <I18nProvider onLocaleChange={(l) => { if (me || who) void patch('/v1/me/profile', { locale: l }).catch(() => undefined); }} defaultLocale={me?.user?.locale ?? who?.user?.locale ?? me?.tenant.default_locale ?? navigator.language ?? ''} terminology={me?.tenant.terminology ?? {}}>
         {children}
       </I18nProvider>
     </Ctx.Provider>

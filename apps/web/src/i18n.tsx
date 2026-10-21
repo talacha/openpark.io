@@ -54,12 +54,24 @@ export const currentLocale = () => active;
 interface Ctx { locale: string; setLocale: (l: string) => void; t: (key: string, values?: Record<string, unknown>) => string; dir: 'ltr' | 'rtl' }
 const I18n = createContext<Ctx>({ locale: 'en', setLocale: () => {}, t: (k) => k, dir: 'ltr' });
 
+/**
+ * The surface locale to show given a saved override and the app's best-guess default. AC-5.4: Spanish is the default,
+ * so when there is NO explicit preference at all (no saved override, no user/tenant/browser locale) we start in es-MX
+ * rather than English. An explicit preference — saved, a user/tenant locale, or a browser tag — is honoured and folded
+ * onto the two-locale surface (any Spanish -> es-MX, everything else -> en). `resolveLocale` itself is untouched so the
+ * BCP-47 parity tests keep their English fallback.
+ */
+export function surfaceLocale(override: string | null | undefined, defaultLocale: string | null | undefined): string {
+  const pref = override ?? defaultLocale;
+  if (!pref) return 'es-MX'; // no preference anywhere -> Spanish is the default
+  const resolved = resolveLocale(pref);
+  return (SELECTABLE_LOCALES as readonly string[]).includes(resolved) ? resolved : foldToSurface(resolved);
+}
+
 export function I18nProvider({ defaultLocale, terminology, onLocaleChange, children }: { defaultLocale: string; terminology: Terminology; onLocaleChange?: (l: string) => void; children: ReactNode }) {
   const [override, setOverride] = useState<string | null>(() => { try { return localStorage.getItem('op.locale'); } catch { return null; } });
-  const resolved = resolveLocale(override ?? defaultLocale);
-  // A stored preference outside the two-locale surface (e.g. es-ES) folds transparently: es-* -> es-MX, else -> en.
-  // resolveLocale is left untouched (it still returns es-ES etc. for the parity tests); only the ACTIVE locale folds.
-  const locale = (SELECTABLE_LOCALES as readonly string[]).includes(resolved) ? resolved : foldToSurface(resolved);
+  // A stored preference outside the two-locale surface (e.g. es-ES) folds transparently; no preference at all -> es-MX.
+  const locale = surfaceLocale(override, defaultLocale);
   active = locale;
   const setLocale = useCallback((l: string) => { setOverride(l); try { localStorage.setItem('op.locale', l); } catch { /* ignore */ } onLocaleChange?.(l); }, [onLocaleChange]);
   const dir = isRtl(locale) ? 'rtl' : 'ltr';

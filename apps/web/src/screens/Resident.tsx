@@ -4,7 +4,7 @@ import { patch, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
 import { dataUrlToBlob, passShareMessage, passShareUrl, planPassShare, qrGifDataUrl, spaceCode } from '../pass.js';
-import { useApi } from '../components/hooks.js';
+import { useApi, useSubmitKey } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
 
@@ -245,6 +245,9 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
   // Rehydrate the saved opt-in (GET /v1/me returns it); missing folds to the server default (true) only for a brand-new
   // account. An opted-out resident sees the toggle unchecked, so editing name/phone/avatar never re-enables alerts.
   const [notify, setNotify] = useState(me.user?.notifyGuestEvents ?? true);
+  // A payload-scoped idempotency key so a lost-response retry of the avatar upload replays the stored write rather than
+  // storing the image twice (the route is replaySafe). It rotates automatically when a different file is chosen.
+  const avatarKey = useSubmitKey();
 
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -262,7 +265,7 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
         let binary = '';
         const bytes = new Uint8Array(buf);
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-        await post('/v1/me/avatar', { contentType: file.type, dataBase64: btoa(binary) });
+        await post('/v1/me/avatar', { contentType: file.type, dataBase64: btoa(binary) }, avatarKey.key(`${file.name}:${file.size}:${file.lastModified}`));
       }
       await onDone();
     } catch (x) {

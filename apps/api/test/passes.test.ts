@@ -91,6 +91,28 @@ describe('resident profile: avatar and notify opt-in', () => {
     expect(bad.json().error.code).toBe('avatar_invalid');
   });
 
+  // WEBP magic: 'RIFF' .... 'WEBP'. A valid 12-byte+ header so signatureMatches accepts it.
+  const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBP'), Buffer.from('VP8 tiny')]);
+  const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('tiny jpeg body')]);
+
+  it('serves each uploaded avatar format through the signed GET with the matching Content-Type (not always JPEG)', async () => {
+    const cases: [string, Buffer, string][] = [
+      ['image/png', PNG, 'image/png'],
+      ['image/webp', WEBP, 'image/webp'],
+      ['image/jpeg', JPEG, 'image/jpeg'],
+    ];
+    for (const [contentType, bytes, expected] of cases) {
+      const r = await resident();
+      const up = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType, dataBase64: b64(bytes) } });
+      expect(up.statusCode, up.body).toBe(200);
+      const url = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json().avatarUrl as string;
+      // Actually request the signed file and assert the response Content-Type is derived from the format, not hardcoded.
+      const got = await h.app.inject({ method: 'GET', url });
+      expect(got.statusCode, got.body).toBe(200);
+      expect(got.headers['content-type']).toContain(expected);
+    }
+  });
+
   it('persists the guest-alert opt-in and suppresses the host alert when the resident opts out', async () => {
     const r = await resident();
     // Opt out of guest alerts.

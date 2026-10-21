@@ -24,8 +24,8 @@ export async function addPerson(app: App, db: Db, tenantId: string, invitedBy: s
   if (!userId && p.inviteOnly) {
     const verified = !!p.unitVerified;
     await db.query(
-      'insert into membership_invite (tenant_id, email, roles, unit_id, invited_by, superadmin, unit_verified) values ($1,$2,$3,$4,$5,$6,$7) on conflict (tenant_id, email) do update set roles = excluded.roles, unit_id = excluded.unit_id, superadmin = excluded.superadmin, unit_verified = excluded.unit_verified',
-      [tenantId, email, p.roles, p.unitId, invitedBy, !!p.superadmin, verified]);
+      'insert into membership_invite (tenant_id, email, roles, unit_id, invited_by, superadmin, unit_verified, name) values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (tenant_id, email) do update set roles = excluded.roles, unit_id = excluded.unit_id, superadmin = excluded.superadmin, unit_verified = excluded.unit_verified, name = coalesce(excluded.name, membership_invite.name)',
+      [tenantId, email, p.roles, p.unitId, invitedBy, !!p.superadmin, verified, p.name ?? null]);
     return { invited: true };
   }
 
@@ -49,7 +49,7 @@ export async function addPerson(app: App, db: Db, tenantId: string, invitedBy: s
     return { userId, ...(temp ? { temporaryPassword: temp } : {}) };
   }
   await db.query(
-    'insert into membership_invite (tenant_id, email, roles, unit_id, invited_by, superadmin, unit_verified) values ($1,$2,$3,$4,$5,$6,$7) on conflict (tenant_id, email) do update set roles = excluded.roles, unit_id = excluded.unit_id, superadmin = excluded.superadmin, unit_verified = excluded.unit_verified',
-    [tenantId, email, p.roles, p.unitId, invitedBy, !!p.superadmin, verified]);
+    'insert into membership_invite (tenant_id, email, roles, unit_id, invited_by, superadmin, unit_verified, name) values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (tenant_id, email) do update set roles = excluded.roles, unit_id = excluded.unit_id, superadmin = excluded.superadmin, unit_verified = excluded.unit_verified, name = coalesce(excluded.name, membership_invite.name)',
+    [tenantId, email, p.roles, p.unitId, invitedBy, !!p.superadmin, verified, p.name ?? null]);
   return { invited: true };
 }

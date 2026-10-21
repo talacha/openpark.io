@@ -6,26 +6,27 @@ import { useT } from '../i18n.js';
 
 /** The four bulk entities, each mapping to its export + import pipeline. Every tab reuses the same validate -> preview
  * -> apply -> rollback UI; only the endpoints and the download file name differ. */
-type Entity = 'sites' | 'inventory' | 'units' | 'users';
+type Entity = 'community' | 'sites' | 'inventory' | 'units' | 'users';
 interface Spec { tab: string; exportUrl: string; importUrl: (opts: { mode: string; dryRun: boolean }) => string; file: string; modes: boolean }
 
 const SPECS: Record<Entity, Spec> = {
-  // Labelled "Sites" (not "Communities"): this pipeline operates on /v1/sites — a community's parking facilities.
-  // Community identity (a tenant's address/notes) is edited in the Community settings panel on the Communities & parking
-  // screen, not bulk-imported here (one community per admin session, so there is nothing to bulk-import at that level).
+  // The Community itself (the tenant's surfaced identity: name, address, notes). A tenant-scoped export is one row;
+  // it never renames tables or touches tenancy — only the editable scalar fields — satisfying AC-5.2's Community bulk.
+  community: { tab: 'bulk.community', exportUrl: '/v1/community/export', importUrl: (o) => `/v1/community/import?dryRun=${o.dryRun}`, file: 'community.json', modes: false },
+  // A community's parking facilities (operates on /v1/sites).
   sites: { tab: 'bulk.sites', exportUrl: '/v1/sites/export', importUrl: (o) => `/v1/sites/import?mode=${o.mode}&dryRun=${o.dryRun}`, file: 'sites.json', modes: true },
   inventory: { tab: 'bulk.slots', exportUrl: '/v1/inventory/export', importUrl: (o) => `/v1/inventory/import?mode=${o.mode}&dryRun=${o.dryRun}`, file: 'inventory.json', modes: true },
   units: { tab: 'bulk.units', exportUrl: '/v1/units/export', importUrl: (o) => `/v1/units/import?mode=${o.mode}&dryRun=${o.dryRun}`, file: 'units.json', modes: true },
   users: { tab: 'bulk.users', exportUrl: '/v1/users/export', importUrl: (o) => `/v1/users/import?dryRun=${o.dryRun}`, file: 'users.json', modes: false },
 };
-const ENTITIES: Entity[] = ['sites', 'inventory', 'units', 'users'];
+const ENTITIES: Entity[] = ['community', 'sites', 'inventory', 'units', 'users'];
 
 interface Preview { job: string; dryRun: boolean; summary: Record<string, number>; diff: Record<string, unknown[]> }
 
 /** One Bulk import/export admin screen with entity tabs. Reuses the shipped import pipeline for each entity. */
 export function Bulk() {
   const t = useT();
-  const [entity, setEntity] = useState<Entity>('sites');
+  const [entity, setEntity] = useState<Entity>('community');
   const spec = SPECS[entity];
   return (
     <div className="stack">

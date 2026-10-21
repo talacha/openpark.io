@@ -125,4 +125,150 @@ describe('bulk users import/export (no secrets, invite path only)', () => {
     for (const u of out.users) expect(Object.keys(u).every((k) => ['email', 'name', 'roles', 'unit', 'unitVerified'].includes(k))).toBe(true);
     expect(JSON.stringify(out)).not.toMatch(/password|temporaryPassword|verify_code|secret/i);
   });
+
+  it('edits a REGISTERED member (roles, unit, unitVerified) transactionally and rolls it back conflict-aware', async () => {
+    await addUnit(h.app, t, 'A-2');
+    const r = await addResident(h.app, t, 'A-1'); // a registered, verified member
+    const id = await tenantId(t.slug);
+    const member = async () => (await h.app.db.withTenant(id, (db) => db.query('select m.roles, m.unit_verified, un.code as unit from membership m join app_user a on a.id = m.user_id left join unit un on un.id = m.unit_id where a.email = $1', [r.email]))).rows[0];
+    expect(await member()).toMatchObject({ unit: 'A-1', unit_verified: true });
+
+    // Import the SAME member with a different unit and roles; previewUsers must report it as a change, not skip it.
+    const prev = await imp({ schemaVersion: 1, users: [{ email: r.email, roles: ['resident', 'attendant'], unit: 'A-2', unitVerified: false }] });
+    expect(prev.statusCode, prev.body).toBe(201);
+    expect(prev.json().summary.changed).toBe(1);
+    const done = await apply(prev.json().job);
+    expect(done.statusCode, done.body).toBe(200);
+    expect(done.json().applied).toMatchObject({ changed: 1 });
+    expect(await member()).toMatchObject({ unit: 'A-2', unit_verified: false });
+    expect((await member()).roles.sort()).toEqual(['attendant', 'resident']);
+
+    // Rollback restores the member's prior roles/unit/verification exactly.
+    const back = await h.app.inject({ method: 'POST', url: `/v1/users/import/${prev.json().job}/rollback`, headers: idem(t) });
+    expect(back.statusCode, back.body).toBe(200);
+    expect(back.json().rolledBack).toMatchObject({ members: 1 });
+    expect(await member()).toMatchObject({ unit: 'A-1', unit_verified: true });
+  });
+
+  it('persists an invitation name (round-trips through export) instead of silently discarding it', async () => {
+    const email = `named-${uniq()}@example.com`;
+    expect((await apply((await imp({ schemaVersion: 1, users: [{ email, name: 'Named Guest', roles: ['attendant'] }] })).json().job)).statusCode).toBe(200);
+    const out = await exp();
+    expect(out.users.find((u: { email: string; name?: string }) => u.email === email)).toMatchObject({ name: 'Named Guest' });
+  });
+
+  it('invitation rollback is conflict-aware: an invite edited by an admin after apply is not clobbered', async () => {
+    const email = `inv-${uniq()}@example.com`;
+    const job = (await imp({ schemaVersion: 1, users: [{ email, roles: ['attendant'] }] })).json().job;
+    expect((await apply(job)).statusCode).toBe(200);
+    // Another admin changes the invitation after apply.
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/invites/${encodeURIComponent(email)}`, headers: t.h, payload: { roles: ['supervisor'] } })).statusCode).toBe(200);
+    // Rollback must NOT withdraw it (it no longer matches what the job created); it reports a conflict and leaves it.
+    const back = await h.app.inject({ method: 'POST', url: `/v1/users/import/${job}/rollback`, headers: idem(t) });
+    expect(back.statusCode, back.body).toBe(200);
+    expect(back.json().rolledBack.withdrawn).toBe(0);
+    expect(back.json().rolledBack.conflicts.length).toBe(1);
+    const users = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: t.h })).json();
+    expect(users.invites.find((i: { email: string }) => i.email === email)).toBeTruthy(); // still present, unchanged by rollback
+  });
+});
+
+describe('bulk community import/export (the tenant itself)', () => {
+  let h: Harness;
+  let t: Tenant;
+  beforeAll(async () => { h = await harness(); t = await signup(h.app, 'MX'); });
+  afterAll(async () => { await h.close(); });
+
+  const imp = (body: unknown, q = '') => h.app.inject({ method: 'POST', url: `/v1/community/import${q}`, headers: t.h, payload: body as object });
+  const apply = (job: string) => h.app.inject({ method: 'POST', url: `/v1/community/import/${job}/apply`, headers: idem(t) });
+  const rollback = (job: string) => h.app.inject({ method: 'POST', url: `/v1/community/import/${job}/rollback`, headers: idem(t) });
+  const exp = async () => (await h.app.inject({ method: 'GET', url: '/v1/community/export', headers: t.h })).json();
+
+  it('exports one community row, imports a name/address/notes change, applies and rolls it back', async () => {
+    const out = await exp();
+    expect(out).toMatchObject({ schemaVersion: 1, tenant: t.slug, $schema: 'https://schemas.openpark.io/community/v1.json' });
+    expect(out.communities.length).toBe(1);
+    const original = out.communities[0];
+
+    const prev = await imp({ schemaVersion: 1, communities: [{ name: 'Torre Nueva', address: 'Av. Reforma 1', notes: 'gate code 42' }] });
+    expect(prev.statusCode, prev.body).toBe(201);
+    expect(prev.json().summary.changed).toBe(1);
+    expect((await apply(prev.json().job)).statusCode).toBe(200);
+
+    const after = await exp();
+    expect(after.communities[0]).toMatchObject({ name: 'Torre Nueva', address: 'Av. Reforma 1', notes: 'gate code 42' });
+
+    const back = await rollback(prev.json().job);
+    expect(back.statusCode, back.body).toBe(200);
+    expect(back.json().rolledBack).toMatchObject({ restored: 1 });
+    const reverted = await exp();
+    expect(reverted.communities[0].name).toBe(original.name);
+    expect(reverted.communities[0].address ?? null).toBe(original.address ?? null);
+  });
+
+  it('community rollback is conflict-aware: an edit after apply is reported, not clobbered', async () => {
+    const prev = await imp({ schemaVersion: 1, communities: [{ name: 'Phase One', notes: 'n1' }] });
+    const job = prev.json().job;
+    expect((await apply(job)).statusCode).toBe(200);
+    // Another admin edits the community after apply, via the ordinary tenant PATCH.
+    expect((await h.app.inject({ method: 'PATCH', url: '/v1/tenant', headers: t.h, payload: { notes: 'edited later' } })).statusCode).toBe(200);
+    const back = await rollback(job);
+    expect(back.statusCode, back.body).toBe(200);
+    expect(back.json().rolledBack.restored).toBe(0);
+    expect(back.json().rolledBack.conflicts.length).toBe(1);
+    expect((await exp()).communities[0].notes).toBe('edited later'); // left as the later edit, not reverted
+  });
+});
+
+describe('bulk sites rollback safety', () => {
+  let h: Harness;
+  let t: Tenant;
+  beforeAll(async () => { h = await harness(); t = await signup(h.app, 'MX'); });
+  afterAll(async () => { await h.close(); });
+
+  const imp = (body: unknown, q = '') => h.app.inject({ method: 'POST', url: `/v1/sites/import${q}`, headers: t.h, payload: body as object });
+  const apply = (job: string) => h.app.inject({ method: 'POST', url: `/v1/sites/import/${job}/apply`, headers: idem(t) });
+  const rollback = (job: string) => h.app.inject({ method: 'POST', url: `/v1/sites/import/${job}/rollback`, headers: idem(t) });
+  const sites = async () => (await h.app.inject({ method: 'GET', url: '/v1/sites', headers: t.h })).json();
+
+  it('an explicit notes:null clears the note on apply (omission leaves it)', async () => {
+    const code = `GATE-${uniq()}`;
+    expect((await apply((await imp({ schemaVersion: 1, sites: [{ code, name: 'G', timezone: 'UTC', notes: 'first' }] })).json().job)).statusCode).toBe(200);
+    expect((await sites()).find((s: { code: string; settings: { notes?: string } }) => s.code === code).settings.notes).toBe('first');
+    // Omitting notes keeps it.
+    expect((await apply((await imp({ schemaVersion: 1, sites: [{ code, name: 'G2', timezone: 'UTC' }] })).json().job)).statusCode).toBe(200);
+    expect((await sites()).find((s: { code: string; settings: { notes?: string } }) => s.code === code).settings.notes).toBe('first');
+    // Explicit null clears it.
+    expect((await apply((await imp({ schemaVersion: 1, sites: [{ code, name: 'G2', timezone: 'UTC', notes: null }] })).json().job)).statusCode).toBe(200);
+    expect((await sites()).find((s: { code: string; settings: { notes?: string | null } }) => s.code === code).settings.notes ?? null).toBeNull();
+  });
+
+  it('rollback does NOT retire an import-created site that now holds an open stay (conflict), nor revert unrelated later edits', async () => {
+    const code = `GATE-${uniq()}`;
+    const job = (await imp({ schemaVersion: 1, sites: [{ code, name: 'New Gate', timezone: 'America/Mexico_City' }] })).json().job;
+    expect((await apply(job)).statusCode).toBe(200);
+    // Give the new site a parking spot so a car can actually check in there.
+    expect((await h.app.inject({ method: 'POST', url: `/v1/sites/${code}/zones`, headers: idem(t), payload: { code: 'Z1', name: 'Level 1' } })).statusCode).toBe(201);
+    expect((await h.app.inject({ method: 'POST', url: `/v1/slots?site=${code}`, headers: idem(t), payload: { code: 'S1', zone: 'Z1', type: 'standard' } })).statusCode).toBe(201);
+    // A car checks in at the newly imported site before rollback.
+    const res = await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(t), payload: { site: code, plate: { display: `C${uniq()}` } } });
+    expect(res.statusCode, res.body).toBe(201);
+    // Rollback would retire the created site, but a car is inside — it must refuse and report a conflict, not retire it.
+    const back = await rollback(job);
+    expect(back.statusCode, back.body).toBe(200);
+    expect(back.json().rolledBack.conflicts.length).toBe(1);
+    expect((await sites()).find((s: { code: string }) => s.code === code)).toBeTruthy(); // still live
+  });
+
+  it('rollback leaves an unrelated site edited after apply untouched', async () => {
+    const a = `GATE-${uniq()}`;
+    const job = (await imp({ schemaVersion: 1, sites: [{ code: a, name: 'Alpha', timezone: 'UTC' }] })).json().job;
+    expect((await apply(job)).statusCode).toBe(200);
+    // Edit the SAME site after apply (simulating later work); the job's after-state no longer matches.
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/sites/${a}`, headers: t.h, payload: { name: 'Alpha Renamed' } })).statusCode).toBe(200);
+    const back = await rollback(job);
+    expect(back.statusCode, back.body).toBe(200);
+    expect(back.json().rolledBack.conflicts.length).toBe(1); // edited after apply -> not retired
+    expect((await sites()).find((s: { code: string }) => s.code === a)).toMatchObject({ name: 'Alpha Renamed' });
+  });
 });

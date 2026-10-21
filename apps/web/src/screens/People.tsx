@@ -35,6 +35,9 @@ export function Units() {
   const [editing, setEditing] = useState<UnitRow | null>(null);
   const [busy, setBusy] = useState(false);
   const addKey = useSubmitKey();
+  // A payload-scoped key for the import preview (rotates when the document/mode/dry-run changes) so a lost-response
+  // retry replays the stored job instead of creating a duplicate one; apply/rollback use a stable per-job key.
+  const importKey = useSubmitKey();
   const body = (f: Record<string, string>) => ({ name: f.name, site: f.site || null, floor: f.floor === '' || f.floor === undefined ? null : Number(f.floor), note: f.note || null });
 
   async function add(e: FormEvent<HTMLFormElement>) {
@@ -69,14 +72,15 @@ export function Units() {
 
   async function validate() {
     setIerr(null); setPreview(null); setApplied(null);
-    try { setPreview(await post<UPreview>('/v1/units/import?mode=' + mode + '&dryRun=' + dryRun, { text })); }
+    const url = '/v1/units/import?mode=' + mode + '&dryRun=' + dryRun;
+    try { setPreview(await post<UPreview>(url, { text }, importKey.key(`${url}\n${text}`))); }
     catch (x) { if (x instanceof ApiError) setIerr({ message: x.message, details: x.details }); else throw x; }
   }
 
   async function applyImport() {
     if (!preview) return;
     setIerr(null);
-    try { setApplied((await post<{ applied: UApplied }>(`/v1/units/import/${preview.job}/apply`)).applied); setPreview(null); await units.reload(); }
+    try { setApplied((await post<{ applied: UApplied }>(`/v1/units/import/${preview.job}/apply`, undefined, `units-apply-${preview.job}`)).applied); setPreview(null); await units.reload(); }
     catch (x) { if (x instanceof ApiError) setIerr({ message: x.message, details: x.details }); }
   }
 

@@ -153,9 +153,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .capseg.green { background: var(--accent); }
 .capseg.yellow { background: repeating-linear-gradient(135deg, var(--warn) 0 4px, color-mix(in srgb, var(--warn) 70%, #fff) 4px 8px); }
 .capseg.free { background: var(--surface-2); }
+/* >10h and >12h overlays must NOT rely on colour alone: each carries a distinct fill pattern AND a distinct symbol so
+   they are told apart without perceiving orange vs red. >10h is a solid orange tile marked with a single "!";
+   >12h is a hatched red tile marked with a double "‼". The per-segment aria-label on the bar carries the counts. */
 .capseg.over10 { background: var(--warn); box-shadow: inset 0 0 0 2px #c2410c; }
-.capseg.over12 { background: var(--danger); box-shadow: inset 0 0 0 2px #7f1d1d; }
-.capseg[data-over]::after { content: '!'; display: block; text-align: center; font-size: 0.7rem; font-weight: 800; color: #fff; }
+.capseg.over12 { background: repeating-linear-gradient(135deg, var(--danger) 0 3px, #7f1d1d 3px 6px); box-shadow: inset 0 0 0 2px #7f1d1d; }
+.capseg[data-over]::after { display: block; text-align: center; font-size: 0.7rem; font-weight: 800; color: #fff; line-height: 1.1; }
+.capseg.over10::after { content: '!'; }
+.capseg.over12::after { content: '\203C'; } /* ‼ double exclamation */
 .caplegend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); font-size: 0.8rem; color: var(--ink-2); }
 .caplegend .legend { display: inline-flex; align-items: center; gap: 6px; }
 .caplegend .legend::before { content: ''; inline-size: 12px; block-size: 12px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); }
@@ -163,7 +168,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .caplegend .yellow::before { background: repeating-linear-gradient(135deg, var(--warn) 0 3px, #fff 3px 6px); }
 .caplegend .free::before { background: var(--surface-2); }
 .caplegend .over10::before { background: var(--warn); }
-.caplegend .over12::before { background: var(--danger); }
+.caplegend .over12::before { background: repeating-linear-gradient(135deg, var(--danger) 0 3px, #7f1d1d 3px 6px); }
+/* The swatch pattern alone could be missed at 12px, so mark each overstay legend with its bar symbol too. */
+.caplegend .over10::after { content: '!'; font-weight: 800; color: var(--warn); }
+.caplegend .over12::after { content: '\203C'; font-weight: 800; color: var(--danger); }
 .capcaption { margin: 0; font-size: 0.85rem; }
 
 /* Autocomplete / picker lists */
@@ -185,6 +193,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   /* The drawer governs on phones: collapse is a wide-screen concern and is ignored here (labels stay, icons hide). */
   .shell, .shell[data-collapsed='true'] { grid-template-columns: minmax(0, 1fr); }
   .shell[data-collapsed='true'] .menu-label { position: static; inline-size: auto; block-size: auto; padding: revert; margin: 0; overflow: visible; clip-path: none; white-space: normal; }
+  /* The desktop collapse hides the tenant/site/language selectors and Sign out (type-qualified, so higher specificity
+     than the generic .menu-label reset above). On a phone the drawer always shows the full menu, so explicitly restore
+     their display — otherwise a persisted collapsed preference would strip those controls with no way to recover. */
+  .shell[data-collapsed='true'] select.menu-label, .shell[data-collapsed='true'] button.menu-label { display: revert; }
   .shell[data-collapsed='true'] .menu-icon { display: none; }
   .shell[data-collapsed='true'] .side { padding-inline: var(--space-4); }
   .shell[data-collapsed='true'] .menu-top, .shell[data-collapsed='true'] .menu-head { justify-content: space-between; }

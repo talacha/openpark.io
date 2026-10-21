@@ -71,6 +71,46 @@ begin
   return found;
 end $$;
 
--- Bulk import/export jobs now also cover sites and users; widen the kind check to include them.
+-- Bulk import/export jobs now also cover sites, users and the community (tenant) itself; widen the kind check.
 alter table inventory_import drop constraint inventory_import_kind_check;
-alter table inventory_import add constraint inventory_import_kind_check check (kind in ('inventory', 'units', 'sites', 'users'));
+alter table inventory_import add constraint inventory_import_kind_check check (kind in ('inventory', 'units', 'sites', 'users', 'community'));
+
+-- Bulk users import may carry a display name for an INVITED person (no account yet). Persist it on the invitation so
+-- the bulk editor is not a silent data-loss path, and so the name is applied to the account at claim/accept time.
+-- Nullable: an invitation created before this column, or without a name, carries NULL.
+alter table membership_invite add column name text;
+
+-- Carry the invitation name into the account when the invite is claimed (first sign-in) or explicitly accepted. Each
+-- function is re-created from the body set earlier in THIS migration, adding only `app_user.name` backfill from the
+-- invitation when the account has no name yet (coalesce never overwrites a name the person already set).
+create or replace function claim_invites(p_user uuid, p_email text) returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  insert into membership (tenant_id, user_id, roles, unit_id, unit_verified)
+    select tenant_id, p_user, roles, unit_id, unit_verified from membership_invite where email = lower(p_email)
+    on conflict do nothing;
+  get diagnostics n = row_count;
+  update app_user set name = coalesce(app_user.name, i.name)
+    from membership_invite i where app_user.id = p_user and i.email = lower(p_email) and i.name is not null;
+  update app_user set is_superadmin = true
+    where id = p_user and exists (select 1 from membership_invite where email = lower(p_email) and superadmin);
+  delete from membership_invite where email = lower(p_email);
+  return n;
+end $$;
+
+create or replace function accept_invite(p_user uuid, p_email text, p_tenant uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare found boolean;
+begin
+  insert into membership (tenant_id, user_id, roles, unit_id, unit_verified)
+    select tenant_id, p_user, roles, unit_id, unit_verified from membership_invite where email = lower(p_email) and tenant_id = p_tenant
+    on conflict do nothing;
+  get diagnostics found = row_count;
+  update app_user set name = coalesce(app_user.name, i.name)
+    from membership_invite i where app_user.id = p_user and i.email = lower(p_email) and i.tenant_id = p_tenant and i.name is not null;
+  update app_user set is_superadmin = true
+    where id = p_user and exists (select 1 from membership_invite where email = lower(p_email) and tenant_id = p_tenant and superadmin);
+  delete from membership_invite where email = lower(p_email) and tenant_id = p_tenant;
+  return found;
+end $$;

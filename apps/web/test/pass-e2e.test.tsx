@@ -95,7 +95,6 @@ function mountAttendant() {
 }
 
 const btn = (c: HTMLElement, text: string) => [...c.querySelectorAll('button')].find((b) => b.textContent === text)!;
-const key = (c: HTMLElement, label: string) => c.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
 
 afterEach(() => { cleanup(); window.location.hash = ''; });
 beforeEach(() => { api.get.mockReset(); api.post.mockReset(); api.write.mockReset(); });
@@ -138,17 +137,19 @@ describe('resident share → guest page → attendant scan → gate redemption (
     // The server lookup was hit with the exact scanned token, so a bad QR is caught at the gate before any check-in.
     expect(api.get).toHaveBeenCalledWith(`/v1/passes/lookup?token=${encodeURIComponent(TOKEN)}`);
 
-    // The verified pass prefills the visible, editable plate field (the hint ABC123), not just a banner.
-    await waitFor(() => { if (!(container.querySelector('.platebox')?.textContent ?? '').includes('ABC123')) throw new Error('plate not prefilled'); });
-    expect((container.querySelector('[role="status"]')?.textContent ?? '')).toContain(translate('en', 'att.passFor', { guest: 'Rosa', unit: 'A-101' }));
+    // AC-4.2.2: a successful scan lands DIRECTLY on the complete prefilled confirmation form (Host/vehicle/Slot), not a
+    // plate-only capture step. The pass guest banner and the editable Plate field (prefilled with the hint ABC123) show there.
+    const plate = () => container.querySelector('input[aria-required="true"]') as HTMLInputElement;
+    await waitFor(() => { if (plate()?.value !== 'ABC123') throw new Error('plate not prefilled on confirm'); });
+    expect(container.textContent ?? '').toContain(translate('en', 'att.passFor', { guest: 'Rosa', unit: 'A-101' }));
+    // The host is fixed to the pass unit and the vehicle/slot sections are present on this same form.
+    expect(container.textContent ?? '').toContain(translate('en', 'att.vehicle'));
 
-    // The attendant verifies and REPLACES the plate (clear, then type a correct MX plate) before submitting.
-    await act(async () => { fireEvent.click(key(container, translate('en', 'att.keyClear'))); });
-    for (const ch of 'XYZ789') await act(async () => { fireEvent.click(key(container, ch)); });
-    expect((container.querySelector('.platebox')?.textContent ?? '')).toContain('XYZ789');
+    // The attendant verifies and REPLACES the plate on the confirmation form before submitting.
+    await act(async () => { fireEvent.change(plate(), { target: { value: 'XYZ789' } }); });
+    expect(plate().value).toBe('XYZ789');
 
-    // Advance to confirm and submit.
-    await act(async () => { fireEvent.click(btn(container, translate('en', 'common.next'))); });
+    // Submit the redemption from the confirmation form.
     await act(async () => { fireEvent.click(btn(container, translate('en', 'att.confirm'))); });
 
     // Redemption goes through /v1/passes/redeem with the intended token and the edited plate — never the walk-in branch.

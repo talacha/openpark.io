@@ -49,7 +49,22 @@ describe('translate', () => {
   });
 });
 
-import { resolveLocale } from '../src/i18n.js';
+import { resolveLocale, surfaceLocale } from '../src/i18n.js';
+describe('surfaceLocale (AC-5.4: Spanish is the default)', () => {
+  it('defaults to es-MX when there is NO saved override and no app/browser preference', () => {
+    expect(surfaceLocale(null, '')).toBe('es-MX');
+    expect(surfaceLocale(undefined, undefined)).toBe('es-MX');
+    expect(surfaceLocale(null, null)).toBe('es-MX');
+  });
+  it('honours an explicit preference and folds it onto the two-locale surface', () => {
+    expect(surfaceLocale('en', '')).toBe('en');          // saved English stays English
+    expect(surfaceLocale(null, 'en')).toBe('en');         // an English tenant/browser stays English
+    expect(surfaceLocale('es-ES', '')).toBe('es-MX');     // any Spanish folds to es-MX
+    expect(surfaceLocale(null, 'pt-BR')).toBe('en');      // a non-Spanish, non-English locale folds to en
+    expect(surfaceLocale('es-MX', 'en')).toBe('es-MX');   // the saved override wins over the app default
+  });
+});
+
 describe('resolveLocale', () => {
   it('maps browser tags to the closest shipped catalog', () => {
     expect(resolveLocale('es-419')).toBe('es-MX');

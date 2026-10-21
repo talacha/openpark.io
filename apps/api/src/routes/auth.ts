@@ -4,10 +4,12 @@ import { z } from 'zod';
 import { ROLES, hashPassword, newApiKey, signToken, verifyPassword } from '../auth.js';
 import { localAuthEnabled } from '../config.js';
 import { audit } from '../db.js';
-import { HttpError, created, defineRoute, definePublicRoute } from '../http.js';
+import { HttpError, boolQuery, created, defineRoute, definePublicRoute } from '../http.js';
 import type { App } from '../server.js';
 import { signUrl } from '../storage.js';
+import { locateJsonError } from '../jsonpos.js';
 import { provisionTenant, type Owner } from '../services/tenants.js';
+import { applyCommunity, exportCommunity, parseCommunityDoc, previewCommunity, restoreCommunity, type CommunitySnapshot } from '../services/community.js';
 
 const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'org';
 
@@ -111,6 +113,54 @@ export function registerAuthRoutes(app: App) {
           body.plateRegions ?? null, body.retentionDays ?? null, body.trainingExport ?? null, body.address ?? null, body.notes ?? null]);
       await audit(db, ctx.tenantId, ctx.userId, 'tenant.update', 'tenant', before, body);
       return { ok: true };
+    },
+  });
+
+  // ---- bulk community (the tenant's own identity): validate -> diff -> preview -> apply -> rollback -----------------
+  // A tenant-scoped export is one Community row (name, address, notes). This never renames the tenant table, changes
+  // the slug, or touches tenancy/RLS — only the editable scalar fields, so AC-5.2's Community bulk editing is covered.
+  defineRoute(app, {
+    method: 'GET', path: '/v1/community/export', summary: 'The community (name, address, notes) as a one-row JSON document', perm: 'settings.edit',
+    handler: async ({ ctx, db }) => exportCommunity(db, ctx.tenantSlug, app.now()),
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/community/import', summary: 'Validate a community file and preview the change; returns a job', perm: 'settings.edit', replaySafe: true,
+    query: z.object({ dryRun: boolQuery() }),
+    body: z.record(z.unknown()),
+    async handler({ ctx, db, query, body }) {
+      const doc = parseCommunityDoc(body, locateJsonError);
+      const diff = await previewCommunity(db, doc);
+      const job = (await db.query(
+        "insert into inventory_import (tenant_id, kind, mode, doc, diff, created_by) values ($1,'community','merge',$2,$3,$4) returning id",
+        [ctx.tenantId, JSON.stringify(doc), JSON.stringify({ ...diff, dryRun: query.dryRun }), ctx.userId])).rows[0];
+      const summary = { changed: diff.changed.length, conflicts: 0, errors: 0 };
+      return created({ job: job.id, dryRun: query.dryRun, summary, diff });
+    },
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/community/import/:job/apply', summary: 'Apply a previewed community import', perm: 'settings.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'community' for update", [params.job])).rows[0];
+      if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
+      if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
+      if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
+      const { snapshot, ...applied } = await applyCommunity(db, ctx.tenantId, ctx.userId, parseCommunityDoc(job.doc, locateJsonError));
+      await db.query("update inventory_import set status = 'applied', snapshot = $2, applied_at = now() where id = $1", [job.id, JSON.stringify(snapshot)]);
+      return { job: job.id, applied };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/community/import/:job/rollback', summary: 'Restore the pre-import community state (conflict-aware)', perm: 'settings.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'community' for update", [params.job])).rows[0];
+      if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
+      if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
+      const rolledBack = await restoreCommunity(db, ctx.tenantId, ctx.userId, job.snapshot as CommunitySnapshot);
+      await db.query("update inventory_import set status = 'rolled_back' where id = $1", [job.id]);
+      return { job: job.id, rolledBack };
     },
   });
 

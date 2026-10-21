@@ -5,7 +5,7 @@ import { HttpError, created, defineRoute, boolQuery } from '../http.js';
 import { locateJsonError } from '../jsonpos.js';
 import type { App } from '../server.js';
 import { resolveSite, suggestSlot } from '../services/sessions.js';
-import { applySites, exportSites, parseSitesDoc, previewSites, restoreSites, snapshotSites, type SitesSnapshot } from '../services/sites.js';
+import { applySites, exportSites, parseSitesDoc, previewSites, restoreSites, type SitesSnapshot } from '../services/sites.js';
 
 function validTimezone(tz: string) { try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; } }
 
@@ -280,10 +280,9 @@ export function registerSlotRoutes(app: App) {
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
       if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
-      // Capture dependent state (slots, unit associations, cleared notes) BEFORE applying, so a replace that retires a
-      // site + its slots and nulls its units can be undone exactly — exportSites alone cannot carry those facts.
-      const snapshot = await snapshotSites(db);
-      const applied = await applySites(db, ctx.tenantId, ctx.userId, parseSitesDoc(job.doc, locateJsonError), job.mode);
+      // applySites captures a job-scoped before/after snapshot (only the rows it touches), so rollback can detect an
+      // intervening edit and never clobbers unrelated later work or a site that is now holding an open stay.
+      const { snapshot, ...applied } = await applySites(db, ctx.tenantId, ctx.userId, parseSitesDoc(job.doc, locateJsonError), job.mode);
       await db.query("update inventory_import set status = 'applied', snapshot = $2, applied_at = now() where id = $1", [job.id, JSON.stringify(snapshot)]);
       return { job: job.id, applied };
     },
@@ -295,9 +294,9 @@ export function registerSlotRoutes(app: App) {
       const job = (await db.query("select * from inventory_import where id = $1 and kind = 'sites' for update", [params.job])).rows[0];
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
-      // Restore from the structured snapshot: un-retire removed sites AND their slots, re-point nulled units, and
-      // clear notes the import set. A legacy job whose snapshot predates this shape would lack slots/units keys.
-      const snap = (job.snapshot ?? { sites: [], slots: [], units: [] }) as SitesSnapshot;
+      // Restore only the rows this job touched, and only where they still hold the applied state — an intervening
+      // edit, a revived site, or a check-in at an import-created site is surfaced as a conflict, never overwritten.
+      const snap = (job.snapshot ?? { sites: [], removedUnits: [] }) as SitesSnapshot;
       const rolledBack = await restoreSites(db, ctx.tenantId, ctx.userId, snap);
       await db.query("update inventory_import set status = 'rolled_back' where id = $1", [job.id]);
       return { job: job.id, rolledBack };

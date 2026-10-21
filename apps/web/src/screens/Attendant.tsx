@@ -299,10 +299,11 @@ export function CheckInCapture() {
       // a no-hint pass clears a plate left over from a PREVIOUS pass but keeps one the attendant captured independently.
       update((s) => applyPassAccept(s, { token, guest: r.pass.guestName, unit: r.pass.unit.name, q, regions: me!.tenant.plate_regions }));
       setCode('');
-      // Every valid scan ADVANCES off the Camera tab (AC-4.2.2) — a no-hint pass that previously stranded the attendant
-      // on Camera now opens Manual Entry so they can capture the plate. A hinted pass reveals the editable prefilled
-      // plate (keypad view) so the attendant sees and verifies it before advancing to confirm with Next.
       setCamera(false);
+      // AC-4.2.2: a successful scan lands DIRECTLY on the complete prefilled confirmation form (Host from the pass unit,
+      // plate from the hint, Make/Model/Year and the auto-picked Slot), not a plate-only keypad that needs another Next.
+      // A pass with no plate hint still goes to confirm; the form focuses the editable required Plate field there.
+      nav(`${b}/checkin/confirm`, q?.plate ? undefined : { state: { focusPlate: true } });
     } catch (e) {
       if (isStalePassLookup(mySeq, passSeq.current)) return;
       update(() => applyPassError(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)));
@@ -511,9 +512,14 @@ export function CheckInConfirm() {
   const [done, setDone] = useState<Opened | 'queued' | null>(null);
   const idem = useRef(crypto.randomUUID()); // one key per confirm screen, so a retry never double-redeems
   const passErrRef = useRef<HTMLDivElement>(null);
+  const plateRef = useRef<HTMLInputElement>(null);
+  const loc = useLocation();
   // A scan that rejected after a camera read navigated here takes focus, so a keyboard/screen-reader attendant
   // lands on the failure (and the acknowledge control) instead of past it, mirroring the capture screen.
   useEffect(() => { if (flow.passError) passErrRef.current?.focus(); }, [flow.passError]);
+  // AC-4.2.2: a pass with NO plate hint lands here on the complete confirmation form; focus the editable Plate field
+  // so the attendant can type it without bouncing back to the capture screen (a hinted pass skips this).
+  useEffect(() => { if ((loc.state as { focusPlate?: boolean } | null)?.focusPlate && !flow.plate) plateRef.current?.focus(); }, [loc.state, flow.plate]);
   const suggestion = useApi<{ slot: string | null; zone?: string }>(site ? `/v1/slots/suggest?site=${site.code}${flow.vehicle.bodyType ? `&bodyType=${flow.vehicle.bodyType}` : ''}` : null, [flow.vehicle.bodyType]);
   const v = (k: keyof FlowState['vehicle']) => ({ value: flow.vehicle[k] ?? '', onChange: (e: { target: { value: string } }) => set({ vehicle: { ...flow.vehicle, [k]: e.target.value || undefined } }) });
 
@@ -558,7 +564,12 @@ export function CheckInConfirm() {
   return (
     <div className="att">
       {flow.pass && <div className="banner">{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</div>}
-      <div className="platebox"><PlateChip plate={flow.plate} region={flow.region} size="xl" /></div>
+      {flow.plate && <div className="platebox"><PlateChip plate={flow.plate} region={flow.region} size="xl" /></div>}
+      {/* The required Plate stays editable here, so a no-hint pass (or an attendant correcting an OCR read) can type it
+          on the confirmation form itself rather than returning to the capture screen. */}
+      <label className="field">{t('att.plate')}
+        <input ref={plateRef} value={flow.plate} dir="ltr" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+          aria-required="true" onChange={(e) => set({ plate: e.target.value.toUpperCase(), plateFromPass: false })} /></label>
       {flow.confidence != null && <div className="muted">{t('att.confidence', { pct: Math.round(flow.confidence * 100) + '%' })}</div>}
       <h2>{t('att.hostHeading')}</h2>
       <HostControl fixedUnit={flow.pass?.unit} onChange={setHost} />

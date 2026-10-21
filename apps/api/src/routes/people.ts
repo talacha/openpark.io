@@ -342,7 +342,7 @@ export function registerPeopleRoutes(app: App) {
       if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
       // Rollback is restorative: it only touches invitations this job created or overwrote (captured in snapshot at
       // apply time), never every uploaded email. A legacy job with no snapshot has nothing safe to undo.
-      const rb = (job.snapshot ?? { created: [], restored: {} }) as UsersRollback;
+      const rb = (job.snapshot ?? { created: [], restored: {}, members: [] }) as UsersRollback;
       const rolledBack = await rollbackUsers(db, ctx.tenantId, ctx.userId, rb);
       await db.query("update inventory_import set status = 'rolled_back' where id = $1", [job.id]);
       return { job: job.id, rolledBack };

@@ -1314,3 +1314,138 @@ skipped or deleted.
 - **#12 mobile/camera evidence:** real-browser ~390px, keyboard/AT and live getUserMedia/ONNX runs cannot be produced in
   this headless CI environment; automated gates (incl. logical-CSS RTL guard and jsdom a11y assertions) are green. This
   remains a human-with-device verification item.
+
+---
+## EPD-feedback whole-branch adversarial review — iteration 2 — 2026-10-21T21:14:42Z
+
+**Verdict:** `CHANGES_REQUESTED` (5 high, 7 medium, 1 low). Reviewed the complete `main...epd-feedback` diff and commit history, requirements/design, all FEAT findings, and the loop evidence without rerunning the build or test suites. The recorded gate remains green, but the remediation commit changed no tests.
+
+**Key rationale:** AC-5.2 still has no Community bulk pipeline; User import skips every registered member and loses invitation names; Site/User rollback can clobber intervening administrator work, and Site rollback can retire inventory with an open stay; persisted desktop collapse hides critical controls in the 390 px drawer; PNG/WebP avatars are served as JPEG; some new writes still send no replay key; null Site notes cannot be cleared; QR scans still stop before the complete confirmation form; orange/red overstay segments differ only by color; Spanish is not the actual unconditional default; and User/Community terminology remains mixed. The server-derived verification gate, tenant RLS on reused import storage, HMAC-signed OPP2 revalidation, MXN-only `500000` seed, configured currency-formatted overstay copy, and announcement-only/no-billing scope remain preserved.
+
+Canonical artifacts: `.agents/tasks/review.md`, `.agents/tasks/review.json`, and `.agents/tasks/2026-10-21-211442-review.md`.
+
+
+---
+
+## EPD-feedback run — STOPPED at time-box ceiling (2026-10-21T21:17Z)
+
+**This is a separate run from the adversarial loop above.** New scope: the EPD team's product
+feedback (docs/personas; collapsible sidebar + resident child links; Resident view redesign;
+Operator/Attendant view redesign; Admin terminology + unit-access verification gate + bulk
+import/export + menu pruning + localization reduction to es-MX default / en). Branch:
+`epd-feedback` off `main@67f0b39`, worktree `.worktrees/epd-feedback`.
+
+### Why stopped
+Governing stop condition reached: wall clock **21:17 UTC > 20:00 UTC (2:00 PM America/Mexico_City)**
+hard ceiling (recorded in commit 42bbe73 / the autonomy steering doc). Per autonomy policy this is a
+report-and-stop limit, not something to force past. The workflow's pending `merge` step was **aborted**
+so `main` was NOT fast-forwarded. All work remains committed on `epd-feedback`; nothing pushed.
+
+Independent of the clock, the latest review verdict was **CHANGES_REQUESTED** (5 high + 6 medium + 1 low),
+so merging would have been wrong regardless.
+
+### What was delivered (all committed on `epd-feedback`, gate GREEN at each FEAT)
+- `7089402` FEAT-001 docs: PERSONAS.md (5 personas + journeys), DOMAIN.md cross-link.
+- `041ec11` FEAT-002: collapsible sidebar (icons-only collapsed, persisted) + resident child links (Edit profile / Issue new pass).
+- `4ffcb17` FEAT-003 Resident view: avatar+initials, unit pill, pencil edit (name/phone/notify opt-in), HOA overstay note (policy-derived), two collapsed pass sections, issuer labels, pending-verification banner. Migration 018 created (avatar_key, notify_guest_events, pass.created_by).
+- `c745904` FEAT-004 Operator/Attendant: segmented capacity bar (green/yellow + over10/over12 overlays, site-scoped), side-by-side Check IN/OUT, Camera/Manual tabs, Plate Region removed, Host combobox + Other, inline make/model/year, slot picker, checkout confirmation + longest-stay-first autocomplete w/ bottom-sheet keyboard, collapsible/sortable/searchable Recent Activity + quick checkout. Migration 018 += session.authorized_by.
+- `534bee8` FEAT-005 Admin: Community terminology + optional address/notes, slot level/status, unit-access verification + createPass gate (403 unit_unverified, staff bypass), bulk sites/users import/export, menu pruning (locale screen removed), language switcher reduced to es-MX+en. Migration 018 += unit_verified + user_memberships recreate + claim/accept carry + widened inventory_import.kind.
+- `c00bf1b` converge-fix iter-1: consent round-trip, keyboard a11y, bulk rollback snapshots, terminology sweep, replaySafe on new writes, avatar orphan cleanup, QR→Manual Entry.
+
+### OUTSTANDING review findings (from `.agents/tasks/review.json`, verdict CHANGES_REQUESTED) — carry into a newly authorized run
+HIGH:
+1. Community bulk import/export pipeline missing (AC-5.2) — /bulk has Sites/Slots/Units/Users but no Community path.
+2. User bulk is not an editor — previewUsers skips registered memberships, so edited roles/unit/unitVerified no-op; invitation names silently discarded.
+3. Site rollback (restoreSites) clobbers later unrelated work — retires later live sites, ignores open stays.
+4. Invitation rollback overwrites/deletes invitations without checking they still match the job's applied state.
+5. Mobile drawer loses critical controls at 390px (tenant/site/language/Sign out hidden; expand button hidden at breakpoint).
+MEDIUM: 6. Avatar signed GET always returns image/jpeg for png/webp. 7. replaySafe not used by all new callers (EditProfile avatar, retained Units import). 8. QR scan doesn't land directly on the prefilled confirmation form. 9. Overstay over10/over12 overlays are colour-only (need distinct patterns/symbols + labels). 10. es-MX default not actually enforced by limiting SELECTABLE_LOCALES. 11. Residual People/property vs User/Community terminology in reachable strings.
+LOW: 12. Final risk areas lack verification evidence (rollback/MIME/CSS tests; real-device 390px + live-camera + AT checks).
+
+### State for the morning
+- `main` @ `67f0b39` (unchanged, clean). `epd-feedback` @ `c00bf1b` (6 commits ahead, local only).
+- Worktree `.worktrees/epd-feedback` left in place (holds the review artifacts); orchestrator may remove it after the team reviews.
+- To resume: authorize a new run continuing on `epd-feedback`, feed `review.json`'s 12 findings as the first fix set, keep the same gate + per-tick publish contract, and reinstate a time box.
+
+---
+
+## Iteration (epd-feedback) — fix the 12 review.json findings (2026-10-21T23:26Z)
+
+Continued on branch `epd-feedback` (FEAT-001..005 + convergence fix `c00bf1b` already built). This tick fixes EVERY
+finding in `.agents/tasks/review.json` (verdict CHANGES_REQUESTED: 5 HIGH, 6 MEDIUM, 1 LOW). Gate GREEN before commit.
+
+**HIGH**
+1. **Missing Community bulk pipeline.** New `apps/api/src/services/community.ts` (validate → preview → apply → rollback)
+   plus routes `GET/POST /v1/community/export|import|import/:job/apply|rollback` in `routes/auth.ts`, reusing the
+   `inventory_import` job table (`kind='community'`, CHECK widened in migration 018). A tenant-scoped export is one
+   Community row (name, address, notes); apply distinguishes omitted vs explicit-null for address/notes; rollback is
+   conflict-aware (reverts only if the live row still matches the applied state). Never renames tables or touches RLS —
+   only the tenant's editable scalar fields. New Community tab in `apps/web/src/screens/Bulk.tsx` (default tab) with
+   `bulk.community` added to all 7 source catalogs + regenerated en-XA.
+2. **User bulk is not an editor.** `services/usersimport.ts` rewritten: `previewUsers` now detects changes to REGISTERED
+   members (roles/unit/unitVerified) as `changed` rows (kind `member`), applied transactionally in `applyUsers` with
+   before/after captured; an `owner` membership is left untouched (the document cannot express 'owner'). Invitation
+   names are PERSISTED (migration 018 adds `membership_invite.name`, carried into the account by `claim_invites`/
+   `accept_invite`; `addPerson` writes it; `exportUsers` round-trips it) instead of silently discarded. Invite path only,
+   no plaintext OTP (NFR-SEC preserved).
+3. **Site rollback clobbers later work.** `services/sites.ts` `applySites` now returns a JOB-SCOPED before/after snapshot
+   (only the rows it touched + the unit associations it nulled). `restoreSites` restores only those rows and only when
+   the live row still equals the applied `after` state; it blocks retiring an import-created site that now holds an OPEN
+   session, and reports every skipped row as a conflict instead of overwriting unrelated later edits. Route in
+   `routes/slots.ts` updated (no more whole-tenant `snapshotSites`).
+4. **Invitation rollback clobbers later work.** `rollbackUsers` conditions each withdraw/restore/member-revert on the
+   live row STILL matching the job's applied state; a row another admin changed after apply is reported as a conflict,
+   not clobbered. Legacy `created: string[]` jobs still handled (best-effort).
+5. **Mobile drawer loses critical controls.** `styles.css` phone breakpoint now explicitly restores
+   `select.menu-label`/`button.menu-label` to `display: revert` under `data-collapsed='true'`, so a persisted desktop
+   collapse no longer hides the tenant/site/language selectors and Sign out on a phone (the drawer always shows the full
+   menu). Logical properties only (`check:css` green). NOTE: the real-device 390px render is a human-with-device check.
+
+**MEDIUM**
+6. **Avatar MIME.** `GET /v1/files/:key` now derives Content-Type from the (server-minted, signed) key extension
+   (jpg→jpeg, png, webp), not a hardcoded `image/jpeg`. New test in `passes.test.ts` performs the ACTUAL signed GET for
+   each format and asserts the response header.
+7. **Replay keys on all new write surfaces.** `EditProfile` avatar upload now sends a payload-scoped idempotency key
+   (`useSubmitKey`, keyed by file name/size/mtime); the retained `/units` import UI in `People.tsx` sends a payload-scoped
+   preview key and a stable per-job apply key.
+8. **QR scan reaches the confirmation form.** `Attendant.tsx` `usePass` now navigates DIRECTLY to `/checkin/confirm`
+   after a valid lookup (AC-4.2.2), landing on the complete prefilled form (Host from the pass unit, plate from the hint,
+   vehicle, auto-picked Slot). A no-hint pass focuses the now-editable required Plate field on that form (new input).
+   `pass-e2e.test.tsx` updated to the corrected behavior (still asserts the full redeem path + edited plate; not weakened).
+9. **Overstay overlays no longer colour-only.** `styles.css` gives >12h a hatched red fill + double-exclamation symbol
+   vs >10h solid orange + single "!"; the legend swatches mirror the pattern and carry the symbol. The bar's aggregate
+   `aria-label` (att.capacityAria) already names both counts for screen readers. NOTE: perceptual contrast is a
+   human/real-browser check.
+10. **Spanish default enforced.** New pure `surfaceLocale(override, default)` in `i18n.tsx`: with NO preference anywhere
+    it returns `es-MX` (AC-5.4); an explicit saved/user/tenant/browser locale is honoured and folded onto {es-MX, en}.
+    `app-context.tsx` final fallback changed `'en'` → `''`. `resolveLocale` is untouched (BCP-47 parity tests keep their
+    English fallback). New `surfaceLocale` tests in `i18n.test.ts`.
+11. **Terminology sweep.** property/propiedad/propriedade/propriété/Objekt/عقار → the per-locale Community word, and
+    People/Personas/Pessoas/Personnes/Personen/الأشخاص → the Users word, across ALL 7 source catalogs
+    (`roledesc.*`, `err.last_admin`, `users.noUnits`, `pass.reason_pass_not_found`, `res.noUnitAdmin`, `res.assignSelf`,
+    `bulk.users`). `{property}` ICU placeholders (the injected community NAME) and the French "copropriété" HOA-platform
+    strings are intentionally left. en-XA regenerated.
+12. **Verification evidence.** New gate-backed tests: avatar signed-GET MIME per format; registered-member edit +
+    conflict-aware member rollback; invitation-name persistence round-trip; invitation rollback conflict; community
+    export/apply/rollback + conflict; site notes set-to-clear; site rollback open-session block + unrelated-edit conflict;
+    surfaceLocale default. Device-only checks (real 390px render, live camera, hardware AT, orange/red perceptual
+    contrast) are explicitly left for human-with-device verification rather than claimed done headlessly.
+
+**Decisions recorded (autonomy policy — lowest-risk, reversible, pattern-matching):**
+- Invitation names: PERSISTED (new nullable `membership_invite.name`) rather than rejected, so bulk-editing an exported
+  name takes effect and round-trips; nullable + carried via coalesce, fully reversible, no secret exposure.
+- Community bulk: modelled as one `inventory_import` row with `kind='community'` (reuses the shipped job/rollback
+  contract) instead of a new table — no new RLS surface, matches existing bulk pattern.
+- Spanish default: implemented in a new provider-level `surfaceLocale` helper rather than mutating `resolveLocale`
+  (keeps the BCP-47 parity test's English fallback intact; only the no-preference surface default changes).
+- es-MX default fallback only fires when there is NO user/tenant/browser preference at all; an English tenant/browser
+  still starts in English (that is an explicit preference, not the no-preference case AC-5.4 targets).
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 127 (+1 pre-existing skip), api 135 — all pass
+  (api +9 bulk/avatar tests, web +2 surfaceLocale cases vs the inherited baseline; no test weakened or deleted;
+  `pass-e2e.test.tsx` updated to the corrected AC-4.2.2 navigation, still asserting the full redeem path)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+- Postgres at :54329 was reachable; api tests ran against a fresh migrated DB (global-setup), migration 018 applied cleanly.

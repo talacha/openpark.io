@@ -79,106 +79,140 @@ export async function previewSites(db: Db, doc: SitesDoc, mode: 'merge' | 'repla
 
 export interface SitesApplyResult { added: number; changed: number; removed: number }
 
-/** Apply the sites document in one transaction. Rebuilds the diff from live state first (it may have moved since preview). */
-export async function applySites(db: Db, tenantId: string, actor: string | null, doc: SitesDoc, mode: 'merge' | 'replace'): Promise<SitesApplyResult> {
+/** The scalar state of one site the job touched, captured both as it was BEFORE and AFTER apply, so rollback can
+ * (a) detect an intervening edit by another admin and (b) put back exactly what this job changed. `missing` marks a
+ * site that did not exist before (the job created it) — rollback retires it rather than reviving a phantom. */
+export interface SiteState { code: string; name: string; timezone: string; address: string | null; notes: string | null; missing?: boolean }
+
+/**
+ * What a sites import changed, persisted at apply time so rollback is scoped to job-owned rows and conflict-aware:
+ *  - `sites`: for every site code the job created or edited, the before + after scalar state.
+ *  - `removedUnits`: unit→site associations the job nulled by retiring a site, so rollback can re-point exactly those.
+ * A site/unit the job never touched is absent here and left untouched by rollback.
+ */
+export interface SitesSnapshot {
+  sites: { code: string; before: SiteState; after: SiteState }[];
+  removedUnits: { code: string; site: string }[];
+}
+
+async function siteStateByCode(db: Db, code: string): Promise<SiteState | null> {
+  const r = (await db.query(
+    "select code, name, timezone, address, settings->>'notes' as notes from site where code = $1 and retired_at is null", [code])).rows[0];
+  return r ? { code: r.code, name: r.name, timezone: r.timezone, address: r.address ?? null, notes: r.notes ?? null } : null;
+}
+
+/** Apply the sites document in one transaction and return a scoped before/after snapshot for a safe rollback.
+ *  Rebuilds the diff from live state first (it may have moved since preview). */
+export async function applySites(db: Db, tenantId: string, actor: string | null, doc: SitesDoc, mode: 'merge' | 'replace'): Promise<SitesApplyResult & { snapshot: SitesSnapshot }> {
   const diff = await previewSites(db, doc, mode);
   if (diff.conflicts.length) throw new HttpError(409, 'conflicts', 'Sites with cars inside would be removed', diff.conflicts);
+  const snapshot: SitesSnapshot = { sites: [], removedUnits: [] };
   // A new site shares the rate plan the community already uses so check-in works at once.
   const plan = (await db.query('select default_rate_plan_id from site where default_rate_plan_id is not null and retired_at is null order by code limit 1')).rows[0]?.default_rate_plan_id ?? null;
   for (const s of doc.sites) {
+    // Capture the before-state of exactly this row BEFORE the upsert (null → the job is creating it).
+    const before = (await siteStateByCode(db, s.code)) ?? { code: s.code, name: s.name, timezone: s.timezone, address: null, notes: null, missing: true };
     await db.query(
+      // Distinguish an omitted notes/address (leave as-is) from an explicit null (clear it): `$8`/`$9` are the
+      // "was it provided?" flags, so an omitted key never overwrites an existing value, and an explicit null does.
       `insert into site (tenant_id, code, name, timezone, address, default_rate_plan_id, settings)
-       values ($1,$2,$3,$4,$5,$6, jsonb_strip_nulls(jsonb_build_object('notes', $7::text)))
+       values ($1,$2,$3,$4,$5,$6, jsonb_build_object('notes', $7::text))
        on conflict (tenant_id, code) do update set name = excluded.name, timezone = excluded.timezone,
-         address = excluded.address, retired_at = null,
-         settings = site.settings || jsonb_strip_nulls(jsonb_build_object('notes', $7::text))`,
-      [tenantId, s.code, s.name, s.timezone, s.address ?? null, plan, s.notes ?? null]);
+         address = case when $9 then excluded.address else site.address end, retired_at = null,
+         settings = case when $8 then (site.settings - 'notes') || jsonb_build_object('notes', $7::text) else site.settings end`,
+      [tenantId, s.code, s.name, s.timezone, s.address ?? null, plan, s.notes ?? null,
+        s.notes !== undefined, s.address !== undefined]);
+    const after = (await siteStateByCode(db, s.code))!;
+    snapshot.sites.push({ code: s.code, before, after });
   }
   for (const s of diff.removed) {
     const id = (await db.query('select id from site where code = $1 and retired_at is null', [s.code])).rows[0]?.id;
     if (id) {
+      // Capture the unit associations this removal nulls, so rollback can re-point exactly those units.
+      const units = (await db.query('select code from unit where site_id = $1', [id])).rows as { code: string }[];
+      for (const u of units) snapshot.removedUnits.push({ code: u.code, site: s.code });
+      const before = (await siteStateByCode(db, s.code))!;
       await db.query('update site set retired_at = now() where id = $1', [id]);
       await db.query('update slot set retired_at = coalesce(retired_at, now()) where site_id = $1', [id]);
       await db.query('update unit set site_id = null where site_id = $1', [id]);
+      // A removed site's after-state is "retired": rollback revives it by upserting the before scalars.
+      snapshot.sites.push({ code: s.code, before, after: { ...before, missing: true } });
     }
   }
   await audit(db, tenantId, actor, 'sites.import', 'site', null, { mode, added: diff.added.length, changed: diff.changed.length, removed: diff.removed.length });
-  return { added: diff.added.length, changed: diff.changed.length, removed: diff.removed.length };
+  return { added: diff.added.length, changed: diff.changed.length, removed: diff.removed.length, snapshot };
 }
+
+export interface SitesRollbackResult {
+  sites: number; units: number;
+  conflicts: { code: string; reason: string }[];
+}
+
+const scalarsMatch = (a: SiteState, b: SiteState) =>
+  a.name === b.name && a.timezone === b.timezone && (a.address ?? null) === (b.address ?? null) && (a.notes ?? null) === (b.notes ?? null);
 
 /**
- * A restorative before-snapshot for a sites import. `exportSites` alone cannot undo a replace: it carries only active
- * site scalars, so it can revive a retired site row but not the slots that were retired with it, the units whose
- * `site_id` was nulled, or a note that was cleared. This captures exactly those dependent facts so rollback is exact:
- *  - `sites`: every active site's scalars INCLUDING address/notes as explicit null when unset (so a cleared note is restorable);
- *  - `slots`: the codes of the slots that are active per site today, so rollback un-retires precisely those;
- *  - `units`: the current unit→site association for every unit, so a nulled `site_id` can be re-pointed.
+ * Restore ONLY the rows this job touched, and only when they still hold the state the job left them in — so a later
+ * admin's unrelated edit (or a new site, or a check-in at a site the import created) is never clobbered. For every
+ * site in the snapshot:
+ *  - the job CREATED it (`before.missing`): retire it again — but refuse if a car is now inside (block retirement with
+ *    an open session), and refuse if its scalars no longer match the applied state (someone edited it after apply);
+ *  - the job RETIRED it (`after.missing`): revive it to its before-scalars, but only if it is still retired (a later
+ *    admin may have revived/recreated it);
+ *  - the job EDITED it: restore before-scalars, but only if the live row still equals the applied after-state.
+ * Unit associations the job nulled by retiring a site are re-pointed only when the unit still has no site.
+ * Each skipped row is surfaced as a conflict rather than silently overwritten.
  */
-export interface SitesSnapshot {
-  sites: { code: string; name: string; timezone: string; address: string | null; notes: string | null }[];
-  slots: { site: string; code: string }[];
-  units: { code: string; site: string | null }[];
-}
-
-export async function snapshotSites(db: Db): Promise<SitesSnapshot> {
-  const sites = (await db.query(
-    "select code, name, timezone, address, settings->>'notes' as notes from site where retired_at is null order by code")).rows
-    .map((r) => ({ code: r.code, name: r.name, timezone: r.timezone, address: r.address ?? null, notes: r.notes ?? null }));
-  const slots = (await db.query(
-    'select s.code as site, sl.code from slot sl join site s on s.id = sl.site_id where sl.retired_at is null and s.retired_at is null order by s.code, sl.code')).rows
-    .map((r) => ({ site: r.site, code: r.code }));
-  const units = (await db.query(
-    'select u.code, s.code as site from unit u left join site s on s.id = u.site_id order by u.code')).rows
-    .map((r) => ({ code: r.code, site: r.site ?? null }));
-  return { sites, slots, units };
-}
-
-/**
- * Restore the exact pre-import state captured by {@link snapshotSites}, in one transaction:
- *  1. Un-retire (or upsert) every snapshotted site and set its scalars, clearing address/notes the import had set;
- *  2. Retire any site that exists now but was NOT in the snapshot (one the import added);
- *  3. Un-retire exactly the slots that were active before (leaving slots retired before the import retired);
- *  4. Re-point every unit's `site_id` to what it was, re-attaching associations the import nulled.
- * Slots/units the import may have touched are keyed by code, so the restore is idempotent.
- */
-export async function restoreSites(db: Db, tenantId: string, actor: string | null, snap: SitesSnapshot): Promise<{ sites: number; slots: number; units: number }> {
+export async function restoreSites(db: Db, tenantId: string, actor: string | null, snap: SitesSnapshot): Promise<SitesRollbackResult> {
   const plan = (await db.query('select default_rate_plan_id from site where default_rate_plan_id is not null order by code limit 1')).rows[0]?.default_rate_plan_id ?? null;
-  const keep = new Set(snap.sites.map((s) => s.code));
-  for (const s of snap.sites) {
-    // Overwrite notes/address explicitly (no jsonb_strip_nulls) so a value the import SET is cleared back to null.
+  const result: SitesRollbackResult = { sites: 0, units: 0, conflicts: [] };
+  const revived = new Set<string>();
+  for (const { code, before, after } of snap.sites) {
+    const live = await siteStateByCode(db, code); // null => currently retired/absent
+    if (before.missing) {
+      // The job created this site. Retire it again, unless it is now in use or was edited after apply.
+      if (!live) continue; // already retired (idempotent rollback) — nothing to do
+      const open = (await db.query("select count(*)::int as n from session x join site s on s.id = x.site_id where s.code = $1 and x.status = 'open'", [code])).rows[0].n;
+      if (open > 0) { result.conflicts.push({ code, reason: 'a car is inside the site this import created' }); continue; }
+      if (!scalarsMatch(live, after)) { result.conflicts.push({ code, reason: 'edited after the import; not retiring it' }); continue; }
+      const id = (await db.query('select id from site where code = $1 and retired_at is null', [code])).rows[0]?.id;
+      if (id) {
+        await db.query('update site set retired_at = now() where id = $1', [id]);
+        await db.query('update slot set retired_at = coalesce(retired_at, now()) where site_id = $1', [id]);
+        await db.query('update unit set site_id = null where site_id = $1', [id]);
+        result.sites++;
+      }
+      continue;
+    }
+    if (after.missing) {
+      // The job retired this site. Revive it only if still retired (a later admin may have recreated it).
+      if (live) { result.conflicts.push({ code, reason: 'recreated after the import; leaving it as is' }); continue; }
+    } else if (!live || !scalarsMatch(live, after)) {
+      // The job edited this site. Only restore if the live row still matches what the job left.
+      result.conflicts.push({ code, reason: 'changed after the import; not reverting it' }); continue;
+    }
+    // Safe to restore the before-scalars (reviving a retired row or reverting an edit). Overwrite notes/address
+    // explicitly so a value the import SET is cleared back to its prior value.
     await db.query(
       `insert into site (tenant_id, code, name, timezone, address, default_rate_plan_id, settings)
        values ($1,$2,$3,$4,$5,$6, jsonb_build_object('notes', $7::text))
        on conflict (tenant_id, code) do update set name = excluded.name, timezone = excluded.timezone,
          address = excluded.address, retired_at = null,
          settings = (site.settings - 'notes') || jsonb_build_object('notes', $7::text)`,
-      [tenantId, s.code, s.name, s.timezone, s.address, plan, s.notes]);
+      [tenantId, before.code, before.name, before.timezone, before.address, plan, before.notes]);
+    result.sites++;
+    revived.add(code);
   }
-  // Retire sites the import added (present now, absent from the snapshot) and their slots.
-  const live = (await db.query('select id, code from site where retired_at is null')).rows as { id: string; code: string }[];
-  for (const s of live) if (!keep.has(s.code)) {
-    await db.query('update site set retired_at = now() where id = $1', [s.id]);
-    await db.query('update slot set retired_at = coalesce(retired_at, now()) where site_id = $1', [s.id]);
+  // Re-point units the job detached, but only onto a site we actually revived and only if the unit is still unattached.
+  for (const u of snap.removedUnits) {
+    if (!revived.has(u.site)) continue;
+    const siteId = (await db.query('select id from site where tenant_id = $1 and code = $2', [tenantId, u.site])).rows[0]?.id ?? null;
+    if (!siteId) continue;
+    const r = await db.query('update unit set site_id = $3 where code = $2 and tenant_id = $1 and site_id is null', [tenantId, u.code, siteId]);
+    result.units += r.rowCount ?? 0;
   }
-  // Un-retire exactly the slots active before, by (site, code).
-  let slots = 0;
-  for (const sl of snap.slots) {
-    const r = await db.query(
-      `update slot set retired_at = null
-       where code = $2 and site_id = (select id from site where tenant_id = $1 and code = $3)`,
-      [tenantId, sl.code, sl.site]);
-    slots += r.rowCount ?? 0;
-  }
-  // Re-point unit → site to the prior association (including back to a specific site the import nulled).
-  let units = 0;
-  for (const u of snap.units) {
-    const r = await db.query(
-      `update unit set site_id = $3 where code = $2 and tenant_id = $1 and site_id is distinct from $3`,
-      [tenantId, u.code, u.site ? (await db.query('select id from site where tenant_id = $1 and code = $2', [tenantId, u.site])).rows[0]?.id ?? null : null]);
-    units += r.rowCount ?? 0;
-  }
-  await audit(db, tenantId, actor, 'sites.rollback', 'site', null, { sites: snap.sites.length, slots, units });
-  return { sites: snap.sites.length, slots, units };
+  await audit(db, tenantId, actor, 'sites.rollback', 'site', null, { sites: result.sites, units: result.units, conflicts: result.conflicts.length });
+  return result;
 }
 
 export async function exportSites(db: Db, tenantSlug: string, now: Date) {
