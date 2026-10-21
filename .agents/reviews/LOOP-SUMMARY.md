@@ -178,5 +178,6 @@ performed by this automated loop and is noted as such. No behaviour regressed an
   (web +5 vs iter-2: +1 share round-trip in `pass.test.ts`, +4 in new `attendant-flow.test.ts`; none weakened)
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 
-**Pushed commit SHA:** `__PENDING__` (filled in by the follow-up docs commit below).
+**Pushed commit SHA:** `2b36ce1` (iteration-3 tick) + this docs commit recording the SHA; both fast-forwarded
+onto `main` and pushed to `origin/main`.
 
