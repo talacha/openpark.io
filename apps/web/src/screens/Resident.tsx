@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, patch, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
-import { dataUrlToBlob, passShareMessage, qrGifDataUrl, spaceCode } from '../pass.js';
+import { dataUrlToBlob, passShareMessage, planPassShare, qrGifDataUrl, spaceCode } from '../pass.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -151,19 +151,23 @@ function SharePass({ qr, guest, property, unit, code, expiresMinutes }: { qr: st
 
   async function share() {
     setBusy(true); setStatus('');
-    const { title, text } = passShareMessage(t, { guest, unit, property, code, expiresMinutes });
+    // The signed token rides along in the text so a text-only share or a copy still leaves the guest a redeemable pass.
+    const { title, text } = passShareMessage(t, { guest, unit, property, code, expiresMinutes, token: qr });
     const nav = navigator as Navigator & { canShare?: (d?: { files?: File[] }) => boolean };
     try {
       const dataUrl = qrGifDataUrl(qr);
       const file = new File([dataUrlToBlob(dataUrl)], 'parking-pass.gif', { type: 'image/gif' });
-      if (nav.share && nav.canShare?.({ files: [file] })) { await nav.share({ title, text, files: [file] }); return; }
-      if (nav.share) { await nav.share({ title, text }); return; }
-      // No Web Share API (most desktops): copy the message and offer the QR image as a download.
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      const canShare = typeof nav.share === 'function';
+      const canShareFiles = canShare && typeof nav.canShare === 'function' && nav.canShare({ files: [file] });
+      const plan = planPassShare({ canShare, canShareFiles, canCopy: typeof navigator.clipboard?.writeText === 'function' });
+      if (plan.method === 'file') { await nav.share({ title, text, files: [file] }); return; }
+      if (plan.method === 'text') { await nav.share({ title, text }); return; }
+      // No Web Share API (most desktops): download the QR image, and copy the message only when the Clipboard API exists.
+      if (plan.copies) await navigator.clipboard.writeText(text);
       const a = document.createElement('a');
       a.href = dataUrl; a.download = 'parking-pass.gif'; a.rel = 'noopener';
       a.click();
-      setStatus(t('res.shareCopied'));
+      setStatus(t(plan.statusKey || 'res.shareDownloaded'));
     } catch (e) {
       if ((e as { name?: string })?.name === 'AbortError') return; // guest dismissed the share sheet: not an error
       setStatus(t('res.shareFailed'));

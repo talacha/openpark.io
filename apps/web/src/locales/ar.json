@@ -209,6 +209,7 @@
   "res.shareTitle": "تصريح وقوف لـ {guest}",
   "res.shareBody": "مرحبًا {guest}، إليك تصريح الوقوف الخاص بك لـ {property}، الوحدة {unit}. اعرض رمز QR هذا عند البوابة. رمز التحقق: {code}. ينتهي خلال {minutes} دقيقة.",
   "res.shareCopied": "تم نسخ رسالة التصريح وتنزيل صورة QR.",
+  "res.shareDownloaded": "تم تنزيل صورة QR. أرسلها إلى ضيفك.",
   "res.shareFailed": "تعذّرت مشاركة التصريح. حاول مرة أخرى.",
   "res.expiresIn": "ينتهي رمز QR خلال {time}",
   "res.expired": "انتهت صلاحية رمز QR هذا. إذا لم يصل ضيفك بعد فأنشئ رمزًا جديدًا.",

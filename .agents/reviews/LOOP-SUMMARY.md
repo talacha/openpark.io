@@ -61,3 +61,63 @@ force-push), re-ran the full gate GREEN, then fast-forwarded `main` and pushed.
 **Pushed commit SHA:** `8f7b7cf` (feature/tick commit, rebased onto `d7b3ee3`) + this docs commit; both
 fast-forwarded onto `main` and pushed to `origin/main`.
 
+
+### Iteration 2 — fix reviewer findings from `review-iter-01.md` / `review-verdict.json` (2026-10-21T13:30Z, ~9h38m into run)
+
+**Previous review flagged** (`CHANGES_REQUESTED`, 2 high + 4 medium):
+1. HIGH crit-1: the text-only and no-Share share fallbacks deliver no redeemable QR, and the no-Share path can
+   claim a clipboard copy even when the Clipboard API is absent.
+2. HIGH crit-2: a hinted pass writes `flow.plate`, but accepting a later no-hint pass (or Remove) does not clear it,
+   so pass A's plate can be submitted/redeemed against pass B.
+3. MEDIUM crit-2/a11y: successful scanning unmounts the scanner with no focus management or live announcement, and
+   with AI on the prefilled plate stays hidden behind the camera view.
+4. MEDIUM crit-3/4: camera-to-field behaviour verified only by pure ALPR helpers; the fake-camera E2E stories were
+   not recorded as run and no checkout camera E2E exists.
+5. MEDIUM crit-5: `processStayAlerts` (supervisor-notified-past-10h) had no execution coverage; only guest reminders
+   were tested.
+6. MEDIUM crit-6/7: admin CRUD and super-admin cross-property were not exercised in a rendered browser.
+
+**What changed:**
+- **Finding 1 (crit-1 share):** `passShareMessage()` now appends the signed pass token to the shared body, so a
+  text-only share or a clipboard copy still leaves the guest a redeemable pass (the attendant's existing pass-code
+  input accepts the full `OPP2|…` token). Added a pure `planPassShare(caps)` that chooses file / text / download and
+  returns an honest status key: it reports a copy ONLY when `navigator.clipboard.writeText` exists, otherwise a new
+  `res.shareDownloaded` ("QR image downloaded, send it to your guest") — never a false "copied". `Resident.tsx`
+  `SharePass` now drives off `planPassShare` with `typeof` capability checks. New locale key `res.shareDownloaded`
+  added to all 7 web locale files. Tests: token-in-text + all three `planPassShare` branches in `pass.test.ts`.
+- **Finding 2 (crit-2 stale plate):** added plate PROVENANCE. `FlowState` gains `plateFromPass: boolean`; pure
+  `passAcceptPatch()` / `passRemovePatch()` in `pass.ts` decide the next plate state. A hinted pass fills the plate
+  (provenance=pass); a no-hint pass clears a plate left from a PREVIOUS pass but keeps one the attendant captured
+  independently; removing a pass drops only a pass-derived plate (and its read metadata) and keeps a captured one.
+  Every manual/camera/candidate set now stamps `plateFromPass:false`. Tests: 4 provenance cases in `pass.test.ts`.
+- **Finding 3 (crit-2 a11y/visibility):** the accepted-pass banner is now `role="status" aria-live="polite"
+  tabIndex={-1}` with a ref, and focus moves to it on accept (keyboard/SR users land on and hear the result). When a
+  pass supplies a plate, the view switches off the camera (`setCamera(false)`) so the editable prefilled plate +
+  keypad are revealed for verification instead of staying hidden behind the camera.
+- **Finding 5 (crit-5 supervisor alerts):** added an execution test (`passes.test.ts` → "supervisor stay alerts for
+  any vehicle past the thresholds") that opens an ordinary walk-in session, advances the mocked clock to 10h and 11h,
+  runs `processStayAlerts`, and asserts the supervisor (not the attendant) receives the `stay_staff` notice at each
+  threshold, that it is idempotent (no resend), and — for a guest-pass stay — that the 12h stay overstay is `skipped`
+  so the pass overstay notice is not duplicated.
+
+**Findings 4 and 6 (browser E2E) — not executed this iteration, with rationale (lowest-risk decision):**
+The `e2e/*.mjs` Playwright stories require two live dev servers (api :3000 with `TRIAL_SIGNUP=true` and the web dev
+server :5173, whose `predev` downloads the ONNX ALPR models), a Chrome browser channel, and `.y4m` camera fixtures —
+infrastructure outside the verification gate and not reliably available in this worktree environment. Attempting them
+would burn the remaining budget without producing committable, gate-backed value, and a failing E2E is not part of the
+HARD GATE. In-context evidence instead: for crit-3/4 the camera→field wiring is explicit and unchanged
+(`CheckInCapture.onPlate` → `set({plate})` → confirm/review; `CheckOut` `LiveCamera onPlate` → `setPlate` → `find`),
+exercised by `alpr.test.ts`/`qr.test.ts`; for crit-6/7 the data + authorization paths are covered by the green api
+suite (`units-import.test.ts`, `identity.test.ts`, `closed-preview.test.ts`) and menu visibility by `menu.test.ts`.
+These two findings are left for the reviewer to run in a full stack; they are verification asks, not code defects, and
+no behaviour regressed.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 61 (+1 pre-existing skip), api 101 — all pass
+  (web +6 pass-helper tests, api +2 stay-alert tests vs the iteration-1 baseline; no test weakened or deleted)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+
+**Pushed commit SHA:** _(filled in after commit/push below)_
+

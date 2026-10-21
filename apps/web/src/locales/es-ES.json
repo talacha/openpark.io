@@ -209,6 +209,7 @@
   "res.shareTitle": "Pase de aparcamiento para {guest}",
   "res.shareBody": "Hola {guest}, aquí tienes tu pase de aparcamiento para {property}, vivienda {unit}. Muestra este QR en la entrada. Código de verificación: {code}. Caduca en {minutes} minutos.",
   "res.shareCopied": "Mensaje del pase copiado e imagen QR descargada.",
+  "res.shareDownloaded": "Imagen QR descargada. Envíasela a tu invitado.",
   "res.shareFailed": "No se pudo compartir el pase. Inténtalo de nuevo.",
   "res.expiresIn": "El QR vence en {time}",
   "res.expired": "Este QR venció. Si tu invitado aún no llega, genera uno nuevo.",

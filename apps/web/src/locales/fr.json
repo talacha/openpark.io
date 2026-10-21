@@ -209,6 +209,7 @@
   "res.shareTitle": "Laissez-passer de stationnement pour {guest}",
   "res.shareBody": "Bonjour {guest}, voici votre laissez-passer de stationnement pour {property}, logement {unit}. Montrez ce QR à l'entrée. Code de vérification : {code}. Expire dans {minutes} minutes.",
   "res.shareCopied": "Message du laissez-passer copié et image QR téléchargée.",
+  "res.shareDownloaded": "Image QR téléchargée. Envoyez-la à votre invité.",
   "res.shareFailed": "Impossible de partager le laissez-passer. Réessayez.",
   "res.expiresIn": "Le QR expire dans {time}",
   "res.expired": "Ce QR a expiré. Si votre invité n'est pas encore arrivé, générez-en un nouveau.",

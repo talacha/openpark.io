@@ -209,6 +209,7 @@
   "res.shareTitle": "Parkausweis für {guest}",
   "res.shareBody": "Hallo {guest}, hier ist Ihr Parkausweis für {property}, Einheit {unit}. Zeigen Sie diesen QR-Code an der Einfahrt. Prüfcode: {code}. Läuft in {minutes} Minuten ab.",
   "res.shareCopied": "Pass-Nachricht kopiert und QR-Bild heruntergeladen.",
+  "res.shareDownloaded": "QR-Bild heruntergeladen. Senden Sie es an Ihren Gast.",
   "res.shareFailed": "Pass konnte nicht geteilt werden. Bitte erneut versuchen.",
   "res.expiresIn": "QR-Code läuft in {time} ab",
   "res.expired": "Dieser QR-Code ist abgelaufen. Ist Ihr Gast noch nicht angekommen, erzeugen Sie einen neuen.",

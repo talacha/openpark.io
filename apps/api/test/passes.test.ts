@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { processPassReminders } from '../src/services/passes.js';
+import { processPassReminders, processStayAlerts } from '../src/services/passes.js';
 import { addResident, addUnit, addUser, harness, idem, signup, tenantId, waitFor, type Harness, type Resident, type Tenant } from './helpers.js';
 
 let h: Harness;
@@ -31,6 +31,7 @@ const redeem = (token: string, plate: string, who = attendant) =>
 const checkout = (plate: string, who = attendant) => h.app.inject({ method: 'POST', url: '/v1/checkout', headers: idem(who), payload: { site: 'DEMO-01', plate } });
 const plateOf = () => `P${randomBytes(3).toString('hex').toUpperCase()}`;
 const runCron = (t: Tenant = owner) => tenantId(t.slug).then((id) => processPassReminders(h.app, { tenantId: id }));
+const runStays = (t: Tenant = owner) => tenantId(t.slug).then((id) => processStayAlerts(h.app, { tenantId: id }));
 const notifications = async (passId: string, t: Tenant = owner) => h.app.db.withTenant(await tenantId(t.slug), async (db) =>
   Object.fromEntries((await db.query('select kind, status, attempts from pass_notification where pass_id = $1', [passId])).rows.map((r) => [r.kind, r])));
 
@@ -369,6 +370,54 @@ describe('reminders and the 12-hour overstay notice', () => {
     expect(m.subject).toBe('Parking reminder: 2 hours'); // US tenant => English
     expect(m.body).toContain('within 4 hours');
     expect(m.body).toContain('$25.00');
+  });
+});
+
+describe('supervisor stay alerts for any vehicle past the thresholds', () => {
+  /** Open an ordinary (non-pass) walk-in session as the tenant's attendant. */
+  const openSession = async (att: Tenant, plate: string) => {
+    const res = await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(att), payload: { site: 'DEMO-01', plate: { display: plate } } });
+    expect(res.statusCode, res.body).toBe(201);
+    return res.json() as { session: { id: string } };
+  };
+  const stayRows = async (t: Tenant, sessionId: string) => h.app.db.withTenant(await tenantId(t.slug), async (db) =>
+    Object.fromEntries((await db.query('select kind, status from stay_alert where session_id = $1', [sessionId])).rows.map((r) => [r.kind, r.status])));
+
+  it('notifies supervisors once a car passes 10h, again at 11h, and never twice for the same threshold', async () => {
+    const w = await world();
+    h.clock.now = T0;
+    const plate = plateOf();
+    await openSession(w.att, plate);
+    const supMsgs = () => h.notifier.to({ email: w.sup.email }).filter((m) => m.body.includes(plate));
+
+    h.clock.now = at(9.99);
+    expect(await runStays(w.t)).toMatchObject({ sent: 0 });
+    expect(supMsgs()).toHaveLength(0);
+
+    h.clock.now = at(10);
+    expect(await runStays(w.t)).toMatchObject({ sent: 1 });
+    expect(supMsgs()).toHaveLength(1);
+    expect(supMsgs()[0]!.subject).toContain('10 horas'); // "Vehículo … lleva 10 horas dentro"
+
+    expect(await runStays(w.t)).toMatchObject({ sent: 0 }); // idempotent: the 10h alert is not resent
+    expect(supMsgs()).toHaveLength(1);
+
+    h.clock.now = at(11);
+    expect(await runStays(w.t)).toMatchObject({ sent: 1 });
+    expect(supMsgs()).toHaveLength(2);
+    expect(supMsgs()[1]!.subject).toContain('11 horas');
+    // Only supervisors hear about it: not the attendant who opened it.
+    expect(h.notifier.to({ email: w.att.email })).toHaveLength(0);
+  });
+
+  it('skips the 12h stay overstay for a guest-pass stay, so the pass overstay notice is not duplicated', async () => {
+    const w = await world();
+    const { session } = await w.checkIn(T0);
+    h.clock.now = at(12);
+    await runStays(w.t);
+    // The guest-pass path owns the 12h HOA notice; the stay-alert job must not send a second supervisor message.
+    expect(h.notifier.to({ email: w.sup.email }).filter((m) => m.subject.includes('dentro'))).toHaveLength(0);
+    expect((await stayRows(w.t, session.session.id)).overstay).toBe('skipped');
   });
 });
 

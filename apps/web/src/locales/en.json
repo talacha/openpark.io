@@ -209,6 +209,7 @@
   "res.shareTitle": "Parking pass for {guest}",
   "res.shareBody": "Hi {guest}, here is your parking pass for {property}, unit {unit}. Show this QR at the gate. Verification code: {code}. Expires in {minutes} minutes.",
   "res.shareCopied": "Pass message copied and QR image downloaded.",
+  "res.shareDownloaded": "QR image downloaded. Send it to your guest.",
   "res.shareFailed": "Could not share the pass. Please try again.",
   "res.expiresIn": "QR expires in {time}",
   "res.expired": "This QR has expired. If your guest has not arrived yet, generate a new one.",

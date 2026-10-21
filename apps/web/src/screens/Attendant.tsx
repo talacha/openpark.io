@@ -6,7 +6,7 @@ import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
-import { parsePassQr, passPrefillPlate, spaceCode } from '../pass.js';
+import { parsePassQr, passAcceptPatch, passRemovePatch, spaceCode } from '../pass.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -22,11 +22,15 @@ interface Candidate { text: string; norm: string; confidence: number; region?: s
 interface FlowState {
   plate: string; region: string; source: 'manual' | 'ai_assist' | 'ai_auto';
   candidates: Candidate[]; confidence?: number; textRaw?: string; cropKey?: string;
+  /** True while `plate` was filled from a scanned pass hint, so it clears when the pass is removed or replaced. */
+  plateFromPass: boolean;
   vehicle: { make?: string; model?: string; color?: string; bodyType?: string };
   /** A scanned resident guest pass: check-in is then free and tied to the pass. */
   pass: { token: string; guest: string; unit: string; plateHint?: string; verifyCode?: string } | null;
 }
-const empty = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null });
+const empty = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null, plateFromPass: false });
+/** Clear read metadata alongside a pass-derived plate, so a stale candidate/confidence never rides on the next pass. */
+const clearedRead = { candidates: [] as Candidate[], confidence: undefined, textRaw: undefined, cropKey: undefined };
 const FlowCtx = createContext<{ flow: FlowState; set: (f: Partial<FlowState>) => void; reset: () => void }>(null as never);
 const useFlow = () => useContext(FlowCtx);
 
@@ -106,6 +110,10 @@ export function CheckInCapture() {
   const [scanning, setScanning] = useState(false);
   const [code, setCode] = useState('');
   const [passErr, setPassErr] = useState('');
+  const passBannerRef = useRef<HTMLDivElement>(null);
+
+  // When a pass is accepted, move focus to its banner so keyboard and screen-reader users land on the result and hear it.
+  useEffect(() => { if (flow.pass) passBannerRef.current?.focus(); }, [flow.pass?.token]);
 
   /** Look a scanned or typed pass up before taking the plate, so a bad QR is caught at the gate, not after. */
   async function usePass(raw: string) {
@@ -120,12 +128,17 @@ export function CheckInCapture() {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
       if (!r.valid) { setPassErr(passReason(t, r.reason ?? 'pass_invalid')); return; }
       // A pass that carries a plate hint pre-fills the plate field so the attendant only verifies it; the keypad and
-      // camera stay available to correct it. Without a hint the plate is left for the attendant to capture as before.
-      const prefill = passPrefillPlate(q);
+      // camera stay available to correct it. A pass with no hint clears a plate left over from a PREVIOUS pass (so pass A's
+      // plate can never redeem against pass B) but keeps a plate the attendant captured independently.
+      const patch = passAcceptPatch({ plate: flow.plate, plateFromPass: flow.plateFromPass }, q);
       set({
         pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name, plateHint: q?.plate || undefined, verifyCode: q?.code },
-        ...(prefill ? { plate: prefill, region: me!.tenant.plate_regions[0] ?? flow.region, source: 'manual' as const, candidates: [] } : {}),
+        plate: patch.plate, plateFromPass: patch.plateFromPass,
+        ...(patch.plate ? { region: me!.tenant.plate_regions[0] ?? flow.region, source: 'manual' as const } : {}),
+        ...(patch.clearRead ? clearedRead : {}),
       });
+      // Reveal the editable prefilled plate (keypad view) so the attendant can see and verify it, not just the banner.
+      if (patch.plate) setCamera(false);
       setCode('');
     } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)); }
   }
@@ -138,7 +151,7 @@ export function CheckInCapture() {
     const threshold = site?.settings.aiThreshold ?? 0.85;
     // Live reads were already agreed by several frames, but they still need the site's confidence to skip review.
     const confident = valid && p.confidence >= threshold;
-    set({ candidates: [{ text: p.text, norm, confidence: p.confidence, region, formatValid: valid }], plate: p.text, confidence: p.confidence, textRaw: p.text, source: confident ? 'ai_auto' : 'ai_assist', vehicle: {} });
+    set({ candidates: [{ text: p.text, norm, confidence: p.confidence, region, formatValid: valid }], plate: p.text, plateFromPass: false, confidence: p.confidence, textRaw: p.text, source: confident ? 'ai_auto' : 'ai_assist', vehicle: {} });
     nav(`${b}/checkin/${confident ? 'confirm' : 'review'}`);
   }
 
@@ -149,7 +162,7 @@ export function CheckInCapture() {
     try {
       const r = await request<AlprRes>('POST', '/v1/alpr/read', { site: site.code, image, region: flow.region });
       const top = r.candidates[0];
-      set({ candidates: r.candidates, plate: top?.text ?? '', confidence: top?.confidence, textRaw: top?.text, source: r.decision === 'auto' ? 'ai_auto' : 'ai_assist', vehicle: r.vehicle ?? {} });
+      set({ candidates: r.candidates, plate: top?.text ?? '', plateFromPass: false, confidence: top?.confidence, textRaw: top?.text, source: r.decision === 'auto' ? 'ai_auto' : 'ai_assist', vehicle: r.vehicle ?? {} });
       // Low confidence or a failed format check: the attendant picks or types; nothing saves until confirmed.
       const confident = top && top.confidence >= r.threshold && top.formatValid !== false;
       nav(`${b}/checkin/${confident ? 'confirm' : 'review'}`);
@@ -160,11 +173,15 @@ export function CheckInCapture() {
     <div className="att">
       <h1>{t('att.capture')}</h1>
       {flow.pass ? (
-        <div className="banner">
+        <div className="banner" role="status" aria-live="polite" tabIndex={-1} ref={passBannerRef}>
           <strong>{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</strong>
           {flow.pass.verifyCode && <div className="num" dir="ltr">{t('att.passVerified', { code: spaceCode(flow.pass.verifyCode) })}</div>}
           {flow.pass.plateHint && <div className="muted">{t('att.passPlateHint', { plate: flow.pass.plateHint })}</div>}
-          <div><button type="button" className="btn" onClick={() => set({ pass: null })}>{t('att.passRemove')}</button></div>
+          <div><button type="button" className="btn" onClick={() => {
+            // Removing a pass drops the plate that came from it (never leave pass A's plate to submit later), keeping a captured one.
+            const patch = passRemovePatch({ plate: flow.plate, plateFromPass: flow.plateFromPass });
+            set({ pass: null, plate: patch.plate, plateFromPass: patch.plateFromPass, ...(patch.clearRead ? clearedRead : {}) });
+          }}>{t('att.passRemove')}</button></div>
         </div>
       ) : scanning ? (
         <Scanner onClose={() => setScanning(false)} onResult={(text) => { void usePass(text); }} />
@@ -188,7 +205,7 @@ export function CheckInCapture() {
           <label className="field">{t('att.region')}
             <select value={flow.region} onChange={(e) => set({ region: e.target.value })}>{[...new Set([...(me!.tenant.plate_regions), flow.region])].map((r) => <option key={r}>{r}</option>)}</select></label>
           <div className="platebox">{flow.plate ? <PlateChip plate={flow.plate} region={flow.region} size="xl" /> : <span className="muted">{t('att.plate')}</span>}</div>
-          <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual', candidates: [] })} />
+          <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual', candidates: [], plateFromPass: false })} />
           <button className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</button>
         </>
       )}
@@ -209,13 +226,13 @@ export function CheckInReview() {
       <div className="banner warn">{t('att.lowConf')}</div>
       <h2>{t('att.candidates')}</h2>
       <div className="stack">{flow.candidates.map((c) => (
-        <button key={c.norm} className="btn row between" onClick={() => { set({ plate: c.text, confidence: c.confidence, source: 'ai_assist' }); nav(`${b}/checkin/confirm`); }}>
+        <button key={c.norm} className="btn row between" onClick={() => { set({ plate: c.text, confidence: c.confidence, source: 'ai_assist', plateFromPass: false }); nav(`${b}/checkin/confirm`); }}>
           <PlateChip plate={c.text} region={c.region} size="lg" /><span className="muted">{t('att.confidence', { pct: fmt.percent(c.confidence) })}{c.formatValid === false ? ' ⚠' : ''}</span>
         </button>
       ))}</div>
       <h2>{t('att.keypad')}</h2>
       <div className="platebox"><PlateChip plate={flow.plate || '—'} region={flow.region} size="xl" /></div>
-      <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual' })} />
+      <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual', plateFromPass: false })} />
       <button className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</button>
     </div>
   );

@@ -22,6 +22,46 @@ export const spaceCode = (c: string) => c.replace(/(.{4})(?=.)/g, '$1 ');
 /** The plate a scanned pass suggests, if any — used to pre-fill the attendant check-in form. */
 export const passPrefillPlate = (q: PassQr | null): string => q?.plate?.trim() ?? '';
 
+/** Where the current plate came from, so pass-derived values clear when the pass changes but a captured plate survives. */
+export interface PlateProvenance { plate: string; plateFromPass: boolean }
+/** A state patch for the check-in flow: the new plate, its provenance, and whether read metadata must be cleared too. */
+export interface PlatePatch { plate: string; plateFromPass: boolean; clearRead: boolean }
+
+/**
+ * State patch when a pass is scanned or typed. A pass that carries a plate hint fills the plate (provenance = pass); a
+ * pass with no hint clears a plate that came from a PREVIOUS pass but keeps a plate the attendant captured independently.
+ */
+export function passAcceptPatch(prev: PlateProvenance, q: PassQr | null): PlatePatch {
+  const prefill = passPrefillPlate(q);
+  if (prefill) return { plate: prefill, plateFromPass: true, clearRead: true };
+  if (prev.plateFromPass) return { plate: '', plateFromPass: false, clearRead: true };
+  return { plate: prev.plate, plateFromPass: false, clearRead: false };
+}
+
+/** State patch when a pass is removed: drop a plate that came from it, keep one the attendant captured independently. */
+export function passRemovePatch(prev: PlateProvenance): PlatePatch {
+  if (prev.plateFromPass) return { plate: '', plateFromPass: false, clearRead: true };
+  return { plate: prev.plate, plateFromPass: false, clearRead: false };
+}
+
+/** What the browser can do, so Share can pick a path and report its outcome honestly. */
+export interface ShareCaps { canShare: boolean; canShareFiles: boolean; canCopy: boolean }
+/** The chosen share path, whether it copies text, and the status message key (empty while the share sheet handles it). */
+export interface SharePlan { method: 'file' | 'text' | 'download'; copies: boolean; statusKey: 'res.shareCopied' | 'res.shareDownloaded' | '' }
+
+/**
+ * Pick a share path from the browser's capabilities. File-capable Web Share sends the QR image; text-only Web Share
+ * sends the message (which carries the signed token, so the guest still has a redeemable pass); with no Web Share the
+ * QR image is downloaded and the message copied only when the Clipboard API is actually available — never claimed otherwise.
+ */
+export function planPassShare(caps: ShareCaps): SharePlan {
+  if (caps.canShare && caps.canShareFiles) return { method: 'file', copies: false, statusKey: '' };
+  if (caps.canShare) return { method: 'text', copies: false, statusKey: '' };
+  return caps.canCopy
+    ? { method: 'download', copies: true, statusKey: 'res.shareCopied' }
+    : { method: 'download', copies: false, statusKey: 'res.shareDownloaded' };
+}
+
 /**
  * The QR as a shareable GIF image data URL. `qrcode-generator` renders a pure data URL with no canvas, so this
  * works in the browser and in jsdom tests. Error correction M, matching the on-screen pass QR.
@@ -44,13 +84,18 @@ export function dataUrlToBlob(url: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
-/** Localized title + body a resident shares with their guest alongside the QR image. Pure, so it is unit-testable. */
+/**
+ * Localized title + body a resident shares with their guest alongside the QR image. The signed pass token is appended
+ * to the body so that even a text-only share leaves the guest with a redeemable pass (the attendant can scan or paste
+ * it). Pure, so it is unit-testable.
+ */
 export function passShareMessage(
   t: (key: string, values?: Record<string, unknown>) => string,
-  p: { guest: string; unit: string; property: string; code: string; expiresMinutes: number },
+  p: { guest: string; unit: string; property: string; code: string; expiresMinutes: number; token?: string },
 ): { title: string; text: string } {
+  const body = t('res.shareBody', { guest: p.guest, unit: p.unit, property: p.property, code: p.code, minutes: p.expiresMinutes });
   return {
     title: t('res.shareTitle', { guest: p.guest }),
-    text: t('res.shareBody', { guest: p.guest, unit: p.unit, property: p.property, code: p.code, minutes: p.expiresMinutes }),
+    text: p.token ? `${body}\n${p.token}` : body,
   };
 }
