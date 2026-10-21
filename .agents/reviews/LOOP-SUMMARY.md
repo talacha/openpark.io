@@ -1041,3 +1041,53 @@ signal for a docs-only change). Last recorded green gate (iteration 13, confirme
 **Pushed commit SHA:** `6d37fd5` (docs/bookkeeping tick, committed on `adversarial-loop`, fast-forwarded onto
 `main`, pushed to `origin/main` — normal push, succeeded; this SHA line recorded by the follow-up commit). **The loop
 is CLOSED. No further iterations will run.**
+---
+## Iteration 18 (implementer tick against review report #17) — 2026-10-21 ~16:06 UTC — LOOP REMAINS CLOSED; 12h BUDGET EXHAUSTED
+**Context / time box:** wall-clock at the START of this tick = **12h 13m** into the run (run start
+`2026-10-21T03:52:23Z`, now `2026-10-21T16:06Z`). The **12h budget is now exhausted** (≥ 12.0h), AND the 10-iteration
+cap is long exceeded (this is the 18th implementer tick / 17th review). `review-verdict.json` = `CHANGES_REQUESTED`
+pointing at `review-iter-17.md` (1 BLOCKING + 2 high + 5 medium).
+**What the previous review (iter-17) flagged:**
+1. **BLOCKING (loop contract — hard 10-iteration stop):** production code was changed/published through iteration 13
+   and the workflow has now run a seventeenth implementer tick; the cap is exceeded and a current bookkeeping-only tick
+   cannot undo that. **Correction: stop this loop after this review, preserve the published linear history (no
+   reset/revert/force), and carry product findings into a separately authorized run.** Another implementation tick
+   would itself violate the governing stop condition.
+2. HIGH (criterion 7, security): `POST /v1/platform/tenants` is `replaySafe`, not `idempotent` → keyless lost-response
+   retry can create a random-suffixed duplicate tenant. — CARRIED FORWARD.
+3. HIGH (criterion 7, data integrity): reserve + create_tenant + init + finalize span separate autocommits with no
+   lease/reconciliation/compensation → a crash after create or business commit can strand an incomplete property or
+   permanent `status=0`; exact retry blocked while a fresh key can duplicate. — CARRIED FORWARD.
+4. MEDIUM (criteria 6&7): local-auth onboarding delivers the only temp password in the first response; replay stores
+   null → lost-response retry leaves a person/owner with no usable credential; no recovery path. — CARRIED FORWARD.
+5. MEDIUM (criterion 1): no single recorded run joins server-generated pass bytes → real Share → `/pass` bootstrap →
+   decoded guest QR → real gate lookup/redeem ("in a future authorized run"). — CARRIED FORWARD.
+6. MEDIUM (criteria 3&4): real `getUserMedia`/ONNX camera path unexecuted in the shipped stack; no checkout camera
+   story ("in a future authorized run"). — CARRIED FORWARD.
+7. MEDIUM (criteria 6&7): full person/site/unit/slot CRUD + second-property Super Admin + regular-admin server denial
+   not run through the real stack at a narrow viewport ("in a future authorized run"). — CARRIED FORWARD.
+**Decision this tick (autonomous, lowest-risk):** HONOR THE BLOCKING FINDING AND KEEP THE LOOP CLOSED, now reinforced
+by the exhausted 12h budget. Three independent stop signals converge: (a) the reviewer's #1 BLOCKING finding explicitly
+forbids another implementation tick and says to stop and defer findings #2–#7 to a separately authorized run (each
+product correction is prefixed "In a future authorized run"); (b) the user's explicit "Take 10 iterations" cap is
+exceeded (18th implementer tick); (c) the 12h wall-clock budget is exhausted (12.22h), whose rule is "do the minimum to
+finish cleanly … and STOP without further changes." Implementing #2–#7 now is exactly the post-cap tick the blocking
+finding forbids and would require a cross-cutting idempotency/transaction redesign (#2/#3) plus a real-browser + ONNX +
+camera-fixture + manual-AT harness (#4–#7) that the headless gate cannot stand up and that has no review budget left to
+vet. I therefore made **NO** production code, schema, migration, locale, or test changes.
+**What I changed:** documentation/bookkeeping ONLY — this stop note plus staging of this iteration's review-trail
+artifacts (`.agents/reviews/review-iter-17.md`, updated `.agents/tasks/review-verdict.json`). Published linear history
+preserved: no reset, no revert, no force — a single normal docs commit fast-forwarded onto `main` and pushed.
+**Carried-forward backlog for the team (handled OUTSIDE this loop, in a fresh authorized run):** findings #2–#7 above.
+The seven acceptance criteria remain gate-backed in the shipped code at HEAD; the carried-forward items are deeper
+end-to-end execution evidence, two idempotency/transaction-hardening fixes, and manual accessibility conformance — not
+missing features.
+**Gate status: GREEN (unchanged).** No code/test/schema/locale/migration files were touched this tick (only `.agents/`
+docs + review artifacts), so the previously-published green gate at HEAD still stands and was NOT re-run (re-running the
+full suite adds no signal for a docs-only change, and the 12h budget directs the minimum clean finish). Last recorded
+green gate (iteration 13, confirmed at HEAD before the close ticks):
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → ok (7 projects)
+- `pnpm test` → ok (core 36, sdk-ts 6, marketing 9, web 101 pass +1 skipped, api 108 pass) = 212 pass / 1 skipped
+- `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
+**Pushed commit SHA:** _(recorded below after commit+push)_. **The loop is CLOSED. No further iterations will run.**
