@@ -687,4 +687,4 @@ findings #1/#2 — out of gate scope, too fragile at the budget edge.
 
 **i18n parity:** no new UI strings this tick; all seven locales unchanged.
 **Elapsed:** ≈11h33m of the extended budget at tick start (under the 12h ceiling).
-**Tick commit SHA:** _(filled in below after commit)_
+**Tick commit SHA:** `bd189a8` (code+test); this SHA line recorded in a tiny follow-up commit, both fast-forwarded onto `main` and pushed to `origin/main` (normal push).
