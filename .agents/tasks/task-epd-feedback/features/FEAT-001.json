@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-001",
+  "type": "docs",
+  "description": "Track A — Documentation & personas. Create docs/PERSONAS.md defining the five personas and their journeys, mapped to code, cross-linked from docs/DOMAIN.md. Grounded in requirements AC-1.1..1.4 and design section 1. Independent of other FEATs except that its vocabulary/locale claims must agree with FEAT-005 (Community/Slot/User terminology and es-MX+en surfaced locales); it runs first and FEAT-005 updates these docs again when it changes labels.",
+  "status": "completed",
+  "steps": [
+    "Read ARCHITECTURE.md (Security role table + Screens table + Localization), docs/DOMAIN.md, apps/web/src/menu.ts, apps/web/src/App.tsx, and apps/api/src/auth.ts (can()) so the doc matches real routes, menu groups, and permissions.",
+    "Create docs/PERSONAS.md in the same Markdown-table style as docs/DOMAIN.md. Persona table: Persona | who they are | code mapping | primary journeys. Map: Resident -> membership.roles contains 'resident' (+ a verified unit); Operator/Parking Attendant -> 'attendant'; Supervisor -> 'supervisor'; Admin -> 'admin'; Super Admin -> app_user.is_superadmin (platform flag, never a membership role).",
+    "Add per-persona journey lists keyed to real routes: Resident -> /t/:slug/r (Edit profile, Issue new parking pass, Share pass, Previous passes; admins/super admins can open it via hasResidentView). Attendant -> /t/:slug/a, /a/checkin, /a/checkout, /queue. Supervisor -> Attendant journeys plus /dashboard, /sessions, /slots, /passes; overstay alerts phrased as policy-derived (policy.reminderHours/policy.maxStayHours; 10/11/12h only as shipped DEFAULTS, never fixed literals). Admin -> /parking (Communities->Sites/Zones/Slots), /units, /users, bulk import/export, Advanced (Rates, Integrations, AI); NO Localization route (removed in FEAT-005). Super Admin -> /platform + property switcher.",
+    "Close with a note that the surfaced vocabulary is Community/Slot/Unit/User and the surfaced locales are es-MX (default) + English, so docs and product agree.",
+    "Add a one-line cross-link to docs/PERSONAS.md from the docs/DOMAIN.md 'Language' section (or nearest existing section)."
+  ],
+  "acceptance_criteria": [
+    "docs/PERSONAS.md exists and defines Resident, Operator/Parking Attendant, Supervisor, Admin, Super Admin with explicit mapping to membership.roles / app_user.is_superadmin.",
+    "Each persona's journeys name specific screens/routes consistent with menu.ts, App.tsx route guards, and can() in auth.ts; nothing contradicts can().",
+    "The doc reflects Community/Slot/Unit/User terminology and es-MX+en surfaced locales.",
+    "docs/DOMAIN.md cross-links to docs/PERSONAS.md.",
+    "The verification gate stays green (docs-only change touches no code)."
+  ],
+  "verification": [
+    "pnpm --filter @openpark/core build",
+    "pnpm typecheck",
+    "Manually confirm docs/PERSONAS.md routes/roles match menu.ts, App.tsx, and auth.ts (review, not grep-as-verification)."
+  ],
+  "blocked_reason": null,
+  "findings": "Created docs/PERSONAS.md (five personas: Resident, Operator/Parking Attendant, Supervisor, Admin, Super Admin) with code mapping (membership.roles / app_user.is_superadmin + membership.unit_verified for verified residents) and per-persona journeys keyed to real App.tsx routes (Resident /t/:slug/r; Attendant /a,/a/checkin,/a/checkout,/queue; Supervisor + /dashboard,/sessions,/slots,/passes; Admin /parking,/units,/users,/inventory,/rates,/integrations,/ai; Super Admin /platform). Added one-line cross-link from docs/DOMAIN.md 'Language' section to docs/PERSONAS.md.\n\nDOCS AHEAD OF CODE (FEAT-005 must reconcile): PERSONAS.md already states the TARGET surface per AC — (1) NO Localization route for Admin, but code today still has /locale (menu.ts item id 'locale', App.tsx route <LocaleSettings/>); (2) surfaced vocabulary Community/Slot/Unit/User and (3) surfaced locales es-MX(default)+English, while code today still has 7 locale catalogs and uses 'Site/Zone/Slot/Unit' + 'Person/User' mixed wording. Overstay thresholds documented as policy-derived (policy.reminderHours/policy.maxStayHours, 10/11/12h as defaults only) and the overstay charge as currency-formatted from tenant.settings.passPolicy.overstayCharge, never a literal — preserved, not changed. unit_verified is referenced as the gate for a resident issuing passes; FEAT dependencies add it to Ctx. No code/schema/locale/notify changes in this FEAT (docs-only). Full gate green: core build, typecheck, pnpm test (all suites pass), check:css."
+}

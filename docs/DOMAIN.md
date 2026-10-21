@@ -1,7 +1,7 @@
 # OpenPark domain model
 
 One vocabulary for the product, the screens and the API. Where the database or code uses an older word, the right-hand column says so; the
-screens and docs use the **term**.
+screens and docs use the **term**. For who uses the product and the journeys each person has, see [docs/PERSONAS.md](./PERSONAS.md).
 
 ## Language
 
