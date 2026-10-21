@@ -74,8 +74,8 @@ export function registerSessionRoutes(app: App) {
   defineRoute(app, {
     method: 'POST', path: '/v1/sessions/:id/payments', summary: 'Record a payment against a closed session', perm: 'payment', body: Payment, idempotent: true,
     async handler({ ctx, db, params, body }) {
-      const s = (await db.query('select id, status, ticket_code from session where id = $1', [params.id])).rows[0];
-      if (!s) throw new HttpError(404, 'session_not_found', 'No such session');
+      const s = (await db.query('select id, status, ticket_code, site_id from session where id = $1', [params.id])).rows[0];
+      if (!s || (ctx.siteId && s.site_id !== ctx.siteId)) throw new HttpError(404, 'session_not_found', 'No such session');
       if (s.status !== 'closed') throw new HttpError(409, 'not_closed', 'Payments are recorded on closed sessions');
       return created({ receiptNo: await recordPayment(db, ctx, s.id, s.ticket_code, body) });
     },
@@ -85,7 +85,7 @@ export function registerSessionRoutes(app: App) {
     method: 'POST', path: '/v1/sessions/:id/void', summary: 'Void a session (supervisor)', perm: 'session.void', body: z.object({ reason: z.string().min(3) }), idempotent: true,
     async handler({ ctx, db, params, body }) {
       const s = (await db.query('select id, status, slot_id, site_id from session where id = $1 for update', [params.id])).rows[0];
-      if (!s) throw new HttpError(404, 'session_not_found', 'No such session');
+      if (!s || (ctx.siteId && s.site_id !== ctx.siteId)) throw new HttpError(404, 'session_not_found', 'No such session');
       if (s.status === 'void') throw new HttpError(409, 'already_void', 'Session is already void');
       await db.query("update session set status = 'void' where id = $1", [s.id]);
       if (s.status === 'open' && s.slot_id) await db.query("update slot set status = 'available' where id = $1 and status = 'occupied'", [s.slot_id]);
@@ -130,9 +130,9 @@ export function registerSessionRoutes(app: App) {
 
   defineRoute(app, {
     method: 'GET', path: '/v1/sessions/:id/events', summary: "One session's audit timeline", perm: 'read',
-    async handler({ db, params }) {
-      const s = (await db.query('select id from session where id = $1', [params.id])).rows[0];
-      if (!s) throw new HttpError(404, 'session_not_found', 'No such session');
+    async handler({ ctx, db, params }) {
+      const s = (await db.query('select id, site_id from session where id = $1', [params.id])).rows[0];
+      if (!s || (ctx.siteId && s.site_id !== ctx.siteId)) throw new HttpError(404, 'session_not_found', 'No such session');
       return (await db.query(
         `select e.id, e.type, e.server_at, e.device_at, e.gate, e.device_id, coalesce(u.name, u.email) as actor, e.payload
          from session_event e left join app_user u on u.id = e.actor_id where e.session_id = $1 order by e.id`, [params.id])).rows;

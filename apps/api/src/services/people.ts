@@ -24,7 +24,9 @@ export async function addPerson(app: App, db: Db, tenantId: string, invitedBy: s
   }
   if (userId && existing && !p.direct) {
     // An account that already exists (possibly in other properties) is invited, not attached: the person accepts, and nothing about
-    // them (name, phone) is visible here until they do. Answering the same way for unknown emails avoids revealing who has an account.
+    // them (name, phone) is visible here until they do. (With local sign-in an unknown email gets a new account and a one-time
+    // password instead, so whether an address already has an account can still be inferred from the response shape; deployments
+    // that cannot accept this should use an external identity provider, where an unknown email is also just an invitation.)
     if ((await db.query('select 1 from membership where user_id = $1', [userId])).rowCount) throw new HttpError(409, 'already_member', 'That person already belongs to this tenant');
     userId = undefined;
   }

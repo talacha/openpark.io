@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ApiError, accessToken, fetchConfig, get, getSession, patch, setSession, type PublicConfig } from './api.js';
 import { supabase } from './auth.js';
+import { setQueueOwner } from './offline.js';
 import { I18nProvider, type Terminology } from './i18n.js';
 
 /** Least to most access. A person can hold several; Super Admin is a separate platform-wide flag. */
@@ -76,6 +77,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!slug) { setMe(null); setSites([]); setLoaded(true); return; }
       const m = await get<Me>('/v1/me');
       setMe(m);
+      setQueueOwner(m.user?.id ?? '');
       // Residents see only their unit's passes; everyone else gets the site list.
       setSites(m.roles.length === 1 && m.roles[0] === 'resident' && !m.superadmin ? [] : await get<SiteInfo[]>('/v1/sites'));
     } catch (e) {
@@ -105,7 +107,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSiteCode: (c) => { setSiteCodeState(c); try { localStorage.setItem('op.site', c); } catch { /* ignore */ } },
     signOut: async () => {
       if (supabase) await supabase.auth.signOut();
-      setSession({ token: null, tenant: null }); clear();
+      setSession({ token: null, tenant: null }); clear(); setQueueOwner('');
     },
     switchTenant: async (slug) => { setSession({ ...getSession(), tenant: slug }); await reload(); },
     can: (p) => !!me && (me.superadmin || me.roles.some((r) => (p === 'attend' ? r !== 'resident' : p === 'admin' ? r === 'admin' || r === 'supervisor' : r === 'admin' || r === 'supervisor'))),

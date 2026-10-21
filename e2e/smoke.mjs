@@ -105,7 +105,7 @@ await page.screenshot({ path: `${shots}/09-inventory-error.png` });
 // Localization: Arabic flips to right-to-left; pseudo-locale renders
 await page.selectOption('.menu-foot select', 'ar');
 if ((await page.getAttribute('html', 'dir')) !== 'rtl') throw new Error('html[dir] should be rtl for Arabic');
-await page.click('a.nav >> nth=0');
+await page.click('a.nav[href$="/dashboard"]');
 await page.waitForSelector('.tile .value');
 await page.screenshot({ path: `${shots}/10-dashboard-ar.png` });
 log('Arabic renders right-to-left');

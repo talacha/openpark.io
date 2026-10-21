@@ -396,3 +396,41 @@ describe('review fixes, round 3', () => {
     } finally { await h.close(); }
   });
 });
+
+describe('review fixes, round 4', () => {
+  it('a key limited to one site cannot touch another site\'s sessions, passes or exports', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'US');
+      await h.app.inject({ method: 'POST', url: '/v1/sites', headers: t.h, payload: { code: 'B', name: 'B', timezone: 'UTC' } });
+      const inA = (await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(t), payload: { site: 'DEMO-01', plate: { display: 'ABC1234' } } })).json();
+      const key = (await h.app.inject({ method: 'POST', url: '/v1/api-keys', headers: t.h, payload: { name: 'b gate', role: 'supervisor', site: 'B' } })).json().key;
+      const k = (extra: object = {}) => ({ 'x-api-key': key, 'idempotency-key': `k-${Math.random()}`, ...extra });
+      const id = inA.id ?? inA.session?.id;
+      expect(id).toBeTruthy();
+      expect((await h.app.inject({ method: 'POST', url: `/v1/sessions/${id}/void`, headers: k(), payload: { reason: 'not mine' } })).statusCode).toBe(404);
+      expect((await h.app.inject({ method: 'GET', url: `/v1/sessions/${id}/events`, headers: k() })).statusCode).toBe(404);
+      expect((await h.app.inject({ method: 'POST', url: `/v1/sessions/${id}/payments`, headers: k(), payload: { method: 'cash', amount: 0 } })).statusCode).toBe(404);
+      expect((await h.app.inject({ method: 'GET', url: '/v1/inventory/export?site=DEMO-01', headers: k() })).statusCode).toBe(404);
+      const own = (await h.app.inject({ method: 'GET', url: '/v1/inventory/export', headers: k() })).json();
+      expect(own.sites.map((s: { code: string }) => s.code)).toEqual(['B']);
+      expect((await h.app.inject({ method: 'GET', url: `/v1/sessions/${id}/events`, headers: t.h })).statusCode).toBe(200); // the admin still can
+    } finally { await h.close(); }
+  });
+
+  it('attendants see units but not who lives in them, and cannot export residents', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      await addUnit(h.app, t, 'R-1');
+      const r = await addResident(h.app, t, 'R-1');
+      const att = await addUser(h.app, t, 'attendant');
+      const units = (await h.app.inject({ method: 'GET', url: '/v1/units', headers: att.h })).json();
+      expect(units[0]).toMatchObject({ code: 'R-1', residents: [] });
+      expect(JSON.stringify(units)).not.toContain(r.email);
+      expect((await h.app.inject({ method: 'GET', url: '/v1/units/export', headers: att.h })).statusCode).toBe(403);
+      const admin = (await h.app.inject({ method: 'GET', url: '/v1/units', headers: t.h })).json();
+      expect(admin[0].residents).toEqual([expect.objectContaining({ email: r.email })]);
+    } finally { await h.close(); }
+  });
+});

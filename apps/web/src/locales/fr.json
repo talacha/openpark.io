@@ -469,5 +469,6 @@
   "invite.accept": "Accepter",
   "users.tempPasswordLost": "Le mot de passe n’a été affiché qu’une fois et n’est plus disponible. Retirez la personne et ajoutez-la à nouveau pour en obtenir un nouveau.",
   "res.noUnitAdmin": "Vous n’êtes affecté à aucune unité, il n’y a donc rien à afficher. Pour utiliser la vue résident, modifiez-vous dans Personnes, cochez Résident et choisissez une unité.",
-  "res.assignSelf": "Ouvrir Personnes"
+  "res.assignSelf": "Ouvrir Personnes",
+  "queue.retry": "Réessayer"
 }

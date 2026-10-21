@@ -47,7 +47,7 @@ export function registerPassRoutes(app: App) {
   defineRoute(app, {
     method: 'GET', path: '/v1/passes/lookup', summary: 'Scanner preview: who a QR is for and whether it can be redeemed', perm: 'pass.redeem',
     query: z.object({ token: z.string().min(10) }),
-    handler: async ({ db, query }) => lookupPass(app, db, query.token),
+    handler: async ({ ctx, db, query }) => lookupPass(app, db, query.token, ctx),
   });
 
   defineRoute(app, {
@@ -67,7 +67,7 @@ export function registerPassRoutes(app: App) {
   // ---- admin ------------------------------------------------------------------------------------
   defineRoute(app, {
     method: 'GET', path: '/v1/passes/:id', summary: 'One pass', perm: 'pass.admin',
-    handler: async ({ db, params }) => getPass(app, db, params.id!, app.now(), false),
+    handler: async ({ ctx, db, params }) => getPass(app, db, params.id!, app.now(), false, ctx.siteId),
   });
 
   defineRoute(app, {

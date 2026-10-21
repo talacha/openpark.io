@@ -37,7 +37,14 @@ export function registerInventoryRoutes(app: App) {
   defineRoute(app, {
     method: 'GET', path: '/v1/inventory/export', summary: 'Inventory JSON', perm: 'read',
     query: z.object({ site: z.string().optional(), zone: z.string().optional() }),
-    handler: async ({ ctx, db, query }) => exportInventory(db, ctx.tenantSlug, app.now(), query),
+    async handler({ ctx, db, query }) {
+      if (ctx.siteId) { // a key limited to one site exports only that site
+        const code = (await db.query('select code from site where id = $1', [ctx.siteId])).rows[0]?.code;
+        if (query.site && query.site !== code) throw new HttpError(404, 'site_not_found', `No site ${query.site}`);
+        query = { ...query, site: code };
+      }
+      return exportInventory(db, ctx.tenantSlug, app.now(), query);
+    },
   });
 
   defineRoute(app, {

@@ -34,7 +34,8 @@ export function SyncBadge() {
     const sync = async () => {
       try {
         await request('GET', '/healthz');
-        const r = await flush(send);
+        if (!me?.user?.id) return; // replay only for a signed-in person, and only their own writes
+        const r = await flush(send, me.user.id);
         if (r.synced) setNote(t('att.synced', { count: r.synced }));
       } catch (e) { if (!isNetworkError(e)) console.warn(e); }
       void refresh();
@@ -45,7 +46,7 @@ export function SyncBadge() {
     void refresh(); if (navigator.onLine) void sync();
     const timer = setInterval(() => { if (navigator.onLine) void sync(); }, 30_000);
     return () => { removeEventListener('online', up); removeEventListener('offline', down); changes.removeEventListener('change', refresh); clearInterval(timer); };
-  }, [t]);
+  }, [t, me?.user?.id]);
 
   if (online && !pending && !conflicts && !note) return null;
   return (

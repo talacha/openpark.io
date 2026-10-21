@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../i18n.js';
-import { changes, dismissConflict, listConflicts, listQueue, type Conflict, type QueuedWrite } from '../offline.js';
+import { changes, dismissConflict, listConflicts, listQueue, retryConflict, type Conflict, type QueuedWrite } from '../offline.js';
 
 /** Supervisor queue: actions made offline that the server rejected (slot taken, already inside, ...). */
 export function Queue() {
@@ -30,7 +30,7 @@ export function Queue() {
         {conflicts.map((c) => (
           <div key={c.id} className="row between">
             <span><strong>{c.code}</strong> {label(c)}<br /><span className="muted">{c.reason}</span></span>
-            <button className="btn" onClick={() => dismissConflict(c.id!)}>{t('att.done')}</button>
+            <div className="row"><button className="btn" onClick={() => retryConflict(c.id!)}>{t('queue.retry')}</button><button className="btn" onClick={() => dismissConflict(c.id!)}>{t('att.done')}</button></div>
           </div>
         ))}
         {!conflicts.length && <span className="muted">{t('common.none')}</span>}

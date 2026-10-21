@@ -179,16 +179,16 @@ export async function createPass(app: App, db: Db, ctx: Ctx, input: z.infer<type
   }
 }
 
-export async function getPass(app: App, db: Db, id: string, now: Date, includeQr: boolean) {
-  const row = (await db.query(`${PASS_SQL} where p.id = $1`, [id])).rows[0] as PassRow | undefined;
+export async function getPass(app: App, db: Db, id: string, now: Date, includeQr: boolean, siteId: string | null = null) {
+  const row = (await db.query(`${PASS_SQL} where p.id = $1 and ($2::uuid is null or p.site_id = $2)`, [id, siteId])).rows[0] as PassRow | undefined;
   if (!row) throw new HttpError(404, 'pass_not_found', 'No such pass');
   return presentPass(app.cfg.JWT_SECRET, row, now, includeQr);
 }
 
 export async function listPasses(app: App, db: Db, ctx: Ctx, canAdmin: boolean, status?: string, limit = 25) {
   const rows = (await db.query(
-    `${PASS_SQL} where ($1::uuid is null or p.unit_id = $1) and ($2::text is null or p.status = $2) order by p.created_at desc limit $3`,
-    [canAdmin ? null : ctx.unitId, status ?? null, limit])).rows as PassRow[];
+    `${PASS_SQL} where ($1::uuid is null or p.unit_id = $1) and ($2::text is null or p.status = $2) and ($4::uuid is null or p.site_id = $4) order by p.created_at desc limit $3`,
+    [canAdmin ? null : ctx.unitId, status ?? null, limit, ctx.siteId])).rows as PassRow[];
   if (!canAdmin && !ctx.unitId) throw new HttpError(403, 'forbidden', 'Not allowed to list passes');
   const now = app.now();
   // A QR is shown only to the unit that owns the pass.
@@ -256,8 +256,9 @@ const REASON_TEXT: Record<string, [number, string]> = {
 };
 
 /** Preview for the scanner: who the pass is for and whether it can be redeemed, with no side effects. */
-export async function lookupPass(app: App, db: Db, token: string) {
+export async function lookupPass(app: App, db: Db, token: string, ctx?: Ctx) {
   const { pass, reason } = await validate(app, db, token, false);
+  if (ctx?.siteId && pass.site_id !== ctx.siteId) throw new HttpError(409, 'pass_wrong_site', 'This pass is for another site');
   return { valid: reason === null, reason, pass: await getPass(app, db, pass.id, app.now(), false) };
 }
 

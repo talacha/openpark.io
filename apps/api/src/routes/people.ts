@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { ROLES } from '../auth.js';
+import { ROLES, can } from '../auth.js';
 import { externalAuthEnabled, localAuthEnabled } from '../config.js';
 import { audit } from '../db.js';
 import { HttpError, created, definePlatformRoute, definePublicRoute, defineRoute, boolQuery } from '../http.js';
@@ -76,13 +76,15 @@ export function registerPeopleRoutes(app: App) {
   // ---- units ----------------------------------------------------------------------------------------------------
   defineRoute(app, {
     method: 'GET', path: '/v1/units', summary: 'Units (apartments/houses) and their residents', perm: 'read',
-    async handler({ db }) {
-      return (await db.query(
+    async handler({ ctx, db }) {
+      const rows = (await db.query(
         `select u.code, u.name, s.code as site, u.floor, u.note,
            coalesce((select json_agg(json_build_object('id', a.id, 'email', a.email, 'name', a.name) order by a.email)
              from membership m join app_user a on a.id = m.user_id where m.unit_id = u.id), '[]') as residents,
            (select p.status from pass p where p.unit_id = u.id and p.status in ('active','checked_in') limit 1) as pass_status
-         from unit u left join site s on s.id = u.site_id order by u.code`)).rows;
+         from unit u left join site s on s.id = u.site_id where ($1::uuid is null or u.site_id = $1) order by u.code`, [ctx.siteId])).rows;
+      // Who lives where is for the people who manage people; an attendant sees the units only.
+      return can(ctx, 'users.edit') ? rows : rows.map((r) => ({ ...r, residents: [] }));
     },
   });
 
@@ -142,7 +144,7 @@ export function registerPeopleRoutes(app: App) {
   });
 
   defineRoute(app, {
-    method: 'GET', path: '/v1/units/export', summary: 'Units (and their residents) as JSON', perm: 'read',
+    method: 'GET', path: '/v1/units/export', summary: 'Units (and their residents) as JSON', perm: 'users.edit',
     handler: async ({ ctx, db }) => exportUnits(db, ctx.tenantSlug, app.now()),
   });
 

@@ -469,5 +469,6 @@
   "invite.accept": "[Àççépt one]",
   "users.tempPasswordLost": "[Thé pàsswôrd wàs shôwñ ôñçé àñd îs ñô lôñgér àvàîlàblé. Rémôvé thé pérsôñ àñd àdd thém àgàîñ tô gét à ñéw ôñé. one two three four five six seven eight nine]",
   "res.noUnitAdmin": "[Yôû àré ñôt àssîgñéd tô à ûñît, sô théré îs ñôthîñg tô shôw héré. Tô ûsé thé résîdéñt vîéw, édît ýôûrsélf ûñdér Péôplé, tîçk Résîdéñt àñd çhôôsé à ûñît. one two three four five six seven eight nine ten]",
-  "res.assignSelf": "[Ôpéñ Péôplé one t]"
+  "res.assignSelf": "[Ôpéñ Péôplé one t]",
+  "queue.retry": "[Rétrý on]"
 }

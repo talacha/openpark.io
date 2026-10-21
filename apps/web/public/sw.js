@@ -17,7 +17,9 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || url.pathname.startsWith('/v1/') || url.origin !== location.origin) return;
   // The plate reader's WebAssembly runtime and models are large and never change under the same name: cache first,
   // so the reader starts instantly and works in a garage with no signal.
-  if (url.pathname.startsWith('/ort/') || url.pathname.startsWith('/models/')) {
+  // The model files are cached (and hash-checked) by the app itself; the service worker would only keep a second copy.
+  if (url.pathname.startsWith('/models/') && url.pathname !== '/models/manifest.json') return;
+  if (url.pathname.startsWith('/ort/') || url.pathname === '/models/manifest.json') {
     // The manifest says which runtime files and model hashes are current, so it is network-first; the big files it names are
     // immutable (versioned names, hash-checked by the app) and cached first. Anything that is not a real file is never cached.
     const fresh = url.pathname === '/models/manifest.json';

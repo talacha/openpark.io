@@ -469,5 +469,6 @@
   "invite.accept": "Aceitar",
   "users.tempPasswordLost": "A senha foi mostrada uma vez e não está mais disponível. Remova a pessoa e adicione-a novamente para obter outra.",
   "res.noUnitAdmin": "Você não está atribuído a uma unidade, então não há nada para mostrar. Para usar a visão de morador, edite-se em Pessoas, marque Morador e escolha uma unidade.",
-  "res.assignSelf": "Abrir Pessoas"
+  "res.assignSelf": "Abrir Pessoas",
+  "queue.retry": "Tentar de novo"
 }

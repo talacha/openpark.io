@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { enqueue, flush, listConflicts, listQueue, type QueuedWrite } from '../src/offline.js';
+import { enqueue, flush, listConflicts, listQueue, retryConflict, setQueueOwner, type QueuedWrite } from '../src/offline.js';
 
 const w = (key: string, path = '/v1/sessions'): QueuedWrite => ({ method: 'POST', path, body: { plate: { display: key } }, key, tenant: 't', token: 'x', at: new Date().toISOString() });
 
@@ -44,5 +44,41 @@ describe('offline queue', () => {
     const c = await listConflicts();
     expect(c).toHaveLength(1);
     expect(c[0]).toMatchObject({ key: 'a', code: 'slot_unavailable' });
+  });
+});
+
+describe('offline queue: who may replay what', () => {
+  it('keeps everything when the session has expired (401) instead of turning it into conflicts', async () => {
+    await enqueue(w('a')); await enqueue(w('b'));
+    const r = await flush(async () => ({ ok: false, status: 401, code: 'invalid_token' }));
+    expect(r).toEqual({ synced: 0, conflicts: 0 });
+    expect((await listQueue()).map((x) => x.key)).toEqual(['a', 'b']);
+    expect(await listConflicts()).toHaveLength(0);
+    await flush(async () => ({ ok: true, status: 201 }));
+  });
+
+  it('replays a write only for the person who queued it', async () => {
+    setQueueOwner('alice');
+    await enqueue(w('alices'));
+    setQueueOwner('bob');
+    await enqueue(w('bobs'));
+    const seen: string[] = [];
+    await flush(async (x) => { seen.push(x.key); return { ok: true, status: 201 }; }, 'bob');
+    expect(seen).toEqual(['bobs']);
+    expect((await listQueue()).map((x) => x.key)).toEqual(['alices']); // still waiting for Alice
+    await flush(async () => ({ ok: true, status: 201 }), 'alice');
+    expect(await listQueue()).toHaveLength(0);
+    setQueueOwner('');
+  });
+
+  it('lets a rejected write be retried', async () => {
+    await enqueue(w('retry-me'));
+    await flush(async () => ({ ok: false, status: 409, code: 'site_full', message: 'full' }));
+    const [c] = await listConflicts();
+    expect(c!.code).toBe('site_full');
+    await retryConflict(c!.id!);
+    expect(await listConflicts()).toHaveLength(0);
+    expect((await listQueue()).map((x) => x.key)).toEqual(['retry-me']);
+    await flush(async () => ({ ok: true, status: 201 }));
   });
 });

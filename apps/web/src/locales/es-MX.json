@@ -469,5 +469,6 @@
   "invite.accept": "Aceptar",
   "users.tempPasswordLost": "La contraseña se mostró una vez y ya no está disponible. Quita a la persona y agrégala de nuevo para obtener otra.",
   "res.noUnitAdmin": "No tienes una unidad asignada, así que no hay nada que mostrar. Para usar la vista de residente, edítate en Personas, marca Residente y elige una unidad.",
-  "res.assignSelf": "Abrir Personas"
+  "res.assignSelf": "Abrir Personas",
+  "queue.retry": "Reintentar"
 }

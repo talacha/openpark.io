@@ -78,7 +78,6 @@ export function Auth({ mode }: { mode: 'login' | 'signup' | 'forgot' | 'reset' }
     return (
       <div className="auth"><div className="card stack">
         <LangPick /><h1>{t('auth.closedTitle')}</h1><p className="muted">{t('auth.closedBody')}</p>
-        <Invitations />
         <Link className="btn primary" to="/login" style={{ textAlign: 'center', textDecoration: 'none', display: 'grid', placeItems: 'center' }}>{t('auth.signin')}</Link>
       </div></div>
     );
@@ -153,7 +152,7 @@ export function Onboarding() {
   if (!config.trialSignup) {
     return (
       <div className="auth"><div className="card stack">
-        <LangPick /><h1>{t('auth.closedTitle')}</h1><p className="muted">{who?.user?.email}</p><p className="muted">{t('auth.closedBody')}</p>
+        <LangPick /><h1>{t('auth.closedTitle')}</h1><p className="muted">{who?.user?.email}</p><Invitations /><p className="muted">{t('auth.closedBody')}</p>
         <button type="button" className="btn" onClick={async () => { await signOut(); nav('/login'); }}>{t('nav.signout')}</button>
       </div></div>
     );
