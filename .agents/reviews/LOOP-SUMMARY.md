@@ -764,4 +764,4 @@ one past the cap would risk an unfinished change with no loop left to review it.
 
 **This step's publish:** docs/bookkeeping only (this note + the review artifacts). Committed on `adversarial-loop`,
 fast-forwarded onto `main`, pushed to `origin/main` (normal push). Stop-record commit SHA: recorded below.
-**Stop-record commit SHA:** `dab1dea` (fast-forwarded onto `main` and pushed to `origin/main`, normal push).
+**Stop-record commit SHA:** `d2e36c2` (fast-forwarded onto `main` and pushed to `origin/main`, normal push; this SHA recorded in a tiny follow-up commit, per the repo's established pattern).
