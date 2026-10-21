@@ -10,3 +10,4 @@ e2e/shots
 .vercel
 apps/web/public/models/
 apps/web/public/ort/
+.worktrees/
