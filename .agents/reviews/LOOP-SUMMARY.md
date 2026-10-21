@@ -881,5 +881,5 @@ features.
 - `pnpm typecheck` → ok (7 projects)
 - `pnpm test` → ok (core 36, sdk-ts 6, marketing 9, web 101 pass +1 skipped, api 108 pass) = 212 pass / 1 skipped
 - `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
-**Pushed commit SHA:** recorded in a tiny follow-up commit below (terminal docs tick, committed on `adversarial-loop`,
-fast-forwarded onto `main`, pushed to `origin/main` — normal push). **This is the final iteration of the loop.**
+**Pushed commit SHA:** `4bd3556` (terminal docs tick, committed on `adversarial-loop`, fast-forwarded `bc01a3d..4bd3556`
+onto `main`, pushed to `origin/main` — normal push, succeeded). **This is the final iteration of the loop.**
