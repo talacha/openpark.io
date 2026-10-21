@@ -157,3 +157,88 @@ describe('boolean query parameters', () => {
     } finally { await h.close(); }
   });
 });
+
+describe('parking and unit CRUD', () => {
+  it('edits and deletes units; refuses to delete one in use', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      await h.app.inject({ method: 'POST', url: '/v1/units', headers: t.h, payload: { code: 'B-1', name: 'Tower B 1', floor: 1, note: 'corner' } });
+      expect((await h.app.inject({ method: 'PATCH', url: '/v1/units/B-1', headers: t.h, payload: { name: 'Tower B, flat 1', floor: 2, site: 'DEMO-01', note: null } })).statusCode).toBe(200);
+      const u = (await h.app.inject({ method: 'GET', url: '/v1/units', headers: t.h })).json().find((x: { code: string }) => x.code === 'B-1');
+      expect(u).toMatchObject({ name: 'Tower B, flat 1', floor: 2, site: 'DEMO-01', note: null });
+      expect((await h.app.inject({ method: 'PATCH', url: '/v1/units/NOPE', headers: t.h, payload: { name: 'x' } })).json().error.code).toBe('unit_not_found');
+      expect((await h.app.inject({ method: 'PATCH', url: '/v1/units/B-1', headers: t.h, payload: { site: 'NOPE' } })).json().error.code).toBe('site_not_found');
+      await h.app.inject({ method: 'POST', url: '/v1/users', headers: t.h, payload: { email: `r-${Date.now()}@example.com`, roles: ['resident'], unit: 'B-1' } });
+      expect((await h.app.inject({ method: 'DELETE', url: '/v1/units/B-1', headers: t.h })).json().error.code).toBe('unit_in_use');
+      await h.app.inject({ method: 'POST', url: '/v1/units', headers: t.h, payload: { code: 'B-2', name: 'Empty' } });
+      expect((await h.app.inject({ method: 'DELETE', url: '/v1/units/B-2', headers: t.h })).statusCode).toBe(200);
+    } finally { await h.close(); }
+  });
+
+  it('creates, edits and retires sites, zones and slots', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      const call = (method: string, url: string, payload?: unknown) => h.app.inject({ method: method as 'GET', url, headers: t.h, payload: payload as object });
+      expect((await call('POST', '/v1/sites', { code: 'ANNEX', name: 'Annex', timezone: 'Not/AZone' })).statusCode).toBe(400);
+      expect((await call('POST', '/v1/sites', { code: 'ANNEX', name: 'Annex', timezone: 'America/Mexico_City', address: 'Calle 1', aiThreshold: 0.9 })).statusCode).toBe(201);
+      expect((await call('POST', '/v1/sites', { code: 'ANNEX', name: 'Again', timezone: 'UTC' })).json().error.code).toBe('site_exists');
+      expect((await call('PATCH', '/v1/sites/ANNEX', { name: 'Annex building', address: null })).statusCode).toBe(200);
+      let site = (await call('GET', '/v1/sites')).json().find((s: { code: string }) => s.code === 'ANNEX');
+      expect(site).toMatchObject({ name: 'Annex building', address: null, timezone: 'America/Mexico_City', settings: { aiThreshold: 0.9 }, slots: 0 });
+
+      expect((await call('POST', '/v1/sites/ANNEX/zones', { code: 'G1', name: 'Ground', level: 0 })).statusCode).toBe(201);
+      expect((await call('POST', '/v1/sites/ANNEX/zones', { code: 'G1', name: 'Dup' })).json().error.code).toBe('zone_exists');
+      expect((await call('PATCH', '/v1/sites/ANNEX/zones/G1', { name: 'Ground floor', level: -1, labels: { 'es-MX': 'Planta baja' } })).statusCode).toBe(200);
+      expect((await call('POST', '/v1/slots?site=ANNEX', { code: 'A1', zone: 'NOPE', type: 'standard' })).json().error.code).toBe('zone_not_found');
+      expect((await call('POST', '/v1/slots?site=ANNEX', { code: 'A1', zone: 'G1', type: 'bogus' })).json().error.code).toBe('slot_type_unknown');
+      expect((await call('POST', '/v1/slots?site=ANNEX', { code: 'A1', zone: 'G1', type: 'standard', note: 'near lift' })).statusCode).toBe(201);
+      expect((await call('POST', '/v1/slots?site=ANNEX', { code: 'A1', zone: 'G1', type: 'standard' })).json().error.code).toBe('slot_exists');
+      expect((await call('DELETE', '/v1/sites/ANNEX/zones/G1')).json().error.code).toBe('zone_in_use');
+      expect((await call('PATCH', '/v1/slots/A1?site=ANNEX', { status: 'out_of_service', note: 'oil leak' })).statusCode).toBe(200);
+      expect((await call('GET', '/v1/slots?site=ANNEX')).json()).toEqual([expect.objectContaining({ code: 'A1', zone: 'G1', status: 'out_of_service', note: 'oil leak' })]);
+      site = (await call('GET', '/v1/sites')).json().find((s: { code: string }) => s.code === 'ANNEX');
+      expect(site).toMatchObject({ slots: 1, zones: [expect.objectContaining({ code: 'G1', name: 'Ground floor', level: -1, slots: 1 })] });
+
+      expect((await call('DELETE', '/v1/slots/A1?site=ANNEX')).statusCode).toBe(200);
+      expect((await call('GET', '/v1/slots?site=ANNEX')).json()).toEqual([]);
+      expect((await call('POST', '/v1/slots?site=ANNEX', { code: 'A1', zone: 'G1', type: 'standard' })).statusCode).toBe(201); // a retired code comes back
+      expect((await call('DELETE', '/v1/slots/A1?site=ANNEX')).statusCode).toBe(200);
+      expect((await call('DELETE', '/v1/sites/ANNEX/zones/G1')).statusCode).toBe(200);
+      expect((await call('DELETE', '/v1/sites/ANNEX')).statusCode).toBe(200);
+      expect((await call('GET', '/v1/sites')).json().map((s: { code: string }) => s.code)).not.toContain('ANNEX');
+    } finally { await h.close(); }
+  });
+});
+
+describe('integrations CRUD', () => {
+  it('lists, revokes and edits API keys and webhooks without ever returning secrets', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'US');
+      const call = (method: string, url: string, payload?: unknown) => h.app.inject({ method: method as 'GET', url, headers: t.h, payload: payload as object });
+      const key = (await call('POST', '/v1/api-keys', { name: 'Gate PC', role: 'attendant', site: 'DEMO-01' })).json();
+      let keys = (await call('GET', '/v1/api-keys')).json();
+      expect(keys).toEqual([expect.objectContaining({ name: 'Gate PC', prefix: key.prefix, role: 'attendant', site: 'DEMO-01', revoked_at: null })]);
+      expect(JSON.stringify(keys)).not.toContain(key.key);
+      expect((await call('DELETE', `/v1/api-keys/${keys[0].id}`)).statusCode).toBe(200);
+      expect((await call('DELETE', `/v1/api-keys/${keys[0].id}`)).json().error.code).toBe('api_key_not_found');
+      keys = (await call('GET', '/v1/api-keys')).json();
+      expect(keys[0].revoked_at).toBeTruthy();
+      expect((await h.app.inject({ method: 'GET', url: '/v1/occupancy', headers: { authorization: `Bearer ${key.key}` } })).statusCode).toBe(401); // a revoked key stops working
+
+      const hook = (await call('POST', '/v1/webhooks', { url: 'https://example.com/hook', events: ['session.opened'] })).json();
+      expect(hook.secret).toMatch(/^whsec_/);
+      let hooks = (await call('GET', '/v1/webhooks')).json();
+      expect(hooks).toEqual([{ id: hook.id, url: 'https://example.com/hook', events: ['session.opened'], active: true }]);
+      expect(JSON.stringify(hooks)).not.toContain(hook.secret);
+      expect((await call('PATCH', `/v1/webhooks/${hook.id}`, { url: 'https://example.com/v2', events: ['session.opened', 'session.closed'], active: false })).statusCode).toBe(200);
+      hooks = (await call('GET', '/v1/webhooks')).json();
+      expect(hooks[0]).toMatchObject({ url: 'https://example.com/v2', events: ['session.opened', 'session.closed'], active: false });
+      expect((await call('DELETE', `/v1/webhooks/${hook.id}`)).statusCode).toBe(200);
+      expect((await call('PATCH', `/v1/webhooks/${hook.id}`, { active: true })).json().error.code).toBe('webhook_not_found');
+      expect((await call('GET', '/v1/webhooks')).json()).toEqual([]);
+    } finally { await h.close(); }
+  });
+});

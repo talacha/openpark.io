@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, patch } from '../api.js';
 import { useApp } from '../app-context.js';
+import { useApi } from '../components/hooks.js';
 import { LOCALES, NAMES, translate, useI18n, useT, type Terminology } from '../i18n.js';
 
 export function AiSettings() {
@@ -11,13 +12,14 @@ export function AiSettings() {
   // Initialise from what is saved, not from defaults, or the screen would show (and re-save) the wrong values.
   const [retention, setRetention] = useState(me!.tenant.retention_days);
   const [training, setTraining] = useState(me!.tenant.training_export);
-  const [regions, setRegions] = useState(me!.tenant.plate_regions.join(', '));
+  const [regions, setRegions] = useState<string[]>(me!.tenant.plate_regions);
+  const known = useApi<{ region: string; name: string }[]>('/v1/plate-regions');
   const [msg, setMsg] = useState('');
 
   async function save() {
     try {
       if (site && mode === 'auto') await patch(`/v1/sites/${site.code}`, { aiThreshold: threshold });
-      await patch('/v1/tenant', { aiMode: mode, retentionDays: retention, trainingExport: training, plateRegions: regions.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean) });
+      await patch('/v1/tenant', { aiMode: mode, retentionDays: retention, trainingExport: training, plateRegions: regions });
       await reload(); setMsg(t('common.saved'));
     } catch (e) { setMsg(e instanceof ApiError ? e.message : String(e)); }
   }
@@ -35,7 +37,15 @@ export function AiSettings() {
         </fieldset>
         {mode === 'auto' && <label className="field">{t('ai.threshold')}: {Math.round(threshold * 100)}%
           <input type="range" min="0.8" max="0.99" step="0.01" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} /></label>}
-        <label className="field">{t('ai.regions')}<input value={regions} onChange={(e) => setRegions(e.target.value)} dir="ltr" /></label>
+        <fieldset className="roles"><legend>{t('ai.regions')}</legend>
+          {known.data?.map((r) => (
+            <div key={r.region} className="rolebox">
+              <input id={`reg-${r.region}`} type="checkbox" checked={regions.includes(r.region)}
+                onChange={() => setRegions(regions.includes(r.region) ? regions.filter((x) => x !== r.region) : [...regions, r.region])} />
+              <label htmlFor={`reg-${r.region}`}><strong>{r.name}</strong><small dir="ltr">{r.region}{regions[0] === r.region ? ` · ${t('ai.regionDefault')}` : ''}</small></label>
+            </div>
+          ))}
+        </fieldset>
         <label className="field">{t('ai.retention')}<input type="number" min="1" value={retention} onChange={(e) => setRetention(Number(e.target.value))} /></label>
         <label className="row"><input type="checkbox" checked={training} onChange={(e) => setTraining(e.target.checked)} />{t('ai.training')}</label>
         <div className="row"><button className="btn primary" onClick={save}>{t('common.save')}</button>{msg && <span className="muted">{msg}</span>}</div>

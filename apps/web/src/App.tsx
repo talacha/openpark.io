@@ -7,7 +7,9 @@ import { AiSettings, LocaleSettings } from './screens/Settings.js';
 import { AttendantHome, CheckInCapture, CheckInConfirm, CheckInReview, CheckOut, Flow } from './screens/Attendant.js';
 import { Dashboard } from './screens/Dashboard.js';
 import { GuestPasses } from './screens/GuestPasses.js';
+import { Integrations } from './screens/Integrations.js';
 import { Inventory } from './screens/Inventory.js';
+import { Parking } from './screens/Parking.js';
 import { People, Units } from './screens/People.js';
 import { Platform } from './screens/Platform.js';
 import { Queue } from './screens/Queue.js';
@@ -73,6 +75,8 @@ export function App() {
             <Route path="rates" element={<Rates />} />
             <Route path="ai" element={<AiSettings />} />
             <Route path="locale" element={<LocaleSettings />} />
+            <Route path="parking" element={<Parking />} />
+            <Route path="integrations" element={<Integrations />} />
             <Route path="units" element={<Units />} />
             <Route path="users" element={<People />} />
           </Route>

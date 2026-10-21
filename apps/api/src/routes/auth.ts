@@ -21,6 +21,8 @@ const Signup = z.object({
 
 const Role = z.enum(ROLES);
 
+const WebhookEvent = z.enum(['session.opened', 'session.closed', 'slot.changed', 'read.needs_review', 'pass.overstay']);
+
 export function registerAuthRoutes(app: App) {
   // Called by openpark.io: creates a trial tenant with one demo site and a country-template rate plan.
   definePublicRoute(app, {
@@ -116,10 +118,56 @@ export function registerAuthRoutes(app: App) {
   });
 
   defineRoute(app, {
+    method: 'GET', path: '/v1/api-keys', summary: 'API keys (never the secret), including revoked ones', perm: 'users.edit',
+    async handler({ db }) {
+      return (await db.query(
+        `select k.id, k.name, k.prefix, k.role, s.code as site, k.created_at, k.revoked_at
+         from api_key k left join site s on s.id = k.site_id order by k.created_at desc`)).rows;
+    },
+  });
+
+  defineRoute(app, {
+    method: 'DELETE', path: '/v1/api-keys/:id', summary: 'Revoke an API key', perm: 'users.edit',
+    async handler({ ctx, db, params }) {
+      const r = await db.query('update api_key set revoked_at = now() where id = $1 and revoked_at is null returning prefix', [params.id]);
+      if (!r.rowCount) throw new HttpError(404, 'api_key_not_found', 'No such active API key');
+      await audit(db, ctx.tenantId, ctx.userId, 'api_key.revoke', `api_key:${r.rows[0].prefix}`, null, null);
+      return { ok: true };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'GET', path: '/v1/webhooks', summary: 'Webhook endpoints (never the signing secret)', perm: 'settings.edit',
+    async handler({ db }) { return (await db.query('select id, url, events, active from webhook_endpoint order by url')).rows; },
+  });
+
+  defineRoute(app, {
+    method: 'PATCH', path: '/v1/webhooks/:id', summary: 'Change a webhook endpoint: URL, events, or pause it', perm: 'settings.edit',
+    body: z.object({ url: z.string().url().optional(), events: z.array(WebhookEvent).min(1).optional(), active: z.boolean().optional() }),
+    async handler({ ctx, db, params, body }) {
+      const r = await db.query('update webhook_endpoint set url = coalesce($2, url), events = coalesce($3, events), active = coalesce($4, active) where id = $1 returning id',
+        [params.id, body.url ?? null, body.events ?? null, body.active ?? null]);
+      if (!r.rowCount) throw new HttpError(404, 'webhook_not_found', 'No such webhook endpoint');
+      await audit(db, ctx.tenantId, ctx.userId, 'webhook.update', `webhook:${params.id}`, null, body);
+      return { ok: true };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'DELETE', path: '/v1/webhooks/:id', summary: 'Delete a webhook endpoint', perm: 'settings.edit',
+    async handler({ ctx, db, params }) {
+      const r = await db.query('delete from webhook_endpoint where id = $1 returning id', [params.id]);
+      if (!r.rowCount) throw new HttpError(404, 'webhook_not_found', 'No such webhook endpoint');
+      await audit(db, ctx.tenantId, ctx.userId, 'webhook.delete', `webhook:${params.id}`, null, null);
+      return { ok: true };
+    },
+  });
+
+  defineRoute(app, {
     method: 'POST', path: '/v1/webhooks', summary: 'Register a webhook endpoint; returns the signing secret once', perm: 'settings.edit',
     body: z.object({
       url: z.string().url(),
-      events: z.array(z.enum(['session.opened', 'session.closed', 'slot.changed', 'read.needs_review', 'pass.overstay'])).min(1),
+      events: z.array(WebhookEvent).min(1),
     }),
     async handler({ ctx, db, body }) {
       const secret = `whsec_${randomBytes(24).toString('base64url')}`;

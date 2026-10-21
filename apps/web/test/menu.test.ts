@@ -5,7 +5,7 @@ import { buildMenu } from '../src/menu.js';
 const menu = (roles: Role[], superadmin = false, slug: string | null = 'acme') => buildMenu({ slug, roles, superadmin });
 const ids = (roles: Role[], superadmin = false, slug: string | null = 'acme') => menu(roles, superadmin, slug).map((g) => g.id);
 const adminItems = (roles: Role[], sa = false) => menu(roles, sa).find((g) => g.id === 'admin')?.items.map((i) => i.id);
-const ADMIN_ITEMS = ['rates', 'inventory', 'units', 'users', 'ai', 'locale'];
+const ADMIN_ITEMS = ['rates', 'parking', 'inventory', 'units', 'users', 'integrations', 'ai', 'locale'];
 
 describe('menu by roles', () => {
   it('residents see only the resident view', () => expect(ids(['resident'])).toEqual(['resident']));

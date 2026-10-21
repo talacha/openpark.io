@@ -21,8 +21,8 @@ for (const p of Object.values(people)) await call('/v1/me/profile', { token: p.t
 execSync(`docker exec openpark-pg psql -U openpark -d openpark -c "update app_user set is_superadmin = true where email = 'owner-${sfx}@example.com'"`, { stdio: 'ignore' });
 
 const WANT = {
-  owner: { heads: ['Platform view', 'Admin'], admin: ['Rate plans', 'Import / export', 'Units', 'People', 'AI plate reading', 'Localization', 'Organisations'] },
-  admin: { heads: ['Platform view', 'Admin'], admin: ['Rate plans', 'Import / export', 'Units', 'People', 'AI plate reading', 'Localization'] },
+  owner: { heads: ['Platform view', 'Admin'], admin: ['Rate plans', 'Sites & slots', 'Import / export', 'Units', 'People', 'Integrations', 'AI plate reading', 'Localization', 'Organisations'] },
+  admin: { heads: ['Platform view', 'Admin'], admin: ['Rate plans', 'Sites & slots', 'Import / export', 'Units', 'People', 'Integrations', 'AI plate reading', 'Localization'] },
   supervisor: { heads: ['Platform view', 'Operator view'] },
   attendant: { heads: ['Operator view'] }, resident: { links: ['Resident view'] },
 };

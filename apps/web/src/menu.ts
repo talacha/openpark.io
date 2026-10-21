@@ -59,9 +59,11 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
   if (isAdmin(roles, superadmin)) {
     const items: MenuItem[] = slug ? [
       { id: 'rates', labelKey: 'nav.rates', to: `${base}/rates` },
+      { id: 'parking', labelKey: 'nav.parking', to: `${base}/parking` },
       { id: 'inventory', labelKey: 'nav.inventory', to: `${base}/inventory` },
       { id: 'units', labelKey: 'nav.units', to: `${base}/units` },
       { id: 'users', labelKey: 'nav.users', to: `${base}/users` },
+      { id: 'integrations', labelKey: 'nav.integrations', to: `${base}/integrations` },
       { id: 'ai', labelKey: 'nav.ai', to: `${base}/ai` },
       { id: 'locale', labelKey: 'nav.locale', to: `${base}/locale` },
     ] : [];

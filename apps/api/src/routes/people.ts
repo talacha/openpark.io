@@ -52,7 +52,7 @@ export function registerPeopleRoutes(app: App) {
     method: 'GET', path: '/v1/units', summary: 'Units (apartments/houses) and their residents', perm: 'read',
     async handler({ db }) {
       return (await db.query(
-        `select u.code, u.name, s.code as site,
+        `select u.code, u.name, s.code as site, u.floor, u.note,
            coalesce((select json_agg(json_build_object('id', a.id, 'email', a.email, 'name', a.name) order by a.email)
              from membership m join app_user a on a.id = m.user_id where m.unit_id = u.id), '[]') as residents,
            (select p.status from pass p where p.unit_id = u.id and p.status in ('active','checked_in') limit 1) as pass_status
@@ -62,18 +62,51 @@ export function registerPeopleRoutes(app: App) {
 
   defineRoute(app, {
     method: 'POST', path: '/v1/units', summary: 'Create a unit', perm: 'users.edit',
-    body: z.object({ code: z.string().min(1).max(30), name: z.string().min(1).max(100), site: z.string().optional() }),
+    body: z.object({ code: z.string().min(1).max(30), name: z.string().min(1).max(100), site: z.string().optional(), floor: z.number().int().min(-20).max(300).nullable().optional(), note: z.string().max(500).nullable().optional() }),
     async handler({ ctx, db, body }) {
       let siteId: string | null = null;
       if (body.site) {
         siteId = (await db.query('select id from site where code = $1', [body.site])).rows[0]?.id;
         if (!siteId) throw new HttpError(404, 'site_not_found', `No site ${body.site}`);
       }
-      const r = await db.query('insert into unit (tenant_id, site_id, code, name) values ($1,$2,$3,$4) on conflict (tenant_id, code) do nothing returning id',
-        [ctx.tenantId, siteId, body.code, body.name]);
+      const r = await db.query('insert into unit (tenant_id, site_id, code, name, floor, note) values ($1,$2,$3,$4,$5,$6) on conflict (tenant_id, code) do nothing returning id',
+        [ctx.tenantId, siteId, body.code, body.name, body.floor ?? null, body.note ?? null]);
       if (!r.rowCount) throw new HttpError(409, 'unit_exists', `Unit ${body.code} already exists`);
       await audit(db, ctx.tenantId, ctx.userId, 'unit.create', `unit:${body.code}`, null, body);
       return created({ id: r.rows[0].id });
+    },
+  });
+
+  defineRoute(app, {
+    method: 'PATCH', path: '/v1/units/:code', summary: 'Edit a unit: name, site, floor, note (the code is its identity; to change it, create a new unit)', perm: 'users.edit',
+    body: z.object({ name: z.string().min(1).max(100).optional(), site: z.string().nullable().optional(), floor: z.number().int().min(-20).max(300).nullable().optional(), note: z.string().max(500).nullable().optional() }),
+    async handler({ ctx, db, params, body }) {
+      const cur = (await db.query('select id, name, site_id, floor, note from unit where code = $1', [params.code])).rows[0];
+      if (!cur) throw new HttpError(404, 'unit_not_found', `No unit ${params.code}`);
+      let siteId = cur.site_id as string | null;
+      if (body.site !== undefined) {
+        siteId = body.site === null ? null : (await db.query('select id from site where code = $1 and retired_at is null', [body.site])).rows[0]?.id ?? null;
+        if (body.site !== null && !siteId) throw new HttpError(404, 'site_not_found', `No site ${body.site}`);
+      }
+      await db.query('update unit set name = $2, site_id = $3, floor = $4, note = $5 where id = $1',
+        [cur.id, body.name ?? cur.name, siteId, body.floor === undefined ? cur.floor : body.floor, body.note === undefined ? cur.note : body.note]);
+      await audit(db, ctx.tenantId, ctx.userId, 'unit.update', `unit:${params.code}`, cur, body);
+      return { ok: true };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'DELETE', path: '/v1/units/:code', summary: 'Delete a unit that has no residents and no guest passes', perm: 'users.edit',
+    async handler({ ctx, db, params }) {
+      const cur = (await db.query('select id from unit where code = $1', [params.code])).rows[0];
+      if (!cur) throw new HttpError(404, 'unit_not_found', `No unit ${params.code}`);
+      const used = (await db.query(
+        `select (select count(*)::int from membership where unit_id = $1) + (select count(*)::int from membership_invite where unit_id = $1)
+              + (select count(*)::int from pass where unit_id = $1) as n`, [cur.id])).rows[0].n;
+      if (used) throw new HttpError(409, 'unit_in_use', 'This unit has residents, invitations or guest passes');
+      await db.query('delete from unit where id = $1', [cur.id]);
+      await audit(db, ctx.tenantId, ctx.userId, 'unit.delete', `unit:${params.code}`, cur, null);
+      return { ok: true };
     },
   });
 

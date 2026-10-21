@@ -7,7 +7,7 @@ import { useT } from '../i18n.js';
 import { errText } from '../errors.js';
 
 
-interface UnitRow { code: string; name: string; site: string | null; residents: { id: string; email: string; name: string | null }[]; pass_status: string | null }
+interface UnitRow { code: string; name: string; site: string | null; floor: number | null; note: string | null; residents: { id: string; email: string; name: string | null }[]; pass_status: string | null }
 interface Member { id: string; email: string; name: string | null; roles: Role[]; superadmin: boolean; unit: string | null }
 interface Invite { email: string; roles: Role[]; superadmin: boolean; unit: string | null }
 
@@ -30,12 +30,26 @@ export function Units() {
   const [applied, setApplied] = useState<UApplied | null>(null);
   const [ierr, setIerr] = useState<{ message: string; details?: unknown } | null>(null);
   const file = useRef<HTMLInputElement>(null);
+  const { sites, me } = useApp();
+  const canEdit = !!me && (me.superadmin || me.roles.includes('admin'));
+  const [editing, setEditing] = useState<UnitRow | null>(null);
+  const body = (f: Record<string, string>) => ({ name: f.name, site: f.site || null, floor: f.floor === '' || f.floor === undefined ? null : Number(f.floor), note: f.note || null });
 
   async function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    try { await request('POST', '/v1/units', { code: f.code, name: f.name }); form.reset(); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); }
+    try { await request('POST', '/v1/units', { code: f.code, ...body(f), site: f.site || undefined }); form.reset(); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); }
   }
+  async function saveUnit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
+    try { await patch(`/v1/units/${encodeURIComponent(editing!.code)}`, body(f)); setEditing(null); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); }
+  }
+  async function removeUnit(code: string) { try { await del(`/v1/units/${encodeURIComponent(code)}`); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); } }
+  const siteSelect = (value: string) => sites.length > 0 && (
+    <label className="field">{t('units.site')}
+      <select name="site" defaultValue={value}><option value="">–</option>{sites.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</select></label>
+  );
 
   async function download() {
     const doc = await request<unknown>('GET', '/v1/units/export');
@@ -61,17 +75,43 @@ export function Units() {
   return (
     <div className="stack">
       <div className="row between"><h1>{t('units.title')}</h1><button className="btn" onClick={download}>{t('inv.export')}</button></div>
-      <form className="card row" onSubmit={add}>
-        <label className="field">{t('units.code')}<input name="code" required maxLength={30} dir="ltr" /></label>
-        <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
-        <button className="btn primary">{t('units.add')}</button>
-      </form>
+      {canEdit && (
+        <form className="card stack" onSubmit={add}>
+          <div className="row">
+            <label className="field">{t('units.code')}<input name="code" required maxLength={30} dir="ltr" /></label>
+            <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
+            {siteSelect('')}
+            <label className="field">{t('units.floor')}<input name="floor" type="number" step={1} min={-20} max={300} dir="ltr" /></label>
+          </div>
+          <label className="field">{t('units.note')}<input name="note" maxLength={500} /></label>
+          <div><button className="btn primary">{t('units.add')}</button></div>
+        </form>
+      )}
       {err && <div className="banner bad" role="alert">{err}</div>}
+      {editing && (
+        <form className="card stack" onSubmit={saveUnit} aria-label={t('users.editing', { who: editing.code })}>
+          <h2>{t('users.editing', { who: editing.code })}</h2>
+          <div className="row">
+            <label className="field grow">{t('units.name')}<input name="name" required defaultValue={editing.name} maxLength={100} /></label>
+            {siteSelect(editing.site ?? '')}
+            <label className="field">{t('units.floor')}<input name="floor" type="number" step={1} min={-20} max={300} defaultValue={editing.floor ?? ''} dir="ltr" /></label>
+          </div>
+          <label className="field">{t('units.note')}<input name="note" defaultValue={editing.note ?? ''} maxLength={500} /></label>
+          <div className="row"><button className="btn primary">{t('common.save')}</button><button type="button" className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</button></div>
+        </form>
+      )}
       <div className="tablewrap"><table>
-        <thead><tr><th>{t('units.code')}</th><th>{t('units.name')}</th><th>{t('units.residents')}</th><th>{t('units.pass')}</th></tr></thead>
+        <thead><tr><th>{t('units.code')}</th><th>{t('units.name')}</th><th>{t('units.site')}</th><th className="num">{t('units.floor')}</th><th>{t('units.residents')}</th><th>{t('units.pass')}</th><th /></tr></thead>
         <tbody>{units.data?.map((u) => (
-          <tr key={u.code}><td>{u.code}</td><td>{u.name}</td><td>{u.residents.map((r) => r.name || r.email).join(', ') || '–'}</td>
-            <td>{u.pass_status ? <span className={`pill ${u.pass_status === 'checked_in' ? 'info' : 'ok'}`}>{t(`res.status_${u.pass_status}`)}</span> : '–'}</td></tr>
+          <tr key={u.code}>
+            <td dir="ltr">{u.code}</td><td>{u.name}{u.note ? <div className="muted">{u.note}</div> : null}</td><td>{u.site ?? '–'}</td><td className="num">{u.floor ?? '–'}</td>
+            <td>{u.residents.length ? u.residents.map((r, i) => <span key={r.id}>{i > 0 && ', '}<Link to="../users">{r.name || r.email}</Link></span>) : '–'}</td>
+            <td>{u.pass_status ? <span className={`pill ${u.pass_status === 'checked_in' ? 'info' : 'ok'}`}>{t(`res.status_${u.pass_status}`)}</span> : '–'}</td>
+            <td>{canEdit && <div className="row">
+              <button className="btn" onClick={() => setEditing(u)}>{t('users.edit')}</button>
+              <button className="btn danger" disabled={u.residents.length > 0 || !!u.pass_status} title={u.residents.length || u.pass_status ? t('units.inUse') : undefined} onClick={() => void removeUnit(u.code)}>{t('common.remove')}</button>
+            </div>}</td>
+          </tr>
         ))}</tbody>
       </table></div>
 
@@ -261,7 +301,7 @@ export function People() {
             <tr key={m.id}>
               <td>{m.name ? `${m.name} · ` : ''}{m.email}</td>
               <td>{roleLabel(t, m.roles, m.superadmin)}</td>
-              <td>{m.unit ?? '–'}</td>
+              <td>{m.unit ? <Link to="../units" dir="ltr">{m.unit}</Link> : '–'}</td>
               <td>{canEdit && (
                 <div className="row">
                   <button className="btn" onClick={() => setEditing({ kind: 'member', id: m.id, who: m.email, roles: m.roles, superadmin: m.superadmin, unit: m.unit ?? '' })}>{t('users.edit')}</button>
