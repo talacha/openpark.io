@@ -46,7 +46,7 @@ describe('closed preview, local accounts (TRIAL_SIGNUP off)', () => {
     expect((await h.app.inject({ method: 'GET', url: '/v1/pass-policy', headers })).json().policy.overstayCharge).toBe(500000);
 
     // The owner can bring in their own people while signup is closed.
-    const staff = await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email: `att-${uniq()}@example.com`, role: 'attendant' } });
+    const staff = await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email: `att-${uniq()}@example.com`, roles: ['attendant'] } });
     expect(staff.statusCode).toBe(201);
     // ...but is not a platform admin.
     expect((await h.app.inject({ method: 'GET', url: '/v1/platform/tenants', headers })).statusCode).toBe(403);
@@ -85,8 +85,8 @@ describe('closed preview, Supabase accounts (TRIAL_SIGNUP off)', () => {
 
     const tester = await person(email);
     const m = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: tester.bearer })).json();
-    expect(m.memberships).toEqual([expect.objectContaining({ slug, role: 'owner' })]);
-    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: tester.h(slug) })).json()).toMatchObject({ role: 'owner', tenant: { default_locale: 'es-MX' } });
+    expect(m.memberships).toEqual([expect.objectContaining({ slug, roles: ['admin'] })]);
+    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: tester.h(slug) })).json()).toMatchObject({ roles: ['admin'], tenant: { default_locale: 'es-MX' } });
   });
 
   it('gives an organisation straight to someone who already has an account, and rejects non-admins', async () => {

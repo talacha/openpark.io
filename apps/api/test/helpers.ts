@@ -53,7 +53,7 @@ export interface Resident extends Tenant { email: string; phone: string }
 /** A resident of `unit`, signed in, with a phone number for alerts. */
 export async function addResident(app: App, owner: Tenant, unit: string, phone = '+525512345678'): Promise<Resident> {
   const email = `resident-${randomBytes(3).toString('hex')}@example.com`;
-  const r = await app.inject({ method: 'POST', url: '/v1/users', headers: owner.h, payload: { email, role: 'resident', unit } });
+  const r = await app.inject({ method: 'POST', url: '/v1/users', headers: owner.h, payload: { email, roles: ['resident'], unit } });
   if (r.statusCode !== 201) throw new Error(`resident failed: ${r.body}`);
   const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password: r.json().temporaryPassword } });
   const { token } = login.json();
@@ -92,7 +92,7 @@ export const idem = (t: Tenant) => ({ ...t.h, 'idempotency-key': `k-${Date.now()
 
 export async function addUser(app: App, owner: Tenant, role: string): Promise<Tenant> {
   const email = `${role}-${randomBytes(3).toString('hex')}@example.com`;
-  const r = await app.inject({ method: 'POST', url: '/v1/users', headers: owner.h, payload: { email, role } });
+  const r = await app.inject({ method: 'POST', url: '/v1/users', headers: owner.h, payload: { email, roles: [role] } });
   const { temporaryPassword } = r.json();
   const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password: temporaryPassword } });
   const { token } = login.json();

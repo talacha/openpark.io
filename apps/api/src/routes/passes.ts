@@ -20,13 +20,14 @@ export function registerPassRoutes(app: App) {
   defineRoute(app, {
     method: 'GET', path: '/v1/passes', summary: "A unit's recent passes (residents) or all passes (staff)", perm: 'me',
     query: z.object({ status: z.enum(['active', 'checked_in', 'completed', 'cancelled']).optional(), limit: z.coerce.number().int().min(1).max(100).default(25) }),
-    handler: async ({ ctx, db, query }) => listPasses(app, db, ctx, can(ctx.role, 'pass.admin'), query.status, query.limit),
+    handler: async ({ ctx, db, query }) => listPasses(app, db, ctx, can(ctx, 'pass.admin'), query.status, query.limit),
   });
 
   defineRoute(app, {
     method: 'GET', path: '/v1/passes/active', summary: "The unit's current pass with its QR, or null", perm: 'pass.own',
     async handler({ ctx, db }) {
-      const [p] = await listPasses(app, db, ctx, true, undefined, 5).then((l) => l.filter((x) => x.status === 'active' || x.status === 'checked_in'));
+      // Only the viewer's own unit's pass: a staff member with no unit has none (listPasses(…true) would return everyone's).
+      const [p] = ctx.unitId ? await listPasses(app, db, ctx, false, undefined, 5).then((l) => l.filter((x) => x.status === 'active' || x.status === 'checked_in')) : [];
       const { policy, currency } = await loadPolicy(db);
       return { pass: p ?? null, policy: { qrTtlMin: policy.qrTtlMin, maxStayHours: policy.maxStayHours, overstayCharge: policy.overstayCharge, currency } };
     },
@@ -34,12 +35,12 @@ export function registerPassRoutes(app: App) {
 
   defineRoute(app, {
     method: 'POST', path: '/v1/passes/:id/regenerate', summary: 'New QR (another 2 hours) for a pass whose guest has not checked in', perm: 'me', idempotent: true,
-    handler: async ({ ctx, db, params }) => regeneratePass(app, db, ctx, (p) => can(ctx.role, p), params.id!),
+    handler: async ({ ctx, db, params }) => regeneratePass(app, db, ctx, (p) => can(ctx, p), params.id!),
   });
 
   defineRoute(app, {
     method: 'POST', path: '/v1/passes/:id/cancel', summary: 'Cancel a pass that has not been checked in', perm: 'me', idempotent: true,
-    handler: async ({ ctx, db, params }) => cancelPass(app, db, ctx, (p) => can(ctx.role, p), params.id!),
+    handler: async ({ ctx, db, params }) => cancelPass(app, db, ctx, (p) => can(ctx, p), params.id!),
   });
 
   // ---- attendant --------------------------------------------------------------------------------

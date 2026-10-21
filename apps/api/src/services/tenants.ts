@@ -50,9 +50,9 @@ export async function provisionTenant(app: App, input: { organisation: string; c
       id = o.userId;
       if (o.name) await db.query('update app_user set name = coalesce(name, $2) where id = $1', [id, o.name]);
     } else {
-      await db.query("insert into membership_invite (tenant_id, email, role) values ($1,$2,'owner')", [tenantId, o.email.toLowerCase()]);
+      await db.query("insert into membership_invite (tenant_id, email, roles) values ($1,$2,array['admin'])", [tenantId, o.email.toLowerCase()]);
     }
-    if (id) await db.query("insert into membership (tenant_id, user_id, role) values ($1,$2,'owner')", [tenantId, id]);
+    if (id) await db.query("insert into membership (tenant_id, user_id, roles) values ($1,$2,array['admin'])", [tenantId, id]);
 
     const doc = demoInventory(slug, c.timezone);
     await applyInventory(db, tenantId, doc, previewImport(await loadLiveSlots(db), doc, 'merge'));

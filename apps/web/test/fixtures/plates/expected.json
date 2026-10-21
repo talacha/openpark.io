@@ -1,0 +1,54 @@
+{
+  "mx-abc123": {
+    "drawn": "ABC 123",
+    "reads": []
+  },
+  "mx-xyz789": {
+    "drawn": "XYZ-789",
+    "reads": [
+      {
+        "text": "XYZ789",
+        "confidence": 1.0,
+        "box": [
+          110,
+          247,
+          498,
+          363
+        ],
+        "detection": 0.56298828125
+      }
+    ]
+  },
+  "br-mercosul": {
+    "drawn": "BRA2E19",
+    "reads": [
+      {
+        "text": "BRA2E19",
+        "confidence": 1.0,
+        "box": [
+          217,
+          323,
+          566,
+          435
+        ],
+        "detection": 0.9345703125
+      }
+    ]
+  },
+  "us-yellow": {
+    "drawn": "7KLM842",
+    "reads": []
+  },
+  "small-far": {
+    "drawn": "QRS456",
+    "reads": []
+  },
+  "de-two": {
+    "drawn": "B MW 4521",
+    "reads": []
+  },
+  "empty": {
+    "drawn": null,
+    "reads": []
+  }
+}

@@ -4,8 +4,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ApiError, get, isNetworkError, post, request, write } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
+import { LiveCamera } from '../components/LiveCamera.js';
+import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
+import { isPassExpired, parsePassQr, spaceCode } from '../pass.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
+import { errText } from '../errors.js';
+import { feeLabel } from '../labels.js';
 
 // The QR decoder is only needed once someone taps Scan, so it stays out of the main bundle.
 const QrScanner = lazy(() => import('../components/QrScanner.js').then((m) => ({ default: m.QrScanner })));
@@ -19,7 +24,7 @@ interface FlowState {
   candidates: Candidate[]; confidence?: number; textRaw?: string; cropKey?: string;
   vehicle: { make?: string; model?: string; color?: string; bodyType?: string };
   /** A scanned resident guest pass: check-in is then free and tied to the pass. */
-  pass: { token: string; guest: string; unit: string } | null;
+  pass: { token: string; guest: string; unit: string; plateHint?: string; verifyCode?: string } | null;
 }
 const empty = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null });
 const FlowCtx = createContext<{ flow: FlowState; set: (f: Partial<FlowState>) => void; reset: () => void }>(null as never);
@@ -33,7 +38,6 @@ export function Flow({ children }: { children: ReactNode }) {
   return <FlowCtx.Provider value={value}>{children}</FlowCtx.Provider>;
 }
 
-const errText = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
 const base = (slug: string) => `/t/${slug}/a`;
 
 /* ---------- home ---------- */
@@ -66,42 +70,25 @@ export function AttendantHome() {
 
 /* ---------- plate entry: keypad and camera ---------- */
 
-function Keypad({ region, value, onChange }: { region: string; value: string; onChange: (v: string) => void }) {
-  const regions = useApi<{ region: string; charset: string }[]>('/v1/plate-regions');
-  const charset = regions.data?.find((r) => r.region === region)?.charset ?? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKLÑ', 'ZXCVBNM'] as const;
+
+/**
+ * On-screen plate keyboard: digits, then QWERTY rows (with Ñ), and a last row of Z..M plus Delete and a clear (✕) key.
+ * Plates are always typed left-to-right whatever the interface language.
+ */
+function Keypad({ value, onChange }: { region?: string; value: string; onChange: (v: string) => void }) {
+  const t = useT();
+  const key = (c: string) => <button key={c} type="button" onClick={() => onChange(value + c)} aria-label={c}>{c}</button>;
   return (
-    <div className="stack">
-      <div className="keypad" dir="ltr">
-        {[...charset].map((c) => <button key={c} type="button" onClick={() => onChange(value + c)} aria-label={c}>{c}</button>)}
-        <button type="button" onClick={() => onChange(value.slice(0, -1))} aria-label="Backspace">⌫</button>
-        <button type="button" onClick={() => onChange('')} aria-label="Clear">✕</button>
+    <div className="keypad" dir="ltr" role="group" aria-label={t('att.keypad')}>
+      {KEY_ROWS.slice(0, 3).map((row) => <div className="keyrow" key={row}>{[...row].map(key)}</div>)}
+      <div className="keyrow">
+        {[...KEY_ROWS[3]].map(key)}
+        <button type="button" className="key-delete" onClick={() => onChange(value.slice(0, -1))} aria-label={t('att.keyDelete')}>⌫</button>
+        <button type="button" className="key-clear" onClick={() => onChange('')} aria-label={t('att.keyClear')}>✕</button>
       </div>
     </div>
   );
-}
-
-const MAX_SIDE = 1280;
-function useCamera(active: boolean) {
-  const video = useRef<HTMLVideoElement>(null);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    if (!active) return;
-    let stream: MediaStream | undefined;
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } }).then((s) => {
-      stream = s;
-      if (video.current) { video.current.srcObject = s; void video.current.play(); }
-    }).catch((e) => setError(String(e)));
-    return () => stream?.getTracks().forEach((tr) => tr.stop());
-  }, [active]);
-  const snap = (): string | null => {
-    const v = video.current;
-    if (!v || !v.videoWidth) return null;
-    const k = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
-    const c = Object.assign(document.createElement('canvas'), { width: v.videoWidth * k, height: v.videoHeight * k });
-    c.getContext('2d')!.drawImage(v, 0, 0, c.width, c.height);
-    return c.toDataURL('image/jpeg', 0.85).split(',')[1]!;
-  };
-  return { video, snap, error };
 }
 
 interface AlprRes { decision: 'auto' | 'review'; threshold: number; candidates: Candidate[]; vehicle: FlowState['vehicle'] | null; readId: string }
@@ -115,7 +102,6 @@ export function CheckInCapture() {
   const [camera, setCamera] = useState(aiOn);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const cam = useCamera(camera);
   const b = base(me!.tenant.slug);
   const [scanning, setScanning] = useState(false);
   const [code, setCode] = useState('');
@@ -126,16 +112,31 @@ export function CheckInCapture() {
     const token = raw.trim();
     setScanning(false); setPassErr('');
     if (!token) return;
+    // The QR carries the guest, unit, plate hint and expiry, so an expired or foreign code is rejected before any round trip.
+    const q = parsePassQr(token);
+    if (q && isPassExpired(q)) { setPassErr(t('pass.reason_pass_expired')); return; }
+    if (q && site && q.site !== site.code) { setPassErr(t('pass.reason_pass_wrong_site')); return; }
     try {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
       if (!r.valid) { setPassErr(t(`pass.reason_${r.reason}`)); return; }
-      set({ pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name } }); setCode('');
+      set({ pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name, plateHint: q?.plate || undefined, verifyCode: q?.code } }); setCode('');
     } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? t(`pass.reason_${e.code}`) : errText(e)); }
   }
 
-  async function capture() {
-    const image = cam.snap();
-    if (!image || !site) return;
+  /** A plate read on-device. Seen in several frames it goes straight to confirm; a single "Capture" read below the site threshold goes to review. */
+  function onPlate(p: { text: string; confidence: number; votes: number; manual?: boolean }) {
+    const norm = normalizePlate(p.text);
+    const region = me!.tenant.plate_regions[0] ?? flow.region;
+    const valid = matchesRegistry(p.text, me!.tenant.plate_regions);
+    const threshold = site?.settings.aiThreshold ?? 0.85;
+    const confident = valid && (!p.manual || p.confidence >= threshold);
+    set({ candidates: [{ text: p.text, norm, confidence: p.confidence, region, formatValid: valid }], plate: p.text, confidence: p.confidence, textRaw: p.text, source: confident ? 'ai_auto' : 'ai_assist', vehicle: {} });
+    nav(`${b}/checkin/${confident ? 'confirm' : 'review'}`);
+  }
+
+  /** Fallback when the on-device models are not installed: ask the server to read a still frame. */
+  async function capture(image: string) {
+    if (!site) return;
     setBusy(true); setErr('');
     try {
       const r = await request<AlprRes>('POST', '/v1/alpr/read', { site: site.code, image, region: flow.region });
@@ -153,6 +154,8 @@ export function CheckInCapture() {
       {flow.pass ? (
         <div className="banner">
           <strong>{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</strong>
+          {flow.pass.verifyCode && <div className="num" dir="ltr">{t('att.passVerified', { code: spaceCode(flow.pass.verifyCode) })}</div>}
+          {flow.pass.plateHint && <div className="muted">{t('att.passPlateHint', { plate: flow.pass.plateHint })}</div>}
           <div><button type="button" className="btn" onClick={() => set({ pass: null })}>{t('att.passRemove')}</button></div>
         </div>
       ) : scanning ? (
@@ -167,12 +170,10 @@ export function CheckInCapture() {
           {passErr && <div className="banner bad" role="alert">{passErr}</div>}
         </section>
       )}
-      {aiOn && <div className="row"><button className={`btn ${camera ? 'primary' : ''}`} onClick={() => setCamera(true)}>{t('att.camera')}</button><button className={`btn ${!camera ? 'primary' : ''}`} onClick={() => setCamera(false)}>{t('att.keypad')}</button></div>}
+      {aiOn && <div className="row"><button className={`btn ${camera ? 'primary' : ''}`} onClick={() => setCamera(true)}>{t('att.camera')}</button><button data-mode="keypad" className={`btn ${!camera ? 'primary' : ''}`} onClick={() => setCamera(false)}>{t('att.keypad')}</button></div>}
       {camera ? (
         <>
-          <video ref={cam.video} className="video" playsInline muted />
-          {cam.error && <div className="banner warn">{cam.error}</div>}
-          <button className="btn primary big" disabled={busy} onClick={capture}>{busy ? t('common.loading') : t('att.capture')}</button>
+          <LiveCamera regions={me!.tenant.plate_regions} qr={!flow.pass} busy={busy} onQr={(text) => { void usePass(text); }} onPlate={onPlate} onSnap={(img) => { void capture(img); }} />
         </>
       ) : (
         <>
@@ -280,7 +281,7 @@ export function CheckInConfirm() {
         <label className="field">{t('att.make')}<input {...v('make')} /></label>
         <label className="field">{t('att.model')}<input {...v('model')} /></label>
         <label className="field">{t('att.color')}<input {...v('color')} /></label>
-        <label className="field">Body<select {...v('bodyType')}><option value="" />{BODY.map((x) => <option key={x}>{x}</option>)}</select></label>
+        <label className="field">{t('att.body')}<select {...v('bodyType')}><option value="" />{BODY.map((x) => <option key={x} value={x}>{t(`body.${x}`)}</option>)}</select></label>
       </div>
       <h2>{t('att.suggested')}</h2>
       <label className="field">{t('att.slot')}
@@ -326,11 +327,11 @@ export function CheckOut() {
   const [scanning, setScanning] = useState(false);
   const b = base(me!.tenant.slug);
 
-  async function find(over?: { ticket?: string }, lostTicket = lost) {
+  async function find(over?: { ticket?: string; plate?: string }, lostTicket = lost) {
     if (!site) return;
     setErr(''); setBusy(true);
     try {
-      const body = { site: site.code, plate: over?.ticket ? undefined : plate || undefined, ticket: over?.ticket ?? (ticket || undefined), region: me!.tenant.plate_regions[0], lostTicket: lostTicket || undefined };
+      const body = { site: site.code, plate: over?.ticket ? undefined : over?.plate ?? (plate || undefined), ticket: over?.ticket ?? (ticket || undefined), region: me!.tenant.plate_regions[0], lostTicket: lostTicket || undefined };
       setM(await request<Match>('POST', '/v1/checkout/match', body));
     } catch (e) { setErr(isNetworkError(e) ? t('att.offline') : errText(e)); } finally { setBusy(false); }
   }
@@ -377,7 +378,7 @@ export function CheckOut() {
         <div className="muted">{t('att.checkedInBy', { name: m.session.inBy ?? '—', time: fmt.time(m.session.inAt) })}</div>
         <div className="muted">{t('att.duration', { hours: h, minutes: min })}</div>
         <section className="card">
-          {m.fee.lines.map((l, i) => <div key={i} className="feeline"><span>{l.label}</span><span className="num">{fmt.money(l.amount)}</span></div>)}
+          {m.fee.lines.map((l, i) => <div key={i} className="feeline"><span>{feeLabel(t, l.label)}</span><span className="num">{fmt.money(l.amount)}</span></div>)}
           <div className="feeline"><strong>{t('att.fee')}</strong><span className="feetotal num">{fmt.money(m.fee.total)}</span></div>
         </section>
         {can('override') && <label className="row"><input type="checkbox" checked={lost} onChange={(e) => { setLost(e.target.checked); void find({ ticket: m.session!.ticketCode }, e.target.checked); }} />{t('att.lost')}</label>}
@@ -393,7 +394,12 @@ export function CheckOut() {
     <div className="att">
       <h1>{t('att.checkout')}</h1>
       {scanning ? (
-        <Scanner onClose={() => setScanning(false)} onResult={(text) => { setScanning(false); setTicket(text.trim().toUpperCase()); void find({ ticket: text.trim().toUpperCase() }); }} />
+        <>
+          <LiveCamera regions={me!.tenant.plate_regions} plate={me!.tenant.ai_mode !== 'off'} busy={busy}
+            onQr={(text) => { const tk = text.trim().toUpperCase(); setScanning(false); setTicket(tk); void find({ ticket: tk }); }}
+            onPlate={(p) => { setScanning(false); const txt = normalizePlate(p.text); setPlate(txt); void find({ plate: txt }); }} />
+          <button type="button" className="btn" onClick={() => setScanning(false)}>{t('att.stopScan')}</button>
+        </>
       ) : <button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanQr')}</button>}
       <label className="field">{t('att.scanTicket')}<input value={ticket} onChange={(e) => setTicket(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
       <div className="muted" style={{ textAlign: 'center' }}>{t('att.orPlate')}</div>

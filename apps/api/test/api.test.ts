@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addUser, harness, idem, signup, tenantId, type Harness, type Tenant } from './helpers.js';
+import { addResident, addUnit, addUser, harness, idem, signup, tenantId, type Harness, type Tenant } from './helpers.js';
 
 let h: Harness;
 let t: Tenant;
@@ -143,7 +143,8 @@ describe('check in and check out', () => {
   it('enforces roles: attendants cannot override fees, supervisors can', async () => {
     const att = await addUser(h.app, t, 'attendant');
     const sup = await addUser(h.app, t, 'supervisor');
-    const aud = await addUser(h.app, t, 'auditor');
+    await addUnit(h.app, t, 'A-1');
+    const aud = await addResident(h.app, t, 'A-1');
     await checkIn('ROL-001');
     await checkIn('ROL-002');
     const denied = await h.app.inject({ method: 'POST', url: '/v1/checkout', headers: idem(att), payload: { site: 'DEMO-01', plate: 'ROL-001', override: { fee: 0, reason: 'waiver' } } });
@@ -153,7 +154,7 @@ describe('check in and check out', () => {
     expect(ok.json().fee).toMatchObject({ total: 0 });
     const readOnly = await h.app.inject({ method: 'POST', url: '/v1/checkout', headers: idem(aud), payload: { site: 'DEMO-01', plate: 'ROL-002' } });
     expect(readOnly.statusCode).toBe(403);
-    expect((await h.app.inject({ method: 'GET', url: '/v1/audit', headers: aud.h })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'GET', url: '/v1/audit', headers: t.h })).statusCode).toBe(200);
     expect((await h.app.inject({ method: 'GET', url: '/v1/audit', headers: att.h })).statusCode).toBe(403);
   });
 
@@ -258,7 +259,10 @@ describe('slots, quotes and API keys', () => {
   });
 
   it('refuses ALPR reads while AI is off', async () => {
-    const r = await h.app.inject({ method: 'POST', url: '/v1/alpr/read', headers: t.h, payload: { site: 'DEMO-01', image: 'AAAA' } });
+    const own = await signup(h.app, 'US');
+    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: own.h })).json().tenant.ai_mode).toBe('assist'); // on by default: reading runs on the device
+    await h.app.inject({ method: 'PATCH', url: '/v1/tenant', headers: idem(own), payload: { aiMode: 'off' } });
+    const r = await h.app.inject({ method: 'POST', url: '/v1/alpr/read', headers: own.h, payload: { site: 'DEMO-01', image: 'AAAA' } });
     expect(r.json().error.code).toBe('ai_disabled');
   });
 });
@@ -320,5 +324,19 @@ describe('Supabase Data API exposure', () => {
     const t3 = await signup(h.app, 'US');
     const r = await h.app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: `${t3.slug}`.length ? (await h.app.inject({ method: 'GET', url: '/v1/me', headers: t3.h })).json().user.email : '', password: 'correct-horse-battery' } });
     expect(r.statusCode).toBe(200);
+  });
+});
+
+describe('AI privacy settings persist', () => {
+  it('reads back the retention period and the training opt-in exactly as saved (including turning it off)', async () => {
+    const me = async () => (await h.app.inject({ method: 'GET', url: '/v1/me', headers: t.h })).json().tenant;
+    expect(await me()).toMatchObject({ retention_days: 30, training_export: false }); // defaults
+    await h.app.inject({ method: 'PATCH', url: '/v1/tenant', headers: t.h, payload: { trainingExport: true, retentionDays: 45 } });
+    expect(await me()).toMatchObject({ retention_days: 45, training_export: true });
+    // An unrelated save must not reset them.
+    await h.app.inject({ method: 'PATCH', url: '/v1/tenant', headers: t.h, payload: { aiMode: 'assist' } });
+    expect(await me()).toMatchObject({ retention_days: 45, training_export: true, ai_mode: 'assist' });
+    await h.app.inject({ method: 'PATCH', url: '/v1/tenant', headers: t.h, payload: { trainingExport: false } });
+    expect(await me()).toMatchObject({ retention_days: 45, training_export: false });
   });
 });

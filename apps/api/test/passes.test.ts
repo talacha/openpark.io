@@ -52,14 +52,14 @@ describe('resident access', () => {
       expect((await h.app.inject({ method: 'GET', url, headers: r.h })).statusCode, url).toBe(403);
     }
     const me = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json();
-    expect(me).toMatchObject({ role: 'resident', unit: { name: expect.stringContaining('Unit') } });
+    expect(me).toMatchObject({ roles: ['resident'], unit: { name: expect.stringContaining('Unit') } });
     expect((await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(r), payload: { site: 'DEMO-01', plate: { display: 'X1' } } })).statusCode).toBe(403);
   });
 
   it('cannot redeem passes, scan, or manage users', async () => {
     const r = await resident();
     expect((await redeem('OPP1.x.1.y', 'AAA111', r)).statusCode).toBe(403);
-    expect((await h.app.inject({ method: 'POST', url: '/v1/users', headers: idem(r), payload: { email: 'x@example.com', role: 'admin' } })).statusCode).toBe(403);
+    expect((await h.app.inject({ method: 'POST', url: '/v1/users', headers: idem(r), payload: { email: 'x@example.com', roles: ['admin'] } })).statusCode).toBe(403);
   });
 });
 
@@ -70,7 +70,8 @@ describe('creating a pass', () => {
     const res = await create(r);
     expect(res.statusCode).toBe(201);
     const p = res.json();
-    expect(p.qr).toMatch(/^OPP1\./);
+    expect(p.qr).toMatch(/^OPP2\|/);
+    expect(p.verifyCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/); // random code, printed under the QR as well
     expect(new Date(p.expiresAt).getTime() - T0.getTime()).toBe(2 * 3_600_000);
     expect(p).toMatchObject({ status: 'active', displayStatus: 'active', guestName: 'Luis Invitado' });
 
@@ -111,10 +112,10 @@ describe('QR lifetime and regeneration', () => {
     const r = await resident();
     const p = (await create(r)).json();
     h.clock.now = at(1.9);
-    expect((await h.app.inject({ method: 'GET', url: `/v1/passes/lookup?token=${p.qr}`, headers: attendant.h })).json().valid).toBe(true);
+    expect((await h.app.inject({ method: 'GET', url: `/v1/passes/lookup?token=${encodeURIComponent(p.qr)}`, headers: attendant.h })).json().valid).toBe(true);
 
     h.clock.now = at(2.01);
-    const look = (await h.app.inject({ method: 'GET', url: `/v1/passes/lookup?token=${p.qr}`, headers: attendant.h })).json();
+    const look = (await h.app.inject({ method: 'GET', url: `/v1/passes/lookup?token=${encodeURIComponent(p.qr)}`, headers: attendant.h })).json();
     expect(look).toMatchObject({ valid: false, reason: 'pass_expired' });
     const redeemed = await redeem(p.qr, plateOf());
     expect(redeemed.statusCode).toBe(410);
@@ -147,8 +148,9 @@ describe('QR lifetime and regeneration', () => {
     const forged = p.qr.replace(/.$/, (c: string) => (c === 'A' ? 'B' : 'A'));
     expect((await redeem(forged, plateOf())).statusCode).toBe(400);
     expect((await redeem('TICKET123', plateOf())).statusCode).toBe(400);
-    const bumped = p.qr.replace(/\.1\./, '.2.');
-    expect((await redeem(bumped, plateOf())).statusCode).toBe(400); // signature covers the version
+    const fields = p.qr.split('|');
+    fields[2] = '2';
+    expect((await redeem(fields.join('|'), plateOf())).statusCode).toBe(400); // the signature covers every field, version included
   });
 });
 

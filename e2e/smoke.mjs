@@ -8,6 +8,12 @@ const shots = process.argv[2] ?? './shots';
 mkdirSync(shots, { recursive: true });
 const suffix = Math.random().toString(36).slice(2, 8);
 const log = (m) => console.log(`✓ ${m}`);
+/** Open a menu group only if it is closed (the group you are in is already open). */
+async function expand(page, name) {
+  const head = page.locator(`button.menu-head:has-text("${name}")`);
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+}
+
 
 const browser = await chromium.launch({ channel: 'chrome' });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-US' });
@@ -33,13 +39,15 @@ log('signup lands on the dashboard with 52 free slots, UI defaulted to es-MX');
 const zone = await page.textContent('tbody tr td');
 if (!zone.includes('Sótano')) throw new Error(`zone label should be localized, got ${zone}`);
 log(`zone label localized: ${zone}`);
-await page.selectOption('aside select[aria-label=Language]', 'en');
+await page.selectOption('.menu-foot select', 'en');
 await page.screenshot({ path: `${shots}/01-dashboard.png` });
 
 // Attendant: keypad check-in
-await page.click('text=Attendant view');
+await page.goto(page.url().replace(/\/dashboard.*/, '/a'));
 await page.waitForURL(/\/a$/);
+await page.setViewportSize({ width: 420, height: 900 });
 await page.click('.tabbar >> text=Check in');
+await page.click('[data-mode=keypad]').catch(() => {});
 for (const c of 'ABC123') await page.click(`.keypad button[aria-label="${c}"]`);
 await page.screenshot({ path: `${shots}/02-keypad.png` });
 await page.click('text=Next');
@@ -65,16 +73,18 @@ log('check-out completed with receipt');
 await page.click('text=Done');
 
 // Admin: sessions log + timeline, slots, inventory export, rates
+await page.setViewportSize({ width: 1280, height: 800 });
 await page.goto(`${WEB}/`);
 await page.waitForURL(/dashboard/);
 await page.click('a.nav:has-text("Sessions")');
 await page.click('tbody tr.click >> nth=0');
 await page.waitForSelector('.timeline li');
 const events = await page.$$eval('.timeline li strong', (n) => n.map((x) => x.textContent));
-if (events.join() !== 'check_in,slot_assigned,check_out,payment') throw new Error(`timeline was ${events}`);
+if (events.join() !== 'Checked in,Slot assigned,Checked out,Payment') throw new Error(`timeline was ${events}`);
 log(`session timeline: ${events.join(' → ')}`);
 await page.screenshot({ path: `${shots}/06-sessions.png` });
 
+await expand(page, 'Admin');
 await page.click('a.nav:has-text("Rate plans")');
 await page.click('text=Quote');
 await page.waitForSelector('.feetotal');
@@ -93,18 +103,18 @@ log(`bad JSON reported: ${(await page.textContent('.banner.bad')).trim().slice(0
 await page.screenshot({ path: `${shots}/09-inventory-error.png` });
 
 // Localization: Arabic flips to right-to-left; pseudo-locale renders
-await page.selectOption('aside select[aria-label=Language]', 'ar');
+await page.selectOption('.menu-foot select', 'ar');
 if ((await page.getAttribute('html', 'dir')) !== 'rtl') throw new Error('html[dir] should be rtl for Arabic');
 await page.click('a.nav >> nth=0');
 await page.waitForSelector('.tile .value');
 await page.screenshot({ path: `${shots}/10-dashboard-ar.png` });
 log('Arabic renders right-to-left');
-await page.selectOption('aside select[aria-label=Language]', 'en-XA');
+await page.selectOption('.menu-foot select', 'en-XA');
 await page.screenshot({ path: `${shots}/11-pseudo.png` });
 
 // Phone viewport, attendant home
 await page.setViewportSize({ width: 390, height: 844 });
-await page.selectOption('aside select[aria-label=Language]', 'es-MX').catch(() => {});
+await page.selectOption('.menu-foot select', 'es-MX').catch(() => {});
 await page.goto(`${WEB}/`);
 await page.waitForSelector('.tile .value');
 await page.screenshot({ path: `${shots}/12-mobile-dashboard.png` });

@@ -8,8 +8,9 @@ export function AiSettings() {
   const { me, site, reload } = useApp();
   const [mode, setMode] = useState(me!.tenant.ai_mode);
   const [threshold, setThreshold] = useState(site?.settings.aiThreshold ?? 0.95);
-  const [retention, setRetention] = useState(30);
-  const [training, setTraining] = useState(false);
+  // Initialise from what is saved, not from defaults, or the screen would show (and re-save) the wrong values.
+  const [retention, setRetention] = useState(me!.tenant.retention_days);
+  const [training, setTraining] = useState(me!.tenant.training_export);
   const [regions, setRegions] = useState(me!.tenant.plate_regions.join(', '));
   const [msg, setMsg] = useState('');
 

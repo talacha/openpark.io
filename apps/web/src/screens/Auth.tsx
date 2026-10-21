@@ -5,9 +5,9 @@ import { homeFor, useApp } from '../app-context.js';
 import { externalAuth, peekPending, savePending, supabase, takePending } from '../auth.js';
 import { PasswordInput } from '../components/PasswordInput.js';
 import { LOCALES, NAMES, useI18n, useT } from '../i18n.js';
+import { errText } from '../errors.js';
 
 const COUNTRIES = ['MX', 'US', 'BR', 'ES', 'FR', 'DE', 'CO', 'AR', 'CL', 'PE', 'CA', 'GB', 'SA', 'AE'];
-const errText = (e: unknown) => (e instanceof ApiError ? e.message : (e as Error)?.message ?? String(e));
 
 function LangPick() {
   const t = useT();

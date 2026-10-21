@@ -1,13 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { hashPassword } from '../auth.js';
+import { ROLES } from '../auth.js';
 import { externalAuthEnabled, localAuthEnabled } from '../config.js';
 import { audit } from '../db.js';
-import { HttpError, created, definePlatformRoute, definePublicRoute, defineRoute } from '../http.js';
+import { HttpError, created, definePlatformRoute, definePublicRoute, defineRoute, boolQuery } from '../http.js';
+import { addPerson } from '../services/people.js';
+import { applyUnits, exportUnits, parseUnitsDoc, previewUnits } from '../services/units.js';
+import { locateJsonError } from '../jsonpos.js';
 import { provisionTenant, type Owner } from '../services/tenants.js';
 import type { App } from '../server.js';
 
-const StaffRole = z.enum(['admin', 'supervisor', 'attendant', 'auditor', 'resident']);
+const RoleList = z.array(z.enum(ROLES)).min(1).transform((r) => [...new Set(r)].sort((a, b) => ROLES.indexOf(a) - ROLES.indexOf(b)));
 
 export function registerPeopleRoutes(app: App) {
   // What the sign-in/sign-up screens need to know before anyone is signed in.
@@ -27,7 +30,7 @@ export function registerPeopleRoutes(app: App) {
       ]);
       return {
         user: user.rows[0], superadmin: who.superadmin,
-        memberships: rows.rows.map((m) => ({ slug: m.slug, name: m.name, role: m.role, unitId: m.unit_id, suspended: m.suspended })),
+        memberships: rows.rows.map((m) => ({ slug: m.slug, name: m.name, roles: m.roles, unitId: m.unit_id, suspended: m.suspended })),
       };
     },
   });
@@ -74,69 +77,90 @@ export function registerPeopleRoutes(app: App) {
     },
   });
 
+  defineRoute(app, {
+    method: 'GET', path: '/v1/units/export', summary: 'Units (and their residents) as JSON', perm: 'read',
+    handler: async ({ ctx, db }) => exportUnits(db, ctx.tenantSlug, app.now()),
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/units/import', summary: 'Validate a units file and preview the changes; returns a job', perm: 'users.edit',
+    query: z.object({ mode: z.enum(['merge', 'replace']).default('merge'), dryRun: boolQuery() }),
+    body: z.record(z.unknown()),
+    async handler({ ctx, db, query, body }) {
+      const doc = parseUnitsDoc(body, locateJsonError);
+      const diff = await previewUnits(db, doc, query.mode);
+      const job = (await db.query(
+        "insert into inventory_import (tenant_id, kind, mode, doc, diff, created_by) values ($1,'units',$2,$3,$4,$5) returning id",
+        [ctx.tenantId, query.mode, JSON.stringify(doc), JSON.stringify({ ...diff, dryRun: query.dryRun }), ctx.userId])).rows[0];
+      const summary = { added: diff.added.length, changed: diff.changed.length, removed: diff.removed.length, conflicts: diff.conflicts.length, residents: diff.residentsToAdd.length, errors: diff.errors.length };
+      return created({ job: job.id, mode: query.mode, dryRun: query.dryRun, summary, diff });
+    },
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/units/import/:job/apply', summary: 'Apply a previewed units import', perm: 'users.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'units' for update", [params.job])).rows[0];
+      if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
+      if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
+      if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
+      // Live state may have moved since the preview, so the diff is recomputed and re-checked inside applyUnits.
+      const result = await applyUnits(app, db, ctx.tenantId, ctx.userId, parseUnitsDoc(job.doc, locateJsonError), job.mode);
+      await db.query("update inventory_import set status = 'applied', applied_at = now() where id = $1", [job.id]);
+      return { job: job.id, applied: result };
+    },
+  });
+
   // ---- people ---------------------------------------------------------------------------------------------------
   defineRoute(app, {
     method: 'GET', path: '/v1/users', summary: 'Members and pending invitations', perm: 'users.edit',
     async handler({ db }) {
       const members = (await db.query(
-        `select a.id, a.email, a.name, a.phone, m.role, un.code as unit from membership m join app_user a on a.id = m.user_id
-         left join unit un on un.id = m.unit_id order by m.role, a.email`)).rows;
+        `select a.id, a.email, a.name, a.phone, m.roles, a.is_superadmin as superadmin, un.code as unit from membership m join app_user a on a.id = m.user_id
+         left join unit un on un.id = m.unit_id order by a.is_superadmin desc, cardinality(m.roles) desc, a.email`)).rows;
       const invites = (await db.query(
-        `select i.email, i.role, un.code as unit, i.created_at from membership_invite i left join unit un on un.id = i.unit_id order by i.email`)).rows;
+        `select i.email, i.roles, un.code as unit, i.created_at from membership_invite i left join unit un on un.id = i.unit_id order by i.email`)).rows;
       return { members, invites };
     },
   });
 
   defineRoute(app, {
-    method: 'POST', path: '/v1/users', summary: 'Add a person. Local auth returns a one-time password; external auth sends an invitation by email', perm: 'users.edit',
-    body: z.object({ email: z.string().email(), name: z.string().optional(), role: StaffRole, unit: z.string().optional() }),
+    method: 'POST', path: '/v1/users', summary: 'Add a person with one or more roles. Local auth returns a one-time password; external auth sends an invitation by email', perm: 'users.edit',
+    body: z.object({ email: z.string().email(), name: z.string().optional(), roles: RoleList, unit: z.string().optional() }),
     async handler({ ctx, db, body }) {
       const email = body.email.toLowerCase();
       let unitId: string | null = null;
-      if (body.role === 'resident') {
+      if (body.roles.includes('resident')) {
         unitId = (await db.query('select id from unit where code = $1', [body.unit ?? ''])).rows[0]?.id ?? null;
         if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
       }
-      const existing = (await db.query('select id from app_user where email = $1', [email])).rows[0];
-      let userId: string | undefined = existing?.id;
-      let temp: string | undefined;
-
-      if (!userId && localAuthEnabled(app.cfg)) {
-        temp = randomBytes(9).toString('base64url');
-        userId = (await db.query('insert into app_user (email, name, password_hash) values ($1,$2,$3) returning id', [email, body.name ?? null, await hashPassword(temp)])).rows[0].id;
-      }
-      if (userId) {
-        const r = await db.query('insert into membership (tenant_id, user_id, role, unit_id) values ($1,$2,$3,$4) on conflict do nothing', [ctx.tenantId, userId, body.role, unitId]);
-        if (!r.rowCount) throw new HttpError(409, 'already_member', 'That person already belongs to this tenant');
-        await audit(db, ctx.tenantId, ctx.userId, 'user.add', 'membership', null, { email, role: body.role, unit: body.unit });
-        return created({ userId, ...(temp ? { temporaryPassword: temp } : {}) });
-      }
-      // External identity: the invitation is claimed automatically the first time that email signs in.
-      const r = await db.query(
-        'insert into membership_invite (tenant_id, email, role, unit_id, invited_by) values ($1,$2,$3,$4,$5) on conflict (tenant_id, email) do update set role = excluded.role, unit_id = excluded.unit_id',
-        [ctx.tenantId, email, body.role, unitId, ctx.userId]);
-      await audit(db, ctx.tenantId, ctx.userId, 'user.invite', 'membership_invite', null, { email, role: body.role, unit: body.unit });
-      return created({ invited: true, email, claimed: r.rowCount === 1 });
+      const r = await addPerson(app, db, ctx.tenantId, ctx.userId, { email, name: body.name, roles: body.roles, unitId });
+      await audit(db, ctx.tenantId, ctx.userId, r.invited ? 'user.invite' : 'user.add', r.invited ? 'membership_invite' : 'membership', null, { email, roles: body.roles, unit: body.unit });
+      return created(r.invited ? { invited: true, email } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) });
     },
   });
 
   defineRoute(app, {
-    method: 'PATCH', path: '/v1/users/:id', summary: 'Change a member role or unit', perm: 'users.edit',
-    body: z.object({ role: z.enum(['owner', 'admin', 'supervisor', 'attendant', 'auditor', 'resident']).optional(), unit: z.string().nullable().optional() }),
+    method: 'PATCH', path: '/v1/users/:id', summary: "Change a member's roles or unit; only a Super Admin can grant or remove Super Admin", perm: 'users.edit',
+    body: z.object({ roles: RoleList.optional(), unit: z.string().nullable().optional(), superadmin: z.boolean().optional() }),
     async handler({ ctx, db, params, body }) {
-      const cur = (await db.query('select role, unit_id from membership where user_id = $1', [params.id])).rows[0];
+      const cur = (await db.query('select roles, unit_id from membership where user_id = $1', [params.id])).rows[0];
       if (!cur) throw new HttpError(404, 'member_not_found', 'No such member');
-      const role = body.role ?? cur.role;
+      const roles: string[] = body.roles ?? cur.roles;
       let unitId = cur.unit_id as string | null;
       if (body.unit !== undefined) {
         unitId = body.unit === null ? null : (await db.query('select id from unit where code = $1', [body.unit])).rows[0]?.id ?? null;
         if (body.unit !== null && !unitId) throw new HttpError(404, 'unit_not_found', `No unit ${body.unit}`);
       }
-      if (role === 'resident' && !unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to a unit');
-      if (role !== 'resident' && body.role) unitId = body.unit === undefined ? null : unitId;
-      if (cur.role === 'owner' && role !== 'owner') await assertAnotherOwner(db, params.id!);
-      await db.query('update membership set role = $2, unit_id = $3 where user_id = $1', [params.id, role, unitId]);
-      await audit(db, ctx.tenantId, ctx.userId, 'user.update', `user:${params.id}`, cur, { role, unitId });
+      if (roles.includes('resident') && !unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to a unit');
+      if (!roles.includes('resident')) unitId = null;
+      if (cur.roles.includes('admin') && !roles.includes('admin')) await assertAnotherAdmin(db, params.id!);
+      if (body.superadmin !== undefined) {
+        if (!ctx.superadmin) throw new HttpError(403, 'forbidden', 'Only a Super Admin can change Super Admin access');
+        await db.query('update app_user set is_superadmin = $2 where id = $1', [params.id, body.superadmin]);
+      }
+      await db.query('update membership set roles = $2, unit_id = $3 where user_id = $1', [params.id, roles, unitId]);
+      await audit(db, ctx.tenantId, ctx.userId, 'user.update', `user:${params.id}`, cur, { roles, unitId, superadmin: body.superadmin });
       return { ok: true };
     },
   });
@@ -144,11 +168,41 @@ export function registerPeopleRoutes(app: App) {
   defineRoute(app, {
     method: 'DELETE', path: '/v1/users/:id', summary: 'Remove a member from the tenant', perm: 'users.edit',
     async handler({ ctx, db, params }) {
-      const cur = (await db.query('select role from membership where user_id = $1', [params.id])).rows[0];
+      const cur = (await db.query('select roles from membership where user_id = $1', [params.id])).rows[0];
       if (!cur) throw new HttpError(404, 'member_not_found', 'No such member');
-      if (cur.role === 'owner') await assertAnotherOwner(db, params.id!);
+      if (cur.roles.includes('admin')) await assertAnotherAdmin(db, params.id!);
       await db.query('delete from membership where user_id = $1', [params.id]);
       await audit(db, ctx.tenantId, ctx.userId, 'user.remove', `user:${params.id}`, cur, null);
+      return { ok: true };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'PATCH', path: '/v1/invites/:email', summary: "Change a pending invitation's roles or unit", perm: 'users.edit',
+    body: z.object({ roles: RoleList, unit: z.string().nullable().optional() }),
+    async handler({ ctx, db, params, body }) {
+      const email = decodeURIComponent(params.email!).toLowerCase();
+      const cur = (await db.query('select roles, unit_id from membership_invite where email = $1', [email])).rows[0];
+      if (!cur) throw new HttpError(404, 'invite_not_found', 'No such pending invitation');
+      let unitId: string | null = null;
+      if (body.roles.includes('resident')) {
+        const code = body.unit === undefined ? null : body.unit;
+        unitId = code === null ? cur.unit_id : (await db.query('select id from unit where code = $1', [code])).rows[0]?.id ?? null;
+        if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
+      }
+      await db.query('update membership_invite set roles = $2, unit_id = $3 where email = $1', [email, body.roles, unitId]);
+      await audit(db, ctx.tenantId, ctx.userId, 'user.invite_update', `invite:${email}`, cur, { roles: body.roles, unitId });
+      return { ok: true };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'DELETE', path: '/v1/invites/:email', summary: 'Withdraw a pending invitation', perm: 'users.edit',
+    async handler({ ctx, db, params }) {
+      const email = decodeURIComponent(params.email!).toLowerCase();
+      const gone = await db.query('delete from membership_invite where email = $1 returning roles', [email]);
+      if (!gone.rowCount) throw new HttpError(404, 'invite_not_found', 'No such pending invitation');
+      await audit(db, ctx.tenantId, ctx.userId, 'user.invite_remove', `invite:${email}`, gone.rows[0], null);
       return { ok: true };
     },
   });
@@ -198,8 +252,8 @@ export function registerPeopleRoutes(app: App) {
   });
 }
 
-/** A tenant must always keep at least one owner. */
-async function assertAnotherOwner(db: import('../db.js').Db, leaving: string) {
-  const n = (await db.query("select count(*)::int as n from membership where role = 'owner' and user_id <> $1", [leaving])).rows[0].n;
-  if (!n) throw new HttpError(409, 'last_owner', 'A tenant needs at least one owner');
+/** A property must always keep at least one admin, or nobody could configure it. */
+async function assertAnotherAdmin(db: import('../db.js').Db, leaving: string) {
+  const n = (await db.query("select count(*)::int as n from membership where 'admin' = any(roles) and user_id <> $1", [leaving])).rows[0].n;
+  if (!n) throw new HttpError(409, 'last_admin', 'A property needs at least one admin');
 }

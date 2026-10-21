@@ -29,13 +29,13 @@ describe('Supabase tokens', () => {
   it('creates a tenant from a bearer token (no password) and signs the owner in just-in-time', async () => {
     const { owner, slug, headers } = await org();
     const me = (await h.app.inject({ method: 'GET', url: '/v1/me', headers })).json();
-    expect(me).toMatchObject({ role: 'owner', user: { email: owner.email }, tenant: { slug } });
+    expect(me).toMatchObject({ roles: ['admin'], user: { email: owner.email }, tenant: { slug } });
     expect(me.tenant.default_locale).toBe('es-MX');
     const policy = (await h.app.inject({ method: 'GET', url: '/v1/pass-policy', headers })).json();
     expect(policy.policy).toMatchObject({ qrTtlMin: 120, maxStayHours: 12, reminderHours: [10, 11], overstayCharge: 500000 }); // 5,000 MXN
     // The same sub always resolves to the same user.
     const again = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: owner.bearer })).json();
-    expect(again.memberships).toEqual([expect.objectContaining({ slug, role: 'owner' })]);
+    expect(again.memberships).toEqual([expect.objectContaining({ slug, roles: ['admin'] })]);
   });
 
   it('rejects missing, forged, expired and wrong-audience tokens', async () => {
@@ -75,29 +75,38 @@ describe('inviting people', () => {
   it('invites by email and claims the invitation the first time that person signs in', async () => {
     const { slug, headers } = await org();
     await h.app.inject({ method: 'POST', url: '/v1/units', headers, payload: { code: 'A-1', name: 'Apartment A-1' } });
-    expect((await h.app.inject({ method: 'POST', url: '/v1/users', headers: idem({ h: headers } as never), payload: { email: 'x@example.com', role: 'resident' } })).statusCode).toBe(400); // resident needs a unit
+    expect((await h.app.inject({ method: 'POST', url: '/v1/users', headers: idem({ h: headers } as never), payload: { email: 'x@example.com', roles: ['resident'] } })).statusCode).toBe(400); // resident needs a unit
 
     const email = `rosa-${uniq()}@example.com`;
-    const inv = await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email, role: 'resident', unit: 'A-1' } });
+    const inv = await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email, roles: ['resident'], unit: 'A-1' } });
     expect(inv.statusCode).toBe(201);
     expect(inv.json()).toMatchObject({ invited: true, email });
-    expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers })).json().invites).toEqual([expect.objectContaining({ email, role: 'resident', unit: 'A-1' })]);
+    expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers })).json().invites).toEqual([expect.objectContaining({ email, roles: ['resident'], unit: 'A-1' })]);
+
+    // Pending invitations can be edited and withdrawn before they are claimed.
+    const enc = encodeURIComponent(email);
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/invites/${enc}`, headers, payload: { roles: ['attendant', 'resident'] } })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers })).json().invites).toEqual([expect.objectContaining({ email, roles: ['resident', 'attendant'], unit: 'A-1' })]);
+    const gone = `gone-${uniq()}@example.com`;
+    await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email: gone, roles: ['attendant'] } });
+    expect((await h.app.inject({ method: 'DELETE', url: `/v1/invites/${encodeURIComponent(gone)}`, headers })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'DELETE', url: `/v1/invites/${encodeURIComponent(gone)}`, headers })).statusCode).toBe(404);
 
     const rosa = await person(email);
     const m = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: rosa.bearer })).json();
-    expect(m.memberships).toEqual([expect.objectContaining({ slug, role: 'resident' })]);
+    expect(m.memberships).toEqual([expect.objectContaining({ slug, roles: ['resident', 'attendant'] })]);
     const me = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: rosa.h(slug) })).json();
-    expect(me).toMatchObject({ role: 'resident', unit: { code: 'A-1' } });
+    expect(me).toMatchObject({ roles: ['resident', 'attendant'], unit: { code: 'A-1' } });
     const users = (await h.app.inject({ method: 'GET', url: '/v1/users', headers })).json();
     expect(users.invites).toEqual([]);
-    expect(users.members.find((u: { email: string }) => u.email === email)).toMatchObject({ role: 'resident', unit: 'A-1' });
+    expect(users.members.find((u: { email: string }) => u.email === email)).toMatchObject({ roles: ['resident', 'attendant'], unit: 'A-1' });
   });
 
   it('adds someone who already has an account straight away, in a second tenant', async () => {
     const one = await org();
     const two = await org();
     await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: two.owner.bearer }); // known to the platform
-    const r = await h.app.inject({ method: 'POST', url: '/v1/users', headers: one.headers, payload: { email: two.owner.email, role: 'attendant' } });
+    const r = await h.app.inject({ method: 'POST', url: '/v1/users', headers: one.headers, payload: { email: two.owner.email, roles: ['attendant'] } });
     expect(r.statusCode).toBe(201);
     const m = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: two.owner.bearer })).json().memberships;
     expect(m.map((x: { slug: string }) => x.slug).sort()).toEqual([one.slug, two.slug].sort());
@@ -105,24 +114,25 @@ describe('inviting people', () => {
     expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: two.owner.bearer })).json().error.code).toBe('tenant_required');
   });
 
-  it('keeps at least one owner, and lets admins change roles and units', async () => {
+  it('keeps at least one admin, lets admins combine roles and change units, and reserves Super Admin for super admins', async () => {
     const { owner, slug, headers } = await org();
     const me = (await h.app.inject({ method: 'GET', url: '/v1/me', headers })).json();
     const self = me.user.id as string;
-    const demote = await h.app.inject({ method: 'PATCH', url: `/v1/users/${self}`, headers, payload: { role: 'admin' } });
+    const demote = await h.app.inject({ method: 'PATCH', url: `/v1/users/${self}`, headers, payload: { roles: ['attendant'] } });
     expect(demote.statusCode).toBe(409);
-    expect(demote.json().error.code).toBe('last_owner');
+    expect(demote.json().error.code).toBe('last_admin');
     expect((await h.app.inject({ method: 'DELETE' as never, url: `/v1/users/${self}`, headers })).statusCode).toBe(409);
 
     await h.app.inject({ method: 'POST', url: '/v1/units', headers, payload: { code: 'B-2', name: 'B-2' } });
     const staff = await person();
-    await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email: staff.email, role: 'attendant' } });
+    await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email: staff.email, roles: ['attendant'] } });
     await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: staff.bearer });
     const id = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: staff.h(slug) })).json().user.id as string;
-    expect((await h.app.inject({ method: 'PATCH', url: `/v1/users/${id}`, headers, payload: { role: 'resident' } })).json().error.code).toBe('unit_required');
-    expect((await h.app.inject({ method: 'PATCH', url: `/v1/users/${id}`, headers, payload: { role: 'resident', unit: 'B-2' } })).statusCode).toBe(200);
-    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: staff.h(slug) })).json()).toMatchObject({ role: 'resident', unit: { code: 'B-2' } });
-    // A resident cannot reach the admin APIs even though the role was just changed.
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/users/${id}`, headers, payload: { roles: ['resident'] } })).json().error.code).toBe('unit_required');
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/users/${id}`, headers, payload: { roles: ['attendant', 'resident'], unit: 'B-2' } })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: staff.h(slug) })).json()).toMatchObject({ roles: ['resident', 'attendant'], unit: { code: 'B-2' } }); // roles combine, least access first
+    // Attendant + resident still cannot reach the admin APIs.
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/users/${id}`, headers: staff.h(slug), payload: { superadmin: true } })).statusCode).toBe(403);
     expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers: staff.h(slug) })).statusCode).toBe(403);
     expect(owner.email).toBeTruthy();
   });
@@ -186,7 +196,7 @@ describe('isolation of the new tables', () => {
   it('hides units, passes and invitations from other tenants and from the Supabase Data API roles', async () => {
     const a = await org();
     await h.app.inject({ method: 'POST', url: '/v1/units', headers: a.headers, payload: { code: 'ISO-1', name: 'Iso' } });
-    await h.app.inject({ method: 'POST', url: '/v1/users', headers: a.headers, payload: { email: `inv-${uniq()}@example.com`, role: 'attendant' } });
+    await h.app.inject({ method: 'POST', url: '/v1/users', headers: a.headers, payload: { email: `inv-${uniq()}@example.com`, roles: ['attendant'] } });
     const b = await org();
     const bId = await tenantId(b.slug);
     const seen = await h.app.db.withTenant(bId, async (db) => Object.fromEntries(await Promise.all(

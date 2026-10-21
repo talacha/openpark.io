@@ -2,9 +2,12 @@ import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z, type ZodTypeAny } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { can, type Permission, type Role } from './auth.js';
+import { can, describeRoles, type Permission, type Role } from './auth.js';
 import type { Db } from './db.js';
 import type { App } from './server.js';
+
+/** Query-string boolean: `z.coerce.boolean()` would turn the string "false" into true. */
+export const boolQuery = (def = false) => z.enum(['true', 'false', '1', '0']).default(def ? 'true' : 'false').transform((v) => v === 'true' || v === '1');
 
 export class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
@@ -15,7 +18,8 @@ export class HttpError extends Error {
 export interface Ctx {
   tenantId: string;
   tenantSlug: string;
-  role: Role;
+  /** Roles in this property (one or more). */
+  roles: Role[];
   userId: string | null;
   /** Set when an API key is scoped to one site. */
   siteId: string | null;
@@ -72,7 +76,7 @@ export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends Zod
     url: def.path,
     handler: async (req, reply) => {
       const ctx = await app.authenticate(req);
-      if (!can(ctx.role, def.perm)) throw new HttpError(403, 'forbidden', `role ${ctx.role} lacks ${def.perm}`);
+      if (!can(ctx, def.perm)) throw new HttpError(403, 'forbidden', `${describeRoles(ctx)} lacks ${def.perm}`);
       const body = def.body ? def.body.parse(req.body) : undefined;
       const query = def.query ? def.query.parse(req.query) : undefined;
       const idemKey = req.headers['idempotency-key'];

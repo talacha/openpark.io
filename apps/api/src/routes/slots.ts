@@ -85,7 +85,7 @@ export function registerSlotRoutes(app: App) {
       attributes: z.record(z.unknown()).optional(),
     }),
     async handler({ ctx, db, params, query: q, body }) {
-      if ((body.type || body.attributes) && !can(ctx.role, 'inventory.edit')) throw new HttpError(403, 'forbidden', 'Editing slot type needs inventory.edit');
+      if ((body.type || body.attributes) && !can(ctx, 'inventory.edit')) throw new HttpError(403, 'forbidden', 'Editing slot type needs inventory.edit');
       const site = await resolveSite(db, ctx, q.site);
       const cur = (await db.query('select id, status, type, attributes, note from slot where site_id = $1 and code = $2 and retired_at is null for update', [site.id, params.code])).rows[0];
       if (!cur) throw new HttpError(404, 'slot_not_found', `No slot ${params.code}`);

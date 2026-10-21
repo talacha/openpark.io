@@ -1,5 +1,6 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { can } from '../auth.js';
 import { emit, type Db } from '../db.js';
 import { HttpError, type Ctx } from '../http.js';
 import { render, type MessageKey } from '../notify/messages.js';
@@ -38,21 +39,48 @@ export async function loadPolicy(db: Db): Promise<{ policy: PassPolicy; currency
 }
 
 /* ---------------------------------------------------------------------------------------------- */
-/* QR tokens: derived from the pass id and its qr_version, so they are never stored and a           */
-/* regenerated QR invalidates the previous one.                                                    */
+/* QR payload. Self-contained so the attendant's phone can pre-fill a check-in the moment it scans, and signed so   */
+/* fields cannot be edited. A random verification code (new for every QR) makes old or guessed QRs useless; the    */
+/* server always re-reads the pass from its database and trusts that, never the payload's fields.                  */
 /* ---------------------------------------------------------------------------------------------- */
 
-const PREFIX = 'OPP1';
-const sign = (secret: string, id: string, version: number) => createHmac('sha256', secret).update(`pass:${id}:${version}`).digest('base64url').slice(0, 24);
+const PREFIX = 'OPP2';
+const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford base32: no I, L, O or U, so it is easy to read aloud
 
-export const passToken = (secret: string, id: string, version: number) => `${PREFIX}.${id}.${version}.${sign(secret, id, version)}`;
+/** A short random code, e.g. 'K7Q2M9XA' (40 bits). */
+export function newVerifyCode(): string {
+  const bytes = randomBytes(8);
+  return Array.from(bytes, (b) => CODE_ALPHABET[b % 32]).join('');
+}
 
-export function parsePassToken(secret: string, token: string): { id: string; version: number } | null {
-  const [prefix, id, v, sig, ...rest] = token.trim().split('.');
-  if (prefix !== PREFIX || !id || !v || !sig || rest.length || !/^[0-9a-f-]{36}$/.test(id) || !/^\d+$/.test(v)) return null;
-  const want = Buffer.from(sign(secret, id, Number(v)));
-  const got = Buffer.from(sig);
-  return got.length === want.length && timingSafeEqual(got, want) ? { id, version: Number(v) } : null;
+const uuidToB64 = (id: string) => Buffer.from(id.replace(/-/g, ''), 'hex').toString('base64url');
+const b64ToUuid = (s: string) => { const h = Buffer.from(s, 'base64url').toString('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`; };
+const sig = (secret: string, body: string) => createHmac('sha256', secret).update(`pass2:${body}`).digest('base64url').slice(0, 22);
+const enc = (v: string | null | undefined) => encodeURIComponent(v ?? '').replace(/\|/g, '%7C');
+
+export interface PassPayload {
+  id: string; version: number; code: string; site: string; unit: string; guest: string; plate: string; expires: number;
+}
+
+/** `OPP2|<id>|<version>|<code>|<site>|<unit>|<guest>|<plate hint>|<expiry epoch>|<signature>` */
+export function passToken(secret: string, p: PassPayload): string {
+  const body = [PREFIX, uuidToB64(p.id), p.version, p.code, enc(p.site), enc(p.unit), enc(p.guest), enc(p.plate), p.expires].join('|');
+  return `${body}|${sig(secret, body)}`;
+}
+
+/** Verify the signature and read the fields. Returns null for anything that is not a genuine, untampered OpenPark pass QR. */
+export function parsePassToken(secret: string, token: string): PassPayload | null {
+  const parts = token.trim().split('|');
+  if (parts.length !== 10 || parts[0] !== PREFIX) return null;
+  const body = parts.slice(0, 9).join('|');
+  const want = Buffer.from(sig(secret, body)); const got = Buffer.from(parts[9]!);
+  if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
+  try {
+    return {
+      id: b64ToUuid(parts[1]!), version: Number(parts[2]), code: parts[3]!, site: decodeURIComponent(parts[4]!), unit: decodeURIComponent(parts[5]!),
+      guest: decodeURIComponent(parts[6]!), plate: decodeURIComponent(parts[7]!), expires: Number(parts[8]),
+    };
+  } catch { return null; }
 }
 
 /* ---------------------------------------------------------------------------------------------- */
@@ -60,9 +88,9 @@ export function parsePassToken(secret: string, token: string): { id: string; ver
 /* ---------------------------------------------------------------------------------------------- */
 
 interface PassRow {
-  id: string; status: 'active' | 'checked_in' | 'completed' | 'cancelled'; qr_version: number; expires_at: Date; created_at: Date;
+  id: string; unit_id: string; status: 'active' | 'checked_in' | 'completed' | 'cancelled'; qr_version: number; expires_at: Date; created_at: Date;
   checked_in_at: Date | null; completed_at: Date | null; cancelled_at: Date | null; guest_name: string; guest_phone: string | null;
-  guest_email: string | null; plate_hint: string | null; unit_code: string; unit_name: string; site_code: string; overstay_charge: number | null;
+  guest_email: string | null; plate_hint: string | null; verify_code: string; unit_code: string; unit_name: string; site_code: string; overstay_charge: number | null;
   host_name?: string | null; host_email?: string | null;
 }
 
@@ -80,7 +108,11 @@ export function presentPass(secret: string, p: PassRow, now: Date, includeQr: bo
     createdAt: p.created_at, expiresAt: p.expires_at, checkedInAt: p.checked_in_at, completedAt: p.completed_at, cancelledAt: p.cancelled_at,
     overstayCharge: p.overstay_charge,
     // Only a live, unredeemed pass has a QR; an expired one must be regenerated.
-    qr: includeQr && displayStatus === 'active' ? passToken(secret, p.id, p.qr_version) : null,
+    qr: includeQr && displayStatus === 'active'
+      ? passToken(secret, { id: p.id, version: p.qr_version, code: p.verify_code, site: p.site_code, unit: p.unit_code, guest: p.guest_name, plate: p.plate_hint ?? '', expires: Math.floor(p.expires_at.getTime() / 1000) })
+      : null,
+    /** The same random code, printed under the QR so a person can read it out if the camera cannot. */
+    verifyCode: includeQr && displayStatus === 'active' ? p.verify_code : null,
   };
 }
 
@@ -98,17 +130,17 @@ export const NewPass = z.object({
 }).refine((b) => b.guestPhone || b.guestEmail, { message: 'a phone number or email is needed to reach the guest' });
 
 async function unitFor(db: Db, ctx: Ctx, code?: string) {
-  const id = ctx.role === 'resident' ? ctx.unitId : null;
-  const r = id
-    ? await db.query('select id, code, name, site_id from unit where id = $1', [id])
-    : code ? await db.query('select id, code, name, site_id from unit where code = $1', [code]) : null;
-  if (!r?.rows[0]) throw new HttpError(ctx.role === 'resident' ? 403 : 400, 'unit_required', ctx.role === 'resident' ? 'Your account is not linked to a unit' : 'Name the unit this pass is for');
+  // Staff who can manage passes may name any unit; everyone else (residents) uses their own.
+  const named = code && can(ctx, 'pass.admin') ? await db.query('select id, code, name, site_id from unit where code = $1', [code]) : null;
+  const own = !named?.rows[0] && ctx.unitId ? await db.query('select id, code, name, site_id from unit where id = $1', [ctx.unitId]) : null;
+  const r = named?.rows[0] ? named : own;
+  if (!r?.rows[0]) throw new HttpError(ctx.unitId ? 400 : 403, 'unit_required', ctx.unitId ? 'Name the unit this pass is for' : 'Your account is not linked to a unit');
   return r.rows[0] as { id: string; code: string; name: string; site_id: string | null };
 }
 
 /** A resident may only touch passes of their own unit; staff with pass.admin may touch any. */
-function assertOwns(ctx: Ctx, p: { unit_id: string }, can: (perm: 'pass.admin') => boolean) {
-  if (ctx.role === 'resident' ? p.unit_id !== ctx.unitId : !can('pass.admin')) throw new HttpError(404, 'pass_not_found', 'No such pass');
+function assertOwns(ctx: Ctx, p: { unit_id: string }, mayAdmin: (perm: 'pass.admin') => boolean) {
+  if (p.unit_id !== ctx.unitId && !mayAdmin('pass.admin')) throw new HttpError(404, 'pass_not_found', 'No such pass');
 }
 
 export async function createPass(app: App, db: Db, ctx: Ctx, input: z.infer<typeof NewPass>) {
@@ -116,8 +148,8 @@ export async function createPass(app: App, db: Db, ctx: Ctx, input: z.infer<type
   const sites = (await db.query('select id from site where retired_at is null order by code')).rows;
   const siteId = unit.site_id ?? (sites.length === 1 ? sites[0].id : null);
   if (!siteId) throw new HttpError(409, 'site_required', 'This unit is not assigned to a site yet');
-  const host = ctx.role === 'resident' ? ctx.userId
-    : (await db.query("select user_id from membership where unit_id = $1 and role = 'resident' limit 1", [unit.id])).rows[0]?.user_id ?? ctx.userId;
+  const host = unit.id === ctx.unitId ? ctx.userId
+    : (await db.query("select user_id from membership where unit_id = $1 and 'resident' = any(roles) limit 1", [unit.id])).rows[0]?.user_id ?? ctx.userId;
   if (!host) throw new HttpError(400, 'host_required', 'A pass needs a resident host');
 
   const { policy } = await loadPolicy(db);
@@ -126,10 +158,10 @@ export async function createPass(app: App, db: Db, ctx: Ctx, input: z.infer<type
   await db.query('savepoint new_pass');
   try {
     const r = await db.query(
-      `insert into pass (tenant_id, site_id, unit_id, host_user_id, guest_name, guest_phone, guest_email, plate_hint, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
+      `insert into pass (tenant_id, site_id, unit_id, host_user_id, guest_name, guest_phone, guest_email, plate_hint, expires_at, verify_code)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
       [ctx.tenantId, siteId, unit.id, host, input.guestName, input.guestPhone ?? null, input.guestEmail ?? null, input.plateHint ?? null,
-        new Date(now.getTime() + policy.qrTtlMin * 60_000)]);
+        new Date(now.getTime() + policy.qrTtlMin * 60_000), newVerifyCode()]);
     await db.query('release savepoint new_pass');
     return getPass(app, db, r.rows[0].id, now, true);
   } catch (e) {
@@ -151,16 +183,17 @@ export async function getPass(app: App, db: Db, id: string, now: Date, includeQr
 export async function listPasses(app: App, db: Db, ctx: Ctx, canAdmin: boolean, status?: string, limit = 25) {
   const rows = (await db.query(
     `${PASS_SQL} where ($1::uuid is null or p.unit_id = $1) and ($2::text is null or p.status = $2) order by p.created_at desc limit $3`,
-    [ctx.role === 'resident' ? ctx.unitId : null, status ?? null, limit])).rows as PassRow[];
-  if (ctx.role !== 'resident' && !canAdmin) throw new HttpError(403, 'forbidden', 'Not allowed to list passes');
+    [canAdmin ? null : ctx.unitId, status ?? null, limit])).rows as PassRow[];
+  if (!canAdmin && !ctx.unitId) throw new HttpError(403, 'forbidden', 'Not allowed to list passes');
   const now = app.now();
-  return rows.map((r) => presentPass(app.cfg.JWT_SECRET, r, now, ctx.role === 'resident'));
+  // A QR is shown only to the unit that owns the pass.
+  return rows.map((r) => presentPass(app.cfg.JWT_SECRET, r, now, r.unit_id === ctx.unitId));
 }
 
 async function lockPass(db: Db, id: string) {
   const p = (await db.query('select * from pass where id = $1 for update', [id])).rows[0];
   if (!p) throw new HttpError(404, 'pass_not_found', 'No such pass');
-  return p as { id: string; unit_id: string; status: string; qr_version: number; expires_at: Date; site_id: string; guest_name: string; session_id: string | null };
+  return p as { id: string; unit_id: string; verify_code: string; status: string; qr_version: number; expires_at: Date; site_id: string; guest_name: string; session_id: string | null };
 }
 
 /** Issue a fresh QR (new 2-hour window). The previous QR stops working. Only for passes not yet checked in. */
@@ -171,8 +204,8 @@ export async function regeneratePass(app: App, db: Db, ctx: Ctx, canAdmin: (p: '
   if (p.status !== 'active') throw new HttpError(409, `pass_${p.status}`, `This pass is ${p.status}`);
   const { policy } = await loadPolicy(db);
   const now = app.now();
-  await db.query('update pass set qr_version = qr_version + 1, expires_at = $2 where id = $1', [id, new Date(now.getTime() + policy.qrTtlMin * 60_000)]);
-  return getPass(app, db, id, now, ctx.role === 'resident');
+  await db.query('update pass set qr_version = qr_version + 1, verify_code = $3, expires_at = $2 where id = $1', [id, new Date(now.getTime() + policy.qrTtlMin * 60_000), newVerifyCode()]);
+  return getPass(app, db, id, now, p.unit_id === ctx.unitId);
 }
 
 export async function cancelPass(app: App, db: Db, ctx: Ctx, canAdmin: (p: 'pass.admin') => boolean, id: string) {
@@ -201,11 +234,15 @@ async function validate(app: App, db: Db, token: string, lock: boolean): Promise
   else if (p.status === 'completed') reason = 'pass_completed';
   else if (p.status === 'checked_in') reason = 'pass_in_use';
   else if (p.qr_version !== parsed.version) reason = 'pass_superseded';
+  else if (!safeEqual(p.verify_code, parsed.code)) reason = 'pass_invalid'; // a guessed or altered code
   else if (p.expires_at.getTime() <= app.now().getTime()) reason = 'pass_expired';
   return { pass: p, reason };
 }
 
+const safeEqual = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
+
 const REASON_TEXT: Record<string, [number, string]> = {
+  pass_invalid: [400, 'The verification code on this QR does not match'],
   pass_cancelled: [409, 'This pass was cancelled by the resident'],
   pass_completed: [409, 'This pass was already used'],
   pass_in_use: [409, 'The guest of this pass is already inside'],
@@ -305,8 +342,8 @@ export async function sendPassNotification(app: App, tenantId: string, passId: s
     const session = row?.session_id ? (await db.query(
       `select s.in_at, s.out_at, v.plate_display, st.timezone from session s join vehicle v on v.id = s.vehicle_id join site st on st.id = s.site_id where s.id = $1`, [row.session_id])).rows[0] : null;
     const staff = (await db.query(
-      `select u.email, u.phone from membership m join app_user u on u.id = m.user_id where m.role = $1`, ['supervisor'])).rows;
-    const fallback = staff.length ? staff : (await db.query(`select u.email, u.phone from membership m join app_user u on u.id = m.user_id where m.role in ('admin','owner')`)).rows;
+      `select u.email, u.phone from membership m join app_user u on u.id = m.user_id where 'supervisor' = any(m.roles)`)).rows;
+    const fallback = staff.length ? staff : (await db.query(`select u.email, u.phone from membership m join app_user u on u.id = m.user_id where 'admin' = any(m.roles)`)).rows;
     const pol = await loadPolicy(db);
     await db.query('update pass_notification set attempts = attempts + 1 where pass_id = $1 and kind = $2', [passId, kind]);
     return { row, session, staff: fallback as Recipient[], ...pol };
@@ -389,6 +426,75 @@ export async function processPassReminders(app: App, opts: { tenantId?: string }
     // function is not frozen mid-send.
     for (const h of hooks) await h();
     if (owed) { await sendPassNotification(app, tenant, passId, latest); result.sent++; }
+  }
+  return result;
+}
+
+
+/* ---------------------------------------------------------------------------------------------- */
+/* Supervisor alerts for ANY car that stays beyond the thresholds (10 h, 11 h, 12 h by default)     */
+/* ---------------------------------------------------------------------------------------------- */
+
+type StayKind = 'reminder_1' | 'reminder_2' | 'overstay';
+
+async function staffRecipients(db: Db): Promise<Recipient[]> {
+  const sup = (await db.query("select u.email, u.phone from membership m join app_user u on u.id = m.user_id where 'supervisor' = any(m.roles)")).rows;
+  return sup.length ? sup : (await db.query("select u.email, u.phone from membership m join app_user u on u.id = m.user_id where 'admin' = any(m.roles)")).rows;
+}
+
+async function recordStayAlert(db: Db, tenantId: string, sessionId: string, kind: StayKind, status: 'pending' | 'skipped' = 'pending') {
+  const r = await db.query(
+    `insert into stay_alert (tenant_id, session_id, kind, status) values ($1,$2,$3,$4)
+     on conflict (session_id, kind) do update set status = 'pending', created_at = now()
+       where $4 = 'pending' and (stay_alert.status = 'failed' or (stay_alert.status = 'pending' and stay_alert.created_at < now() - interval '10 minutes'))
+     returning id`, [tenantId, sessionId, kind, status]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+export async function sendStayAlert(app: App, tenantId: string, sessionId: string, kind: StayKind) {
+  const info = await app.db.withTenant(tenantId, async (db) => {
+    const s = (await db.query(
+      `select s.in_at, v.plate_display, st.code as site, st.timezone from session s join vehicle v on v.id = s.vehicle_id join site st on st.id = s.site_id where s.id = $1`, [sessionId])).rows[0];
+    await db.query('update stay_alert set attempts = attempts + 1 where session_id = $1 and kind = $2', [sessionId, kind]);
+    return { s, staff: await staffRecipients(db), ...(await loadPolicy(db)) };
+  });
+  if (!info.s) return;
+  const hours = kind === 'reminder_1' ? info.policy.reminderHours[0] : kind === 'reminder_2' ? info.policy.reminderHours[1] : info.policy.maxStayHours;
+  const outcome = { sent: 0, failed: 0, undeliverable: 0, errors: [] as string[] };
+  for (const to of info.staff) {
+    const msg = render(info.locale, 'stay_staff', {
+      plate: info.s.plate_display, site: info.s.site, hours: String(hours),
+      time: new Intl.DateTimeFormat(info.locale, { timeStyle: 'short', timeZone: info.s.timezone }).format(info.s.in_at),
+    });
+    try { const d = await app.notifier.send({ to, ...msg }); if (d.length) outcome.sent++; else outcome.undeliverable++; }
+    catch (e) { outcome.failed++; outcome.errors.push((e as Error).message); }
+  }
+  const status = outcome.sent ? 'sent' : outcome.failed ? 'failed' : 'skipped';
+  await app.db.withTenant(tenantId, (db) => db.query(
+    `update stay_alert set status = $3, sent_at = case when $3 = 'sent' then now() end, detail = $4 where session_id = $1 and kind = $2`, [sessionId, kind, status, JSON.stringify(outcome)]));
+}
+
+/** Cron: tell supervisors about every open stay past 10 h / 11 h / 12 h. Only the latest due threshold is sent; safe to repeat. */
+export async function processStayAlerts(app: App, opts: { tenantId?: string } = {}) {
+  const now = app.now();
+  const all = (await app.db.raw((db) => db.query('select * from due_stay_alerts($1)', [now]))).rows as { tenant_id: string; session_id: string; kind: StayKind }[];
+  const due = opts.tenantId ? all.filter((d) => d.tenant_id === opts.tenantId) : all;
+  const bySession = new Map<string, { tenant: string; kinds: StayKind[] }>();
+  for (const d of due) bySession.set(d.session_id, { tenant: d.tenant_id, kinds: [...(bySession.get(d.session_id)?.kinds ?? []), d.kind] });
+  const order: StayKind[] = ['reminder_1', 'reminder_2', 'overstay'];
+  const result = { sessions: bySession.size, sent: 0 };
+  for (const [sessionId, { tenant, kinds }] of bySession) {
+    const latest = order.filter((k) => kinds.includes(k)).pop()!;
+    const owed = await app.db.withTenant(tenant, async (db) => {
+      for (const k of kinds.filter((x) => x !== latest)) await recordStayAlert(db, tenant, sessionId, k, 'skipped');
+      // A guest-pass stay already tells supervisors about the 12 h HOA charge (see the pass notices), so do not repeat it.
+      if (latest === 'overstay' && (await db.query('select 1 from pass where session_id = $1', [sessionId])).rowCount) {
+        await recordStayAlert(db, tenant, sessionId, latest, 'skipped');
+        return false;
+      }
+      return recordStayAlert(db, tenant, sessionId, latest);
+    });
+    if (owed) { await sendStayAlert(app, tenant, sessionId, latest); result.sent++; }
   }
   return result;
 }

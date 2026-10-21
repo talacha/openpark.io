@@ -4,4 +4,6 @@ packages:
   - e2e
 allowBuilds:
   esbuild: true
+  protobufjs: false
   sharp: true
+  onnxruntime-node: true

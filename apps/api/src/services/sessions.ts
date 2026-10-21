@@ -227,7 +227,7 @@ export async function checkoutPreview(app: App, db: Db, s: OpenSession, lostTick
 
 export async function checkOut(app: App, db: Db, ctx: Ctx, after: After, s: OpenSession, method: 'plate' | 'ticket' | 'fuzzy' | 'session', input: CheckOutInput) {
   if (ctx.siteId && ctx.siteId !== s.site_id) throw new HttpError(404, 'session_not_found', 'No such session');
-  if ((input.lostTicket || input.override) && !can(ctx.role, 'fee.override')) throw new HttpError(403, 'forbidden', 'Lost-ticket and fee overrides need the supervisor role');
+  if ((input.lostTicket || input.override) && !can(ctx, 'fee.override')) throw new HttpError(403, 'forbidden', 'Lost-ticket and fee overrides need the supervisor role');
   const now = app.now();
   const fee = await quote(db, s, now, input.lostTicket);
   const final = input.override ? input.override.fee : fee.total;

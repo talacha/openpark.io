@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { hashPassword, newApiKey, signToken, verifyPassword } from '../auth.js';
+import { ROLES, hashPassword, newApiKey, signToken, verifyPassword } from '../auth.js';
 import { localAuthEnabled } from '../config.js';
 import { audit } from '../db.js';
 import { HttpError, created, defineRoute, definePublicRoute } from '../http.js';
@@ -19,7 +19,7 @@ const Signup = z.object({
   slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}$/).optional(),
 });
 
-const Role = z.enum(['admin', 'supervisor', 'attendant', 'auditor', 'resident']);
+const Role = z.enum(ROLES);
 
 export function registerAuthRoutes(app: App) {
   // Called by openpark.io: creates a trial tenant with one demo site and a country-template rate plan.
@@ -55,7 +55,7 @@ export function registerAuthRoutes(app: App) {
       const ok = await verifyPassword(body.password, u?.password_hash ?? 'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
       if (!u || !ok) throw new HttpError(401, 'bad_credentials', 'Invalid email or password');
       const memberships = (await app.db.raw((db) => db.query('select * from user_memberships($1)', [u.id]))).rows
-        .map((m) => ({ slug: m.slug, name: m.name, role: m.role }));
+        .map((m) => ({ slug: m.slug, name: m.name, roles: m.roles }));
       return { token: signToken(app.cfg.JWT_SECRET, u.id), user: { name: u.name, locale: u.locale }, memberships };
     },
   });
@@ -63,10 +63,13 @@ export function registerAuthRoutes(app: App) {
   defineRoute(app, {
     method: 'GET', path: '/v1/me', summary: 'Current identity and tenant', perm: 'me',
     async handler({ ctx, db }) {
-      const t = (await db.query('select slug, name, country, default_locale, locales, currency, plate_regions, ai_mode, terminology, slot_types from tenant')).rows[0];
+      const t = (await db.query(
+        `select slug, name, country, default_locale, locales, currency, plate_regions, ai_mode, terminology, slot_types,
+           coalesce((settings->>'retentionDays')::int, 30) as retention_days,
+           coalesce((settings->>'trainingExport')::boolean, false) as training_export from tenant`)).rows[0];
       const user = ctx.userId ? (await db.query('select id, email, name, phone, locale from app_user where id = $1', [ctx.userId])).rows[0] : null;
       const unit = ctx.unitId ? (await db.query('select code, name from unit where id = $1', [ctx.unitId])).rows[0] : null;
-      return { role: ctx.role, user, unit, superadmin: ctx.superadmin, tenant: t };
+      return { roles: ctx.roles, user, unit, superadmin: ctx.superadmin, tenant: t };
     },
   });
 

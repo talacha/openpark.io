@@ -3,23 +3,33 @@ import { promisify } from 'node:util';
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
-export type Role = 'owner' | 'admin' | 'supervisor' | 'attendant' | 'auditor' | 'resident';
+/** Membership roles, least to most access. Super Admin is a platform-wide flag on the user (see `Actor`). */
+export const ROLES = ['resident', 'attendant', 'supervisor', 'admin'] as const;
+export type Role = (typeof ROLES)[number];
 
 const ALL = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void', 'inventory.edit',
   'inventory.import', 'rate_plan.edit', 'settings.edit', 'users.edit', 'audit.read', 'tenant.delete',
   'pass.own', 'pass.redeem', 'pass.admin'] as const;
 export type Permission = (typeof ALL)[number];
 
+const ATTENDANT: readonly Permission[] = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'pass.redeem'];
 const PERMS: Record<Role, readonly Permission[]> = {
-  owner: ALL,
-  admin: ALL.filter((p) => p !== 'tenant.delete'),
-  supervisor: ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void', 'pass.redeem', 'pass.admin'],
-  attendant: ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'pass.redeem'],
-  auditor: ['me', 'read', 'audit.read'],
-  // Residents see nothing of the lot's operations: only their own unit's guest passes.
+  // Lives in the complex and issues guest passes: sees nothing of the lot's operations.
   resident: ['me', 'pass.own'],
+  attendant: ATTENDANT,
+  // Same as an attendant, plus overrides and voids, and the monitoring console; alerted when cars overstay.
+  supervisor: [...ATTENDANT, 'fee.override', 'session.void', 'pass.admin'],
+  // Configures a single property.
+  admin: ALL.filter((p) => p !== 'tenant.delete'),
 };
-export const can = (role: Role, p: Permission) => PERMS[role].includes(p);
+
+/** Who is asking: their roles in the current property, and whether they are a platform-wide Super Admin. */
+export interface Actor { roles: readonly Role[]; superadmin: boolean }
+
+/** A person's permissions are the union of their roles; a Super Admin may do everything, in every property. */
+export const can = (who: Actor, p: Permission): boolean => who.superadmin || who.roles.some((r) => PERMS[r].includes(p));
+export const hasRole = (who: Actor, r: Role): boolean => who.roles.includes(r);
+export const describeRoles = (who: Actor): string => [...(who.superadmin ? ['super admin'] : []), ...who.roles].join(', ') || 'none';
 
 export async function hashPassword(pw: string): Promise<string> {
   const salt = randomBytes(16);

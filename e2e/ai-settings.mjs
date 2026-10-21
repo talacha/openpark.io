@@ -1,0 +1,27 @@
+// The AI privacy settings must survive a reload. Needs api :3000 (TRIAL_SIGNUP=true) and web :5173.
+import { chromium } from 'playwright-core';
+const API = 'http://localhost:3000', WEB = 'http://localhost:5173';
+const sfx = Math.random().toString(36).slice(2, 8);
+const su = await fetch(`${API}/v1/signup`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `a-${sfx}@example.com`, password: 'correct-horse-battery', organisation: `AI ${sfx}`, country: 'MX' }) }).then((r) => r.json());
+await fetch(`${API}/v1/me/profile`, { method: 'PATCH', headers: { 'content-type': 'application/json', authorization: `Bearer ${su.token}`, 'x-tenant': su.tenant.slug }, body: JSON.stringify({ locale: 'en' }) });
+const b = await chromium.launch({ channel: 'chrome' });
+const p = await (await b.newContext({ viewport: { width: 1200, height: 900 }, locale: 'en-US' })).newPage();
+await p.goto(`${WEB}/login`); await p.fill('input[name=email]', `a-${sfx}@example.com`); await p.fill('input[name=password]', 'correct-horse-battery'); await p.click('button.primary');
+await p.waitForURL(/dashboard/);
+await p.goto(`${WEB}/t/${su.tenant.slug}/ai`);
+const box = p.getByLabel('Share corrections as training data (opt-in)');
+const days = p.getByLabel('Keep plate images (days)');
+await box.waitFor();
+if (await box.isChecked() || (await days.inputValue()) !== '30') throw new Error('defaults should be unchecked / 30');
+await box.check(); await days.fill('45');
+await p.getByRole('button', { name: 'Save' }).click(); await p.waitForSelector('text=Saved');
+await p.reload();
+const box2 = p.getByLabel('Share corrections as training data (opt-in)'); await box2.waitFor();
+if (!(await box2.isChecked())) throw new Error('training opt-in did not persist');
+if ((await p.getByLabel('Keep plate images (days)').inputValue()) !== '45') throw new Error('retention did not persist');
+console.log('✓ after save and reload: training opt-in is still ticked and retention is 45 days');
+await p.getByLabel('Share corrections as training data (opt-in)').uncheck(); await p.getByRole('button', { name: 'Save' }).click(); await p.waitForSelector('text=Saved');
+await p.reload(); await p.getByLabel('Share corrections as training data (opt-in)').waitFor();
+if (await p.getByLabel('Share corrections as training data (opt-in)').isChecked()) throw new Error('turning it off did not persist');
+console.log('✓ turning it off persists too');
+await b.close();

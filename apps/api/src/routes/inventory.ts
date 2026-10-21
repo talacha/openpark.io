@@ -2,7 +2,7 @@ import { InventoryDoc, flattenInventory, diffInventory, type InventoryDiff } fro
 import { z } from 'zod';
 import { audit } from '../db.js';
 import { locateJsonError } from '../jsonpos.js';
-import { HttpError, created, defineRoute } from '../http.js';
+import { HttpError, created, defineRoute, boolQuery } from '../http.js';
 import type { App } from '../server.js';
 import { applyInventory, applySlots, exportInventory, loadLiveSlots, previewImport } from '../services/inventory.js';
 
@@ -42,7 +42,7 @@ export function registerInventoryRoutes(app: App) {
 
   defineRoute(app, {
     method: 'POST', path: '/v1/inventory/import', summary: 'Validate and diff; returns a job', perm: 'inventory.import',
-    query: z.object({ mode: z.enum(['merge', 'replace']).default('merge'), dryRun: z.coerce.boolean().default(false) }),
+    query: z.object({ mode: z.enum(['merge', 'replace']).default('merge'), dryRun: boolQuery() }),
     body: z.record(z.unknown()),
     async handler({ ctx, db, query, body }) {
       const doc = parseDoc(body);
@@ -57,7 +57,7 @@ export function registerInventoryRoutes(app: App) {
   defineRoute(app, {
     method: 'POST', path: '/v1/inventory/import/:job/apply', summary: 'Apply a previewed diff', perm: 'inventory.import',
     async handler({ ctx, db, params }) {
-      const job = (await db.query('select * from inventory_import where id = $1 for update', [params.job])).rows[0];
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'inventory' for update", [params.job])).rows[0];
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
       if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
@@ -76,7 +76,7 @@ export function registerInventoryRoutes(app: App) {
   defineRoute(app, {
     method: 'POST', path: '/v1/inventory/import/:job/rollback', summary: 'Restore the pre-import snapshot', perm: 'inventory.import',
     async handler({ ctx, db, params }) {
-      const job = (await db.query('select * from inventory_import where id = $1 for update', [params.job])).rows[0];
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'inventory' for update", [params.job])).rows[0];
       if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
       if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
       const diff = diffInventory(await loadLiveSlots(db), job.snapshot, 'replace');

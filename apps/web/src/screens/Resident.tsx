@@ -2,18 +2,19 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, patch, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
+import { spaceCode } from '../pass.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
+import { errText } from '../errors.js';
 
 export interface PassView {
   id: string; status: 'active' | 'checked_in' | 'completed' | 'cancelled'; displayStatus: string;
   unit: { code: string; name: string }; guestName: string; guestPhone: string | null; guestEmail: string | null; plateHint: string | null;
   expiresAt: string; createdAt: string; checkedInAt: string | null; completedAt: string | null; cancelledAt: string | null;
-  overstayCharge: number | null; qr: string | null;
+  overstayCharge: number | null; qr: string | null; verifyCode?: string | null;
 }
 interface Active { pass: PassView | null; policy: { qrTtlMin: number; maxStayHours: number; overstayCharge: number; currency: string } }
 
-const errText = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
 
 /** mm:ss or h:mm:ss until `to`. */
 function useCountdown(to: string | null): { text: string; done: boolean } {
@@ -34,6 +35,7 @@ export function ResidentHome() {
   const active = useApi<Active>('/v1/passes/active');
   const history = useApi<PassView[]>('/v1/passes?limit=10');
   const [err, setErr] = useState('');
+  const [editPhone, setEditPhone] = useState(false);
   const [busy, setBusy] = useState(false);
   const pass = active.data?.pass ?? null;
   const policy = active.data?.policy;
@@ -69,7 +71,9 @@ export function ResidentHome() {
     <div className="att">
       <div><h1>{t('res.title')}</h1><div className="muted">{t('res.unit', { unit: me.unit.name })}</div></div>
 
-      {!me.user?.phone && <PhoneCard onSaved={reload} />}
+      {(!me.user?.phone || editPhone)
+        ? <PhoneCard phone={me.user?.phone ?? ''} onSaved={async () => { setEditPhone(false); await reload(); }} onCancel={me.user?.phone ? () => setEditPhone(false) : undefined} />
+        : <div className="row between muted"><span dir="ltr">{t('res.phone')}: {me.user.phone}</span><button type="button" className="btn" onClick={() => setEditPhone(true)}>{t('users.edit')}</button></div>}
       {err && <div className="banner bad" role="alert">{err}</div>}
 
       {!pass && (
@@ -91,7 +95,8 @@ export function ResidentHome() {
 
           {pass.status === 'active' && !expired && pass.qr && (
             <>
-              <QrCode value={pass.qr} size={260} label={pass.guestName} />
+              <QrCode value={pass.qr} size={280} label={pass.guestName} />
+              {pass.verifyCode && <div className="verify"><span className="muted">{t('res.verifyCode')}</span><strong className="num" dir="ltr">{spaceCode(pass.verifyCode)}</strong></div>}
               <p className="muted">{t('res.qrHelp')}</p>
               <div className="feetotal num" aria-live="off">{t('res.expiresIn', { time: countdown.text })}</div>
             </>
@@ -129,7 +134,7 @@ export function ResidentHome() {
   );
 }
 
-function PhoneCard({ onSaved }: { onSaved: () => Promise<void> }) {
+function PhoneCard({ phone, onSaved, onCancel }: { phone: string; onSaved: () => Promise<void>; onCancel?: () => void }) {
   const t = useT();
   const [err, setErr] = useState('');
   async function save(e: FormEvent<HTMLFormElement>) {
@@ -141,9 +146,9 @@ function PhoneCard({ onSaved }: { onSaved: () => Promise<void> }) {
     <form className="card stack" onSubmit={save}>
       <h2>{t('res.phoneTitle')}</h2>
       <p className="muted">{t('res.phoneHelp')}</p>
-      <label className="field">{t('res.phone')}<input name="phone" type="tel" inputMode="tel" required placeholder="+52 55 1234 5678" dir="ltr" /></label>
+      <label className="field">{t('res.phone')}<input name="phone" type="tel" inputMode="tel" required defaultValue={phone} placeholder="+52 55 1234 5678" dir="ltr" /></label>
       {err && <div className="banner bad" role="alert">{err}</div>}
-      <button className="btn">{t('common.save')}</button>
+      <div className="row"><button className="btn primary">{t('common.save')}</button>{onCancel && <button type="button" className="btn" onClick={onCancel}>{t('common.cancel')}</button>}</div>
     </form>
   );
 }

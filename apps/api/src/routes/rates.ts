@@ -1,13 +1,13 @@
 import { RateRules, computeFee } from '@openpark/core';
 import { z } from 'zod';
 import { audit } from '../db.js';
-import { HttpError, created, defineRoute } from '../http.js';
+import { HttpError, created, defineRoute, boolQuery } from '../http.js';
 import type { App } from '../server.js';
 
 export function registerRateRoutes(app: App) {
   defineRoute(app, {
     method: 'GET', path: '/v1/rate-plans', summary: 'List plans (latest version of each unless all=true)', perm: 'read',
-    query: z.object({ site: z.string().optional(), all: z.coerce.boolean().default(false) }),
+    query: z.object({ site: z.string().optional(), all: boolQuery() }),
     async handler({ db, query: q }) {
       return (await db.query(
         `select rp.id, st.code as site, rp.name, rp.version, rp.rules, rp.currency, rp.tax_mode, rp.active_from,

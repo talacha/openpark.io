@@ -3,6 +3,7 @@ import { ApiError, request } from '../api.js';
 import { useApp } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
+import { feeLabel } from '../labels.js';
 
 interface Rules { graceMin: number; firstPeriodMin: number; firstPeriodFee: number; incrementMin: number; incrementFee: number; dailyCap: number | null; lostTicketFee: number; taxMode: string; taxRate: number }
 interface Plan { id: string; name: string; version: number; rules: Rules; is_default: boolean; in_use: boolean; currency: string }
@@ -65,7 +66,7 @@ export function Rates() {
         {quote && (
           <div>
             <div className="muted">{t('rates.minutes')}: {t('sessions.minutes', { count: quote.minutes })}</div>
-            {quote.lines.map((l, i) => <div className="feeline" key={i}><span>{l.label}</span><span className="num">{fmt.money(l.amount)}</span></div>)}
+            {quote.lines.map((l, i) => <div className="feeline" key={i}><span>{feeLabel(t, l.label)}</span><span className="num">{fmt.money(l.amount)}</span></div>)}
             <div className="feeline"><strong>{t('rates.total')}</strong><span className="feetotal num">{fmt.money(quote.total)}</span></div>
             {quote.tax > 0 && <div className="muted">{t('rates.tax')}: {fmt.money(quote.tax)}</div>}
           </div>

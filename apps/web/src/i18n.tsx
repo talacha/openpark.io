@@ -38,13 +38,18 @@ export function translate(locale: string, key: string, values: Record<string, un
   try { return String(f.format(values as never)); } catch { return msg; }
 }
 
+let active = 'en';
+/** The locale in use right now, for code outside React (error messages). */
+export const currentLocale = () => active;
+
 interface Ctx { locale: string; setLocale: (l: string) => void; t: (key: string, values?: Record<string, unknown>) => string; dir: 'ltr' | 'rtl' }
 const I18n = createContext<Ctx>({ locale: 'en', setLocale: () => {}, t: (k) => k, dir: 'ltr' });
 
-export function I18nProvider({ defaultLocale, terminology, children }: { defaultLocale: string; terminology: Terminology; children: ReactNode }) {
+export function I18nProvider({ defaultLocale, terminology, onLocaleChange, children }: { defaultLocale: string; terminology: Terminology; onLocaleChange?: (l: string) => void; children: ReactNode }) {
   const [override, setOverride] = useState<string | null>(() => { try { return localStorage.getItem('op.locale'); } catch { return null; } });
   const locale = resolveLocale(override ?? defaultLocale);
-  const setLocale = useCallback((l: string) => { setOverride(l); try { localStorage.setItem('op.locale', l); } catch { /* ignore */ } }, []);
+  active = locale;
+  const setLocale = useCallback((l: string) => { setOverride(l); try { localStorage.setItem('op.locale', l); } catch { /* ignore */ } onLocaleChange?.(l); }, [onLocaleChange]);
   const dir = isRtl(locale) ? 'rtl' : 'ltr';
   useEffect(() => { document.documentElement.lang = locale; document.documentElement.dir = dir; }, [locale, dir]);
   const value = useMemo<Ctx>(() => ({ locale, setLocale, dir, t: (k, v) => translate(locale, k, v, terminology) }), [locale, setLocale, dir, terminology]);

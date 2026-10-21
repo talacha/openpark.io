@@ -6,6 +6,12 @@ const API = 'http://localhost:3000', WEB = 'http://localhost:5173';
 const shots = process.argv[2] ?? './shots'; mkdirSync(shots, { recursive: true });
 const sfx = Math.random().toString(36).slice(2, 8);
 const ok = (m) => console.log(`✓ ${m}`);
+/** Open a menu group only if it is closed (the group you are in is already open). */
+async function expand(page, name) {
+  const head = page.locator(`button.menu-head:has-text("${name}")`);
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+}
+
 const j = (r) => r.json();
 const call = (path, { token, tenant, method = 'POST', body, key } = {}) => fetch(API + path, {
   method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}), ...(tenant ? { 'x-tenant': tenant } : {}), ...(method !== 'GET' ? { 'idempotency-key': key ?? crypto.randomUUID() } : {}) },
@@ -18,7 +24,7 @@ await call('/v1/me/profile', { ...owner, method: 'PATCH', body: { locale: 'en' }
 await call('/v1/units', { ...owner, body: { code: 'A-101', name: 'Apartment A-101' } });
 const mk = async (role, extra = {}) => {
   const email = `${role}-${sfx}@example.com`;
-  const r = await call('/v1/users', { ...owner, body: { email, role, ...extra } }).then(j);
+  const r = await call('/v1/users', { ...owner, body: { email, roles: [role], ...extra } }).then(j);
   const l = await call('/v1/auth/login', { body: { email, password: r.temporaryPassword } }).then(j);
   await call('/v1/me/profile', { token: l.token, tenant: owner.tenant, method: 'PATCH', body: { locale: 'en' } });
   return { email, password: r.temporaryPassword, token: l.token };
@@ -84,6 +90,7 @@ await a.fill('input[aria-label="Pass code"]', pass.qr);
 await a.click('text=Use this pass');
 await a.waitForSelector('text=/Guest pass for Luis Invitado/');
 ok('valid pass recognised before the plate is taken');
+await a.click('[data-mode=keypad]').catch(() => {});
 for (const c of 'GST123') await a.click(`.keypad button[aria-label="${c}"]`);
 await a.screenshot({ path: `${shots}/g2-attendant-pass.png` });
 await a.click('text=Next');
@@ -130,12 +137,14 @@ ok('pass cancelled before check-in; unit is free again');
 // ---- admin console: units, people, pass rules ----
 const adm = await login({ email: `owner-${sfx}@example.com`, password: 'correct-horse-battery' }, { width: 1280, height: 900 });
 await adm.waitForURL(/dashboard/);
+await expand(adm, 'Admin');
 await adm.click('a.nav:has-text("Units")');
 await adm.waitForSelector('text=Apartment A-101');
 await adm.screenshot({ path: `${shots}/g4-units.png` });
 await adm.click('a.nav:has-text("People")');
 await adm.waitForSelector(`text=resident-${sfx}@example.com`);
 await adm.screenshot({ path: `${shots}/g5-people.png` });
+await expand(adm, 'Platform view');
 await adm.click('a.nav:has-text("Guest passes")');
 await adm.waitForSelector('text=Pass rules');
 const charge = await adm.inputValue('input[type=number][step="0.01"]');

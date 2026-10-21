@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { ApiError, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
-import { useFormat, useI18n, useT, LOCALES, NAMES } from '../i18n.js';
+import { useFormat, useT } from '../i18n.js';
 
 interface Tenant { slug: string; name: string; country: string; created_at: string; suspended_at: string | null; suspended_reason: string | null; members: number; sites: number; open_sessions: number }
 
@@ -11,8 +11,7 @@ interface Tenant { slug: string; name: string; country: string; created_at: stri
 export function Platform() {
   const t = useT();
   const nav = useNavigate();
-  const { locale, setLocale } = useI18n();
-  const { switchTenant, signOut, who } = useApp();
+  const { switchTenant, who } = useApp();
   const fmt = useFormat();
   const tenants = useApi<Tenant[]>('/v1/platform/tenants');
   const [err, setErr] = useState('');
@@ -39,15 +38,9 @@ export function Platform() {
   if (!who) return <Navigate to="/login" replace />;
   if (!who.superadmin) return <Navigate to="/" replace />;
   return (
-    <div className="main" style={{ margin: '0 auto' }}>
+    <div>
       <div className="stack">
-        <div className="row between">
-          <h1>{t('platform.title')}</h1>
-          <span className="row">
-            <select aria-label={t('auth.language')} value={locale} onChange={(e) => setLocale(e.target.value)}>{LOCALES.map((l) => <option key={l} value={l}>{NAMES[l]}</option>)}</select>
-            <button className="btn" onClick={async () => { await signOut(); nav('/login'); }}>{t('nav.signout')}</button>
-          </span>
-        </div>
+        <h1>{t('platform.tenants')}</h1>
         <form className="card row" onSubmit={create}>
           <label className="field grow">{t('auth.org')}<input name="org" required minLength={2} /></label>
           <label className="field">{t('auth.country')}<select name="country" defaultValue="MX">{['MX', 'US', 'BR', 'ES', 'FR', 'DE'].map((c) => <option key={c}>{c}</option>)}</select></label>
@@ -56,7 +49,6 @@ export function Platform() {
         </form>
         {note && <div className="banner" role="status">{note}</div>}
         {err && <div className="banner bad" role="alert">{err}</div>}
-        <h2>{t('platform.tenants')}</h2>
         <div className="tablewrap"><table>
           <thead><tr><th>{t('auth.org')}</th><th>{t('auth.country')}</th><th className="num">{t('platform.members')}</th><th className="num">{t('platform.sites')}</th><th className="num">{t('platform.open')}</th><th /></tr></thead>
           <tbody>{tenants.data?.map((x) => (

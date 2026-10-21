@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.openpark.io/units/v1.json",
+  "title": "OpenPark units v1",
+  "description": "A tenant's units (apartments, houses) and, optionally, their residents, as one versioned document. Unit codes are the stable keys. License: Apache-2.0.",
+  "type": "object",
+  "required": ["schemaVersion", "tenant", "units"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "tenant": { "type": "string", "description": "Tenant slug." },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } }
+  },
+  "patternProperties": { "^x-": {} },
+  "additionalProperties": false,
+  "$defs": {
+    "unit": {
+      "type": "object",
+      "required": ["code", "name"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "site": { "type": "string", "description": "Site code; optional when the tenant has one site." },
+        "residents": { "type": "array", "items": { "$ref": "#/$defs/resident" }, "description": "Added to the unit on import (existing accounts join, others are invited). An import never removes residents." }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    },
+    "resident": {
+      "type": "object",
+      "required": ["email"],
+      "properties": { "email": { "type": "string", "format": "email" }, "name": { "type": "string", "maxLength": 100 } },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    }
+  }
+}

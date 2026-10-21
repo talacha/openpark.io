@@ -1,0 +1,20 @@
+{
+  "//": "Models are fetched from their official release assets at build time and verified against these hashes (see scripts/fetch-models.mjs). Licenses: see public/models/NOTICE.md.",
+  "files": {
+    "yolo-v9-t-384-license-plates-end2end.onnx": {
+      "url": "https://github.com/ankandrew/open-image-models/releases/download/assets/yolo-v9-t-384-license-plates-end2end.onnx",
+      "sha256": "888397b96d761c89db40bc9c305838e8652660f5e282c2cadebbe8d2951a77a8",
+      "bytes": 7771218
+    },
+    "cct_s_v2_global.onnx": {
+      "url": "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/cct_s_v2_global.onnx",
+      "sha256": "384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b",
+      "bytes": 5262230
+    },
+    "cct_s_v2_global_plate_config.yaml": {
+      "url": "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/cct_s_v2_global_plate_config.yaml",
+      "sha256": "0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6",
+      "bytes": 1725
+    }
+  }
+}

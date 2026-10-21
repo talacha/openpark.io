@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useApp } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
+import { eventLabel } from '../labels.js';
 
 interface Row { id: string; status: 'open' | 'closed' | 'void'; plate: string; slot: string | null; zone: string | null; in_at: string; out_at: string | null; minutes: number; fee: number | null; in_by: string | null; out_by: string | null }
 interface Ev { id: number; type: string; server_at: string; device_at: string | null; actor: string | null; payload: Record<string, unknown> }
@@ -44,7 +45,7 @@ export function Sessions() {
           <h2>{t('sessions.timeline')}</h2>
           <ol className="timeline">{events.data?.map((e) => (
             <li key={e.id}>
-              <strong>{e.type}</strong> <span className="muted">{fmt.dateTime(e.server_at)} · {e.actor ?? 'api'}</span>
+              <strong>{eventLabel(t, e.type)}</strong> <span className="muted">{fmt.dateTime(e.server_at)} · {e.actor ?? 'api'}</span>
               <div className="muted" style={{ fontSize: '0.85rem' }}>{Object.entries(e.payload).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ')}</div>
             </li>
           ))}</ol>

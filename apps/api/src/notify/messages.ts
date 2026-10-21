@@ -1,5 +1,5 @@
 /** Localized guest-pass messages. Placeholders are `{name}`; money and times are formatted by the caller. */
-export type MessageKey = 'checked_in' | 'checked_out' | 'reminder' | 'overstay_guest' | 'overstay_host' | 'overstay_staff';
+export type MessageKey = 'checked_in' | 'checked_out' | 'reminder' | 'overstay_guest' | 'overstay_host' | 'overstay_staff' | 'stay_staff';
 interface Tpl { subject: string; body: string }
 
 const en: Record<MessageKey, Tpl> = {
@@ -9,6 +9,7 @@ const en: Record<MessageKey, Tpl> = {
   overstay_guest: { subject: 'Parking limit reached', body: 'Hi {guest}, vehicle {plate} has not checked out after {limit} hours. A charge of {amount} will be made on the HOA platform.' },
   overstay_host: { subject: 'Your guest has exceeded the parking limit', body: '{guest} (vehicle {plate}) has not checked out after {limit} hours. A charge of {amount} will be made to unit {unit} on the HOA platform.' },
   overstay_staff: { subject: 'Guest parking limit exceeded: unit {unit}', body: 'Vehicle {plate} (guest {guest}, host unit {unit}) has not checked out after {limit} hours. A charge of {amount} will be made on the HOA platform.' },
+  stay_staff: { subject: 'Vehicle {plate} inside {hours} hours', body: 'Vehicle {plate} at {site} has been inside for {hours} hours (since {time}).' },
 };
 
 const esMX: Record<MessageKey, Tpl> = {
@@ -18,6 +19,7 @@ const esMX: Record<MessageKey, Tpl> = {
   overstay_guest: { subject: 'Límite de estacionamiento alcanzado', body: 'Hola {guest}, el vehículo {plate} no ha registrado su salida después de {limit} horas. Se realizará un cargo de {amount} en la plataforma del HOA.' },
   overstay_host: { subject: 'Tu invitado excedió el límite de estacionamiento', body: '{guest} (vehículo {plate}) no ha registrado su salida después de {limit} horas. Se realizará un cargo de {amount} a la unidad {unit} en la plataforma del HOA.' },
   overstay_staff: { subject: 'Límite de estacionamiento de visitas excedido: unidad {unit}', body: 'El vehículo {plate} (invitado {guest}, anfitrión de la unidad {unit}) no ha registrado su salida después de {limit} horas. Se realizará un cargo de {amount} en la plataforma del HOA.' },
+  stay_staff: { subject: 'Vehículo {plate} lleva {hours} horas dentro', body: 'El vehículo {plate} en {site} lleva {hours} horas dentro (desde las {time}).' },
 };
 
 const esES: Record<MessageKey, Tpl> = {
@@ -33,6 +35,7 @@ const ptBR: Record<MessageKey, Tpl> = {
   overstay_guest: { subject: 'Limite de estacionamento atingido', body: 'Olá {guest}, o veículo {plate} não registrou saída após {limit} horas. Uma cobrança de {amount} será feita na plataforma do condomínio.' },
   overstay_host: { subject: 'Seu convidado excedeu o limite de estacionamento', body: '{guest} (veículo {plate}) não registrou saída após {limit} horas. Uma cobrança de {amount} será feita na unidade {unit} na plataforma do condomínio.' },
   overstay_staff: { subject: 'Limite de estacionamento de visitantes excedido: unidade {unit}', body: 'O veículo {plate} (convidado {guest}, anfitrião da unidade {unit}) não registrou saída após {limit} horas. Uma cobrança de {amount} será feita na plataforma do condomínio.' },
+  stay_staff: { subject: 'Veículo {plate} há {hours} horas dentro', body: 'O veículo {plate} em {site} está dentro há {hours} horas (desde as {time}).' },
 };
 
 const fr: Record<MessageKey, Tpl> = {
@@ -42,6 +45,7 @@ const fr: Record<MessageKey, Tpl> = {
   overstay_guest: { subject: 'Limite de stationnement atteinte', body: 'Bonjour {guest}, le véhicule {plate} n\'est pas sorti après {limit} heures. Des frais de {amount} seront prélevés sur la plateforme de la copropriété.' },
   overstay_host: { subject: 'Votre invité a dépassé la limite de stationnement', body: '{guest} (véhicule {plate}) n\'est pas sorti après {limit} heures. Des frais de {amount} seront imputés au logement {unit} sur la plateforme de la copropriété.' },
   overstay_staff: { subject: 'Limite de stationnement visiteur dépassée : logement {unit}', body: 'Le véhicule {plate} (invité {guest}, hôte du logement {unit}) n\'est pas sorti après {limit} heures. Des frais de {amount} seront prélevés sur la plateforme de la copropriété.' },
+  stay_staff: { subject: 'Véhicule {plate} présent depuis {hours} heures', body: 'Le véhicule {plate} sur {site} est présent depuis {hours} heures (depuis {time}).' },
 };
 
 const de: Record<MessageKey, Tpl> = {
@@ -51,6 +55,7 @@ const de: Record<MessageKey, Tpl> = {
   overstay_guest: { subject: 'Parkdauer überschritten', body: 'Hallo {guest}, Fahrzeug {plate} ist nach {limit} Stunden nicht ausgefahren. Eine Gebühr von {amount} wird über die Hausverwaltungsplattform erhoben.' },
   overstay_host: { subject: 'Ihr Gast hat die Parkdauer überschritten', body: '{guest} (Fahrzeug {plate}) ist nach {limit} Stunden nicht ausgefahren. Eine Gebühr von {amount} wird für Einheit {unit} über die Hausverwaltungsplattform erhoben.' },
   overstay_staff: { subject: 'Besucher-Parkdauer überschritten: Einheit {unit}', body: 'Fahrzeug {plate} (Gast {guest}, Gastgeber Einheit {unit}) ist nach {limit} Stunden nicht ausgefahren. Eine Gebühr von {amount} wird über die Hausverwaltungsplattform erhoben.' },
+  stay_staff: { subject: 'Fahrzeug {plate} seit {hours} Stunden auf dem Gelände', body: 'Fahrzeug {plate} an {site} steht seit {hours} Stunden auf dem Gelände (seit {time}).' },
 };
 
 const ar: Record<MessageKey, Tpl> = {
@@ -60,6 +65,7 @@ const ar: Record<MessageKey, Tpl> = {
   overstay_guest: { subject: 'تم بلوغ حد الوقوف', body: 'مرحبًا {guest}، لم تسجّل المركبة {plate} خروجها بعد {limit} ساعة. سيُخصم رسم قدره {amount} عبر منصة اتحاد الملاك.' },
   overstay_host: { subject: 'تجاوز ضيفك حد الوقوف', body: 'لم يسجّل {guest} (المركبة {plate}) خروجه بعد {limit} ساعة. سيُخصم رسم قدره {amount} على الوحدة {unit} عبر منصة اتحاد الملاك.' },
   overstay_staff: { subject: 'تجاوز حد وقوف الزوار: الوحدة {unit}', body: 'لم تسجّل المركبة {plate} (الضيف {guest}، مضيف الوحدة {unit}) خروجها بعد {limit} ساعة. سيُخصم رسم قدره {amount} عبر منصة اتحاد الملاك.' },
+  stay_staff: { subject: 'المركبة {plate} بالداخل منذ {hours} ساعات', body: 'المركبة {plate} في {site} بالداخل منذ {hours} ساعات (منذ {time}).' },
 };
 
 const CATALOGS: Record<string, Record<MessageKey, Tpl>> = { en, 'es-MX': esMX, 'es-ES': esES, 'pt-BR': ptBR, fr, de, ar };

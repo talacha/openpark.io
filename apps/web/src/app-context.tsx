@@ -1,19 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ApiError, accessToken, fetchConfig, get, getSession, setSession, type PublicConfig } from './api.js';
+import { ApiError, accessToken, fetchConfig, get, getSession, patch, setSession, type PublicConfig } from './api.js';
 import { supabase } from './auth.js';
 import { I18nProvider, type Terminology } from './i18n.js';
 
-export type Role = 'owner' | 'admin' | 'supervisor' | 'attendant' | 'auditor' | 'resident';
+/** Least to most access. A person can hold several; Super Admin is a separate platform-wide flag. */
+export const ROLES = ['resident', 'attendant', 'supervisor', 'admin'] as const;
+export type Role = (typeof ROLES)[number];
 
 export interface Me {
-  role: Role;
+  roles: Role[];
   user: { id: string; email: string; name: string | null; phone: string | null; locale: string | null } | null;
   unit: { code: string; name: string } | null;
   superadmin: boolean;
-  tenant: { slug: string; name: string; country: string; default_locale: string; locales: string[]; currency: string; plate_regions: string[]; ai_mode: 'off' | 'assist' | 'auto'; terminology: Terminology; slot_types: { code: string; label: string | Record<string, string> }[] };
+  tenant: { slug: string; name: string; country: string; default_locale: string; locales: string[]; currency: string; plate_regions: string[]; ai_mode: 'off' | 'assist' | 'auto'; terminology: Terminology; slot_types: { code: string; label: string | Record<string, string> }[]; retention_days: number; training_export: boolean };
 }
 export interface SiteInfo { code: string; name: string; timezone: string; settings: { aiThreshold?: number }; zones: { code: string; name: string; labels: Record<string, string>; level: number | null }[] }
-export interface Membership { slug: string; name: string; role: Role; unitId: string | null; suspended: boolean }
+export interface Membership { slug: string; name: string; roles: Role[]; unitId: string | null; suspended: boolean }
+export interface PlatformTenant { slug: string; name: string }
 export interface Who { user: { email: string; name: string | null; phone: string | null; locale: string | null } | null; superadmin: boolean; memberships: Membership[] }
 
 interface AppCtx {
@@ -42,12 +45,14 @@ export function pickLabel(label: string | Record<string, string> | undefined, lo
 
 /** Where a signed-in person lands: each role gets its own home. */
 export function homeFor(me: Me | null, who: Who | null): string {
-  if (me) return `/t/${me.tenant.slug}/${me.role === 'resident' ? 'r' : me.role === 'attendant' ? 'a' : 'dashboard'}`;
+  if (me) {
+    const r = me.roles;
+    const home = me.superadmin || r.includes('admin') || r.includes('supervisor') ? 'dashboard' : r.includes('attendant') ? 'a' : r.includes('resident') ? 'r' : 'dashboard';
+    return `/t/${me.tenant.slug}/${home}`;
+  }
   if (who) return who.superadmin ? '/platform' : '/onboarding';
   return '/login';
 }
-
-const ADMIN_ROLES = new Set<Role>(['owner', 'admin', 'auditor', 'supervisor']);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
@@ -72,7 +77,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const m = await get<Me>('/v1/me');
       setMe(m);
       // Residents see only their unit's passes; everyone else gets the site list.
-      setSites(m.role === 'resident' ? [] : await get<SiteInfo[]>('/v1/sites'));
+      setSites(m.roles.length === 1 && m.roles[0] === 'resident' && !m.superadmin ? [] : await get<SiteInfo[]>('/v1/sites'));
     } catch (e) {
       if (e instanceof ApiError && [400, 401, 403].includes(e.status)) {
         if (e.status === 401) { setSession({ token: null, tenant: null }); clear(); }
@@ -103,12 +108,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSession({ token: null, tenant: null }); clear();
     },
     switchTenant: async (slug) => { setSession({ ...getSession(), tenant: slug }); await reload(); },
-    can: (p) => !!me && (p === 'attend' ? me.role !== 'resident' : p === 'admin' ? ADMIN_ROLES.has(me.role) : ['owner', 'admin', 'supervisor'].includes(me.role)),
+    can: (p) => !!me && (me.superadmin || me.roles.some((r) => (p === 'attend' ? r !== 'resident' : p === 'admin' ? r === 'admin' || r === 'supervisor' : r === 'admin' || r === 'supervisor'))),
   };
   if (!loaded) return null;
   return (
     <Ctx.Provider value={value}>
-      <I18nProvider defaultLocale={me?.user?.locale ?? who?.user?.locale ?? me?.tenant.default_locale ?? navigator.language ?? 'en'} terminology={me?.tenant.terminology ?? {}}>
+      <I18nProvider onLocaleChange={(l) => { if (me || who) void patch('/v1/me/profile', { locale: l }).catch(() => undefined); }} defaultLocale={me?.user?.locale ?? who?.user?.locale ?? me?.tenant.default_locale ?? navigator.language ?? 'en'} terminology={me?.tenant.terminology ?? {}}>
         {children}
       </I18nProvider>
     </Ctx.Provider>

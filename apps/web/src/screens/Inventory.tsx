@@ -52,7 +52,7 @@ export function Inventory() {
         <h2>{t('inv.paste')}</h2>
         <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} dir="ltr" aria-label={t('inv.paste')} />
         <div className="row">
-          <input ref={file} type="file" accept="application/json,.json" hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
+          <input ref={file} type="file" accept="application/json,.json" aria-label={t('common.chooseFile')} hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
           <button className="btn" onClick={() => file.current?.click()}>{t('inv.upload')}</button>
           <label className="row"><span>{t('inv.mode')}</span>
             <select value={mode} onChange={(e) => setMode(e.target.value as 'merge' | 'replace')}><option value="merge">{t('inv.merge')}</option><option value="replace">{t('inv.replace')}</option></select>

@@ -18,7 +18,7 @@ function pixels(text: string, scale = 6, margin = 4, invert = false) {
 
 describe('decodeQr', () => {
   it('reads a guest-pass QR (a long token) exactly', () => {
-    const token = 'OPP1.3f2b8c1e-9d4a-4c7e-8a55-0b6f1d2e7c90.3.AbCdEfGhIjKlMnOpQrStUvWx';
+    const token = 'OPP2|PyuMHp1KTH6KVQtvbx0skA|3|K7Q2M9XA|DEMO-01|A-101|Rosa%20Gu%C3%A9sped|ABC123|1792540800|AbCdEfGhIjKlMnOpQrStUv';
     expect(decodeQr(pixels(token))).toBe(token);
   });
   it('reads a short ticket code and an inverted (light-on-dark) code', () => {
