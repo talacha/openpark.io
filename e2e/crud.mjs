@@ -13,6 +13,12 @@ const errs = []; p.on('pageerror', (e) => errs.push(String(e))); p.on('console',
 p.on('dialog', (d) => d.accept());
 await p.goto(`${WEB}/login`); await p.fill('input[name=email]', `crud-${sfx}@example.com`); await p.fill('input[name=password]', 'correct-horse-battery'); await p.click('button.primary'); await p.waitForURL(/dashboard/);
 
+// ---- an admin can open the Resident and Operator views ----
+await p.goto(`${WEB}/t/${T}/r`); await p.waitForSelector('.banner.warn a[href$="/users"]');
+ok(true, 'an admin without a unit sees how to get the Resident view working, with a link to People');
+await p.goto(`${WEB}/t/${T}/a`); await p.waitForSelector('.att');
+ok(/\/a$/.test(p.url()), 'an admin can open the Operator view');
+
 // ---- units ----
 await p.goto(`${WEB}/t/${T}/units`); await p.waitForSelector('form input[name=code]');
 await p.fill('form input[name=code]', 'T1-101'); await p.fill('form input[name=name]', 'Tower 1, 101'); await p.fill('form input[name=floor]', '1'); await p.fill('form input[name=note]', 'corner flat');

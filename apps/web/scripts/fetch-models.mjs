@@ -25,7 +25,6 @@ for (const [name, f] of Object.entries(lock.files)) {
 }
 
 // The app verifies these hashes again in the browser before it trusts a model.
-writeFileSync(new URL('manifest.json', outDir), JSON.stringify({ files: Object.fromEntries(Object.entries(lock.files).map(([n, f]) => [n, { sha256: f.sha256, bytes: f.bytes }])) }, null, 2));
 writeFileSync(new URL('NOTICE.md', outDir), `# Model licenses
 
 - \`cct_s_v2_global.onnx\`: fast-plate-ocr (ankandrew), MIT.
@@ -35,5 +34,10 @@ Downloaded at build time from the official release assets and pinned by SHA-256 
 
 // ONNX Runtime Web: the WebAssembly CPU build and its loader.
 const dist = new URL('node_modules/onnxruntime-web/dist/', root);
-for (const f of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) copyFileSync(new URL(f, dist), new URL(f, ortOut));
+// Versioned names: a new onnxruntime-web is a new URL, so cached browsers can never pair a new app with an old runtime.
+const ortVersion = JSON.parse(readFileSync(new URL('node_modules/onnxruntime-web/package.json', root), 'utf8')).version;
+const ort = { mjs: `ort-${ortVersion}-simd.mjs`, wasm: `ort-${ortVersion}-simd.wasm` };
+copyFileSync(new URL('ort-wasm-simd-threaded.mjs', dist), new URL(ort.mjs, ortOut));
+copyFileSync(new URL('ort-wasm-simd-threaded.wasm', dist), new URL(ort.wasm, ortOut));
+writeFileSync(new URL('manifest.json', outDir), JSON.stringify({ ort, files: Object.fromEntries(Object.entries(lock.files).map(([n, f]) => [n, { sha256: f.sha256, bytes: f.bytes }])) }, null, 2));
 console.log('models and onnxruntime-web assets ready in public/');

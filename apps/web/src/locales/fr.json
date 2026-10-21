@@ -463,5 +463,11 @@
   "pass.reason_pass_checked_in": "L’invité est déjà entré.",
   "err.invalid_sites": "Certaines unités nomment un site qui n’existe pas.",
   "err.not_previewed": "Prévisualisez d’abord cet import.",
-  "err.user_required": "Cet identifiant n’a pas de profil."
+  "err.user_required": "Cet identifiant n’a pas de profil.",
+  "invite.title": "Invitations",
+  "invite.text": "{org} vous invite en tant que {roles}.",
+  "invite.accept": "Accepter",
+  "users.tempPasswordLost": "Le mot de passe n’a été affiché qu’une fois et n’est plus disponible. Retirez la personne et ajoutez-la à nouveau pour en obtenir un nouveau.",
+  "res.noUnitAdmin": "Vous n’êtes affecté à aucune unité, il n’y a donc rien à afficher. Pour utiliser la vue résident, modifiez-vous dans Personnes, cochez Résident et choisissez une unité.",
+  "res.assignSelf": "Ouvrir Personnes"
 }

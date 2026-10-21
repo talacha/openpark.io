@@ -5,6 +5,7 @@ import { externalAuthEnabled, localAuthEnabled } from '../config.js';
 import { audit } from '../db.js';
 import { HttpError, created, definePlatformRoute, definePublicRoute, defineRoute, boolQuery } from '../http.js';
 import { addPerson } from '../services/people.js';
+import { cancelUnusedPassesOfHost } from '../services/passes.js';
 import { applyUnits, exportUnits, parseUnitsDoc, previewUnits } from '../services/units.js';
 import { locateJsonError } from '../jsonpos.js';
 import { provisionTenant, type Owner } from '../services/tenants.js';
@@ -17,6 +18,31 @@ export function registerPeopleRoutes(app: App) {
   definePublicRoute(app, {
     method: 'GET', path: '/v1/config', summary: 'Public deployment settings (sign-up open?, auth mode)',
     handler: async () => ({ trialSignup: app.cfg.TRIAL_SIGNUP, realtime: app.cfg.SSE_ENABLED ? 'sse' : 'poll', auth: localAuthEnabled(app.cfg) ? (externalAuthEnabled(app.cfg) ? 'both' : 'local') : 'external' }),
+  });
+
+  // ---- invitations addressed to me: accepted by the person, never forced on them ------------------------------------------
+  definePublicRoute(app, {
+    method: 'GET', path: '/v1/auth/invitations', summary: 'Invitations to join properties, addressed to the signed-in email',
+    async handler({ req }) {
+      const who = await app.identify(req);
+      if (!who.email) return [];
+      return (await app.db.raw((db) => db.query('select slug, name, roles, unit, superadmin from my_invites($1)', [who.email]))).rows;
+    },
+  });
+
+  definePublicRoute(app, {
+    method: 'POST', path: '/v1/auth/invitations/:slug/accept', summary: 'Accept an invitation to a property',
+    async handler({ req }) {
+      const who = await app.identify(req);
+      const { slug } = req.params as { slug: string };
+      const ok = await app.db.raw(async (db) => {
+        const t = (await db.query('select tenant_id from my_invites($1) where slug = $2', [who.email ?? '', slug])).rows[0];
+        if (!t) return false;
+        return (await db.query('select accept_invite($1, $2, $3) as ok', [who.userId, who.email, t.tenant_id])).rows[0].ok as boolean;
+      });
+      if (!ok) throw new HttpError(404, 'invite_not_found', 'No such pending invitation');
+      return { ok: true };
+    },
   });
 
   // ---- who am I, across tenants (used by the app right after sign-in, before a tenant is chosen) ------------------
@@ -90,6 +116,11 @@ export function registerPeopleRoutes(app: App) {
       }
       await db.query('update unit set name = $2, site_id = $3, floor = $4, note = $5 where id = $1',
         [cur.id, body.name ?? cur.name, siteId, body.floor === undefined ? cur.floor : body.floor, body.note === undefined ? cur.note : body.note]);
+      if (siteId !== cur.site_id) {
+        // An unused pass was issued for the old gate: move it to the new site, or cancel it when the unit has no site.
+        if (siteId) await db.query("update pass set site_id = $2 where unit_id = $1 and status = 'active'", [cur.id, siteId]);
+        else await db.query("update pass set status = 'cancelled', cancelled_at = now() where unit_id = $1 and status = 'active'", [cur.id]);
+      }
       await audit(db, ctx.tenantId, ctx.userId, 'unit.update', `unit:${params.code}`, cur, body);
       return { ok: true };
     },
@@ -196,6 +227,7 @@ export function registerPeopleRoutes(app: App) {
         await db.query('update app_user set is_superadmin = $2 where id = $1', [params.id, body.superadmin]);
       }
       await db.query('update membership set roles = $2, unit_id = $3 where user_id = $1', [params.id, roles, unitId]);
+      if (cur.unit_id && (unitId !== cur.unit_id)) await cancelUnusedPassesOfHost(db, params.id!); // their unit's passes were theirs
       await audit(db, ctx.tenantId, ctx.userId, 'user.update', `user:${params.id}`, cur, { roles, unitId, superadmin: body.superadmin });
       return { ok: true };
     },
@@ -208,6 +240,7 @@ export function registerPeopleRoutes(app: App) {
       if (!cur) throw new HttpError(404, 'member_not_found', 'No such member');
       if (cur.roles.includes('admin')) await assertAnotherAdmin(db, params.id!);
       await db.query('delete from membership where user_id = $1', [params.id]);
+      await cancelUnusedPassesOfHost(db, params.id!);
       await audit(db, ctx.tenantId, ctx.userId, 'user.remove', `user:${params.id}`, cur, null);
       return { ok: true };
     },
@@ -274,7 +307,7 @@ export function registerPeopleRoutes(app: App) {
           unitId = (await db.query('select id from unit where code = $1', [body.unit ?? ''])).rows[0]?.id ?? null;
           if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
         }
-        const r = await addPerson(app, db, t.id, userId, { email: body.email.toLowerCase(), name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin });
+        const r = await addPerson(app, db, t.id, userId, { email: body.email.toLowerCase(), name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin, direct: true });
         if (body.superadmin && r.userId) await db.query('update app_user set is_superadmin = true where id = $1', [r.userId]);
         await audit(db, t.id, userId, r.invited ? 'user.invite' : 'user.add', r.invited ? 'membership_invite' : 'membership', null, { email: body.email, roles: body.roles, unit: body.unit, by: 'platform' });
         return r.invited ? { invited: true, email: body.email } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) };

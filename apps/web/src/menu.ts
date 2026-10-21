@@ -14,7 +14,9 @@ const has = (roles: Role[], ...any: Role[]) => any.some((r) => roles.includes(r)
 /** Roles are cumulative; a Super Admin (platform-wide flag) has every area. */
 export const isOps = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'supervisor', 'admin');
 export const isAdmin = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'admin');
-export const isOperator = (roles: Role[]) => has(roles, 'attendant', 'supervisor');
+export const isOperator = (roles: Role[], superadmin = false) => superadmin || has(roles, 'attendant', 'supervisor', 'admin');
+/** Admins and Super Admins can open the Resident view to see what residents see (a unit is needed to use it). */
+export const hasResidentView = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'resident', 'admin');
 /** Anyone who is not only a resident may use the staff screens (queue, check-in by link). */
 export const isStaff = (roles: Role[], superadmin: boolean) => superadmin || roles.some((r) => r !== 'resident');
 
@@ -29,7 +31,7 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
   const base = slug ? `/t/${slug}` : '';
   const groups: MenuGroup[] = [];
 
-  if (slug && roles.includes('resident')) groups.push({ id: 'resident', labelKey: 'nav.resident', to: `${base}/r`, items: [] });
+  if (slug && hasResidentView(roles, superadmin)) groups.push({ id: 'resident', labelKey: 'nav.resident', to: `${base}/r`, items: [] });
 
   if (slug && isOps(roles, superadmin)) {
     groups.push({
@@ -44,7 +46,7 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
     });
   }
 
-  if (slug && isOperator(roles)) {
+  if (slug && isOperator(roles, superadmin)) {
     groups.push({
       id: 'operator', labelKey: 'nav.operatorView', to: `${base}/a`,
       items: [

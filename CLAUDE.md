@@ -36,6 +36,10 @@ docker compose up -d --build        # needs .env (copy .env.example)
 - **ALPR** (`services/alpr`): FastAPI worker, ONNX engine first, optional VLM fallback; the API proxies `/v1/alpr/read` and only stores the plate crop.
 - Marketing (`apps/marketing`) hands a new session to the app via URL fragment (`#token=&tenant=`), consumed in `apps/web/src/main.tsx`.
 
+- **People and access.** `membership.roles` is a set (Resident, Attendant, Supervisor, Admin); permissions are the union (`can()` in `apps/api/src/auth.ts`). Super Admin is `app_user.is_superadmin`, never a membership role. Someone with an existing account is *invited* and accepts (`my_invites`/`accept_invite`); only Super Admins (platform routes) attach people directly. Vocabulary and entity map: `docs/DOMAIN.md`.
+- **Plate reading runs in the browser** (`apps/web/src/alpr`, onnxruntime-web). `scripts/fetch-models.mjs` downloads the SHA-256-pinned models and versioned runtime into `public/` (git-ignored) at build; the service worker caches them for offline garages.
+- **Webhooks** may only target public addresses (`apps/api/src/netguard.ts`, also enforced at connect time); set `WEBHOOKS_ALLOW_PRIVATE=true` for local development and tests.
+
 ## Gotchas
 
 - `pnpm-workspace.yaml` uses `allowBuilds` (pnpm 11) to permit esbuild/sharp install scripts.

@@ -121,7 +121,7 @@ export async function buildApp({ cfg, now = () => new Date(), storage, notifier,
       if (!row) throw new HttpError(401, 'invalid_api_key', 'Unknown or revoked API key');
       const t = await app.db.withTenant(row.tenant_id, async (db) => (await db.query('select slug, suspended_at from tenant')).rows[0]);
       if (t.suspended_at) throw new HttpError(403, 'tenant_suspended', 'This tenant is suspended');
-      return { tenantId: row.tenant_id, tenantSlug: t.slug, roles: [row.role as Role], userId: null, siteId: row.site_id, unitId: null, superadmin: false };
+      return { tenantId: row.tenant_id, tenantSlug: t.slug, roles: [(row.site_id && row.role === 'admin' ? 'supervisor' : row.role) as Role], userId: null, siteId: row.site_id, unitId: null, superadmin: false };
     }
 
     const who = await app.identify(req);

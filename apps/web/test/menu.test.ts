@@ -11,10 +11,10 @@ describe('menu by roles', () => {
   it('residents see only the resident view', () => expect(ids(['resident'])).toEqual(['resident']));
   it('attendants see only the operator view', () => expect(ids(['attendant'])).toEqual(['operator']));
   it('supervisors are attendants who also see the platform view', () => expect(ids(['supervisor'])).toEqual(['platform', 'operator']));
-  it('admins see the platform view and the Admin group', () => expect(ids(['admin'])).toEqual(['platform', 'admin']));
+  it('admins see the resident, platform and operator views and the Admin group', () => expect(ids(['admin'])).toEqual(['resident', 'platform', 'operator', 'admin']));
   it('combines the views of every role a person holds', () => {
     expect(ids(['resident', 'attendant'])).toEqual(['resident', 'operator']);
-    expect(ids(['resident', 'admin'])).toEqual(['resident', 'platform', 'admin']);
+    expect(ids(['resident', 'admin'])).toEqual(['resident', 'platform', 'operator', 'admin']);
   });
   it('only admins and super admins get the Admin group', () => {
     for (const r of ['resident', 'attendant', 'supervisor'] as Role[]) expect(adminItems([r])).toBeUndefined();
@@ -37,7 +37,7 @@ describe('menu by roles', () => {
     expect(m.map((g) => g.id)).toEqual(['admin']);
     expect(m[0]!.items).toEqual([{ id: 'organisations', labelKey: 'platform.tenants', to: '/platform' }]);
   });
-  it('shows a super admin inside any property the platform and admin groups', () => expect(ids([], true)).toEqual(['platform', 'admin']));
+  it('shows a super admin inside any property every view', () => expect(ids([], true)).toEqual(['resident', 'platform', 'operator', 'admin']));
   it('shows nothing to someone with no role and no super admin flag', () => expect(menu([], false, null)).toEqual([]));
   it('links every item under the organisation slug', () => {
     for (const g of menu(['admin'])) for (const i of g.items) expect(i.to.startsWith('/t/acme/')).toBe(true);

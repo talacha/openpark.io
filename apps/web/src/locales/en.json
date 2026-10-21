@@ -463,5 +463,11 @@
   "pass.reason_pass_checked_in": "The guest has already checked in.",
   "err.invalid_sites": "Some units name a site that does not exist.",
   "err.not_previewed": "Preview this import first.",
-  "err.user_required": "This credential has no profile."
+  "err.user_required": "This credential has no profile.",
+  "invite.title": "Invitations",
+  "invite.text": "{org} invites you as {roles}.",
+  "invite.accept": "Accept",
+  "users.tempPasswordLost": "The password was shown once and is no longer available. Remove the person and add them again to get a new one.",
+  "res.noUnitAdmin": "You are not assigned to a unit, so there is nothing to show here. To use the resident view, edit yourself under People, tick Resident and choose a unit.",
+  "res.assignSelf": "Open People"
 }

@@ -1,7 +1,7 @@
 import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom';
 import { homeFor, useApp, type Role } from './app-context.js';
 import { AppShell, AttendantLayout } from './components/Shell.js';
-import { isAdmin, isOps, isStaff } from './menu.js';
+import { hasResidentView, isAdmin, isOperator, isOps, isStaff } from './menu.js';
 import { Auth, Onboarding } from './screens/Auth.js';
 import { AiSettings, LocaleSettings } from './screens/Settings.js';
 import { AttendantHome, CheckInCapture, CheckInConfirm, CheckInReview, CheckOut, Flow } from './screens/Attendant.js';
@@ -22,10 +22,10 @@ import { Slots } from './screens/Slots.js';
 type Area = 'ops' | 'admin' | 'operator' | 'resident' | 'staff';
 const allowed = (area: Area, roles: Role[], superadmin: boolean) => {
   switch (area) {
-    case 'resident': return roles.includes('resident');
+    case 'resident': return hasResidentView(roles, superadmin);
     case 'admin': return isAdmin(roles, superadmin);
     case 'ops': return isOps(roles, superadmin);
-    case 'operator': return isStaff(roles, superadmin); // the menu offers it to attendants; supervisors and admins can still use it by link
+    case 'operator': return isOperator(roles, superadmin) || isStaff(roles, superadmin); // the menu offers it to attendants; supervisors and admins can still use it by link
     case 'staff': return isStaff(roles, superadmin);
   }
 };

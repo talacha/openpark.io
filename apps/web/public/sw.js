@@ -8,7 +8,7 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k !== 'openpark-reader-v1' && k !== 'openpark-models-v1').map((k) => caches.delete(k)))));
+  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k !== 'openpark-reader-v2' && k !== 'openpark-models-v1').map((k) => caches.delete(k)))));
   self.clients.claim();
 });
 
@@ -18,12 +18,18 @@ self.addEventListener('fetch', (e) => {
   // The plate reader's WebAssembly runtime and models are large and never change under the same name: cache first,
   // so the reader starts instantly and works in a garage with no signal.
   if (url.pathname.startsWith('/ort/') || url.pathname.startsWith('/models/')) {
-    e.respondWith(caches.open('openpark-reader-v1').then(async (c) => {
+    // The manifest says which runtime files and model hashes are current, so it is network-first; the big files it names are
+    // immutable (versioned names, hash-checked by the app) and cached first. Anything that is not a real file is never cached.
+    const fresh = url.pathname === '/models/manifest.json';
+    e.respondWith(caches.open('openpark-reader-v2').then(async (c) => {
       const hit = await c.match(e.request);
-      if (hit) return hit;
-      const res = await fetch(e.request);
-      if (res.ok) c.put(e.request, res.clone());
-      return res;
+      if (hit && !fresh) return hit;
+      try {
+        const res = await fetch(e.request);
+        const type = res.headers.get('content-type') ?? '';
+        if (res.ok && !type.includes('text/html')) c.put(e.request, res.clone());
+        return res;
+      } catch (err) { if (hit) return hit; throw err; }
     }));
     return;
   }

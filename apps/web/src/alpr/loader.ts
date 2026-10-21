@@ -29,13 +29,15 @@ export function loadPlateModels() {
   loading ??= (async () => {
     const [ort, manifest] = await Promise.all([
       import('onnxruntime-web/wasm'),
-      fetch('/models/manifest.json').then((r) => { if (!r.ok) throw new Error('plate models are not installed'); return r.json() as Promise<{ files: Record<string, { sha256: string }> }>; }),
+      fetch('/models/manifest.json').then((r) => { if (!r.ok) throw new Error('plate models are not installed'); return r.json() as Promise<{ ort: { mjs: string; wasm: string }; files: Record<string, { sha256: string }> }>; }),
     ]);
-    // In production the runtime is served as-is from /ort/. Vite's dev server refuses to import files from public/, so there it is loaded through a blob URL.
+    // The runtime files carry the library version in their names (see scripts/fetch-models.mjs). In production they are served as-is;
+    // Vite's dev server refuses to import files from public/, so there the script is loaded through a blob URL.
+    const wasm = `${location.origin}/ort/${manifest.ort.wasm}`;
     if (import.meta.env.DEV) {
-      const js = await (await fetch('/ort/ort-wasm-simd-threaded.mjs')).text();
-      ort.env.wasm.wasmPaths = { mjs: URL.createObjectURL(new Blob([js], { type: 'text/javascript' })), wasm: `${location.origin}/ort/ort-wasm-simd-threaded.wasm` };
-    } else ort.env.wasm.wasmPaths = '/ort/';
+      const js = await (await fetch(`/ort/${manifest.ort.mjs}`)).text();
+      ort.env.wasm.wasmPaths = { mjs: URL.createObjectURL(new Blob([js], { type: 'text/javascript' })), wasm };
+    } else ort.env.wasm.wasmPaths = { mjs: `${location.origin}/ort/${manifest.ort.mjs}`, wasm };
     ort.env.wasm.numThreads = 1; // multi-threading needs cross-origin isolation, which would break third-party embeds
     const make = async (name: string) => (await ort.InferenceSession.create(await modelBytes(name, manifest.files[name]!.sha256), { executionProviders: ['wasm'] })) as unknown as OrtSessionLike;
     const [detector, ocr] = await Promise.all([make(DET), make(OCR)]);

@@ -162,7 +162,7 @@ export function Units() {
         <section className="banner stack" role="status">
           <strong>{t('units.importDone')}</strong>
           <div>+{applied.added} {t('units.added')} · ~{applied.changed} {t('units.changed')} · −{applied.removed} {t('units.removed')} · +{applied.residents.added} {t('units.residents')}</div>
-          {applied.residents.created.map((c) => <div key={c.email} dir="ltr">{c.email}: {t('users.tempPassword', { password: c.temporaryPassword })}</div>)}
+          {applied.residents.created.map((c) => <div key={c.email} dir="ltr">{c.email}: {c.temporaryPassword ? t('users.tempPassword', { password: c.temporaryPassword }) : t('users.tempPasswordLost')}</div>)}
           {applied.residents.skipped.map((c) => <div key={c.email}>{t('units.skipped')}: {c.email} ({c.reason})</div>)}
         </section>
       )}

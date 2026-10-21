@@ -25,6 +25,7 @@ export function registerSlotRoutes(app: App) {
     method: 'POST', path: '/v1/sites', summary: 'Create a site (a parking facility within the property)', perm: 'inventory.edit',
     body: z.object({ code: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,29}$/), name: z.string().min(1).max(100), timezone: z.string().refine(validTimezone, 'Unknown time zone'), address: z.string().max(300).nullable().optional(), aiThreshold: z.number().min(0.5).max(1).optional() }),
     async handler({ ctx, db, body }) {
+      if (ctx.siteId) throw new HttpError(403, 'forbidden', 'A key limited to one site cannot create sites');
       // The new site shares the rate plan the property already uses, so check-in works at once; change it under Rates.
       const plan = (await db.query('select default_rate_plan_id from site where default_rate_plan_id is not null and retired_at is null order by code limit 1')).rows[0]?.default_rate_plan_id ?? null;
       const dup = (await db.query('select retired_at from site where code = $1', [body.code])).rows[0];
@@ -41,7 +42,7 @@ export function registerSlotRoutes(app: App) {
     body: z.object({ name: z.string().min(1).max(100).optional(), timezone: z.string().refine(validTimezone, 'Unknown time zone').optional(), address: z.string().max(300).nullable().optional(), aiThreshold: z.number().min(0.5).max(1).optional() }),
     async handler({ ctx, db, params, body }) {
       const cur = (await db.query('select id, name, timezone, address, settings from site where code = $1 and retired_at is null', [params.code])).rows[0];
-      if (!cur) throw new HttpError(404, 'site_not_found', `No site ${params.code}`);
+      if (!cur || (ctx.siteId && ctx.siteId !== cur.id)) throw new HttpError(404, 'site_not_found', `No site ${params.code}`);
       const settings = body.aiThreshold === undefined ? cur.settings : { ...cur.settings, aiThreshold: body.aiThreshold };
       await db.query('update site set name = $2, timezone = $3, address = $4, settings = $5 where id = $1',
         [cur.id, body.name ?? cur.name, body.timezone ?? cur.timezone, body.address === undefined ? cur.address : body.address, JSON.stringify(settings)]);
@@ -54,7 +55,7 @@ export function registerSlotRoutes(app: App) {
     method: 'DELETE', path: '/v1/sites/:code', summary: 'Retire a site with no cars inside (history is kept)', perm: 'inventory.edit',
     async handler({ ctx, db, params }) {
       const cur = (await db.query('select id from site where code = $1 and retired_at is null', [params.code])).rows[0];
-      if (!cur) throw new HttpError(404, 'site_not_found', `No site ${params.code}`);
+      if (!cur || ctx.siteId) throw new HttpError(ctx.siteId ? 403 : 404, ctx.siteId ? 'forbidden' : 'site_not_found', ctx.siteId ? 'A key limited to one site cannot retire sites' : `No site ${params.code}`);
       const open = (await db.query("select count(*)::int as n from session where site_id = $1 and status = 'open'", [cur.id])).rows[0].n;
       if (open) throw new HttpError(409, 'site_in_use', 'Cars are still inside this site');
       await db.query('update site set retired_at = now() where id = $1', [cur.id]);

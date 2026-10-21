@@ -3,6 +3,7 @@ import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useApp } from '../app-context.js';
 import { useT } from '../i18n.js';
 import { AppMenu } from './AppMenu.js';
+import { Invitations } from './Invitations.js';
 import { SyncBadge } from './SyncBadge.js';
 
 /** One shell for every role and every screen: the shared menu plus the page. Wide screens get a sidebar, phones a drawer. */
@@ -34,7 +35,7 @@ export function AppShell() {
           <strong className="grow">{me?.tenant.name ?? t('app.name')}</strong>
           <SyncBadge />
         </header>
-        <main className="main"><Outlet /></main>
+        <main className="main"><Invitations /><Outlet /></main>
       </div>
     </div>
   );

@@ -81,4 +81,14 @@ await q.selectOption('form select:not([name])', su.tenant.slug);
 await q.waitForSelector('form select[name=unit] option[value=U1]', { state: 'attached' });
 const unitOpts = await q.$$eval('form select[name=unit] option', (o) => o.map((x) => x.value).filter(Boolean));
 ok(unitOpts.includes('U1') && unitOpts.includes('U2'), `choosing another property offers that property's units (${unitOpts.join(', ')})`);
+
+// Someone who already has an account is invited, and joins only when they accept.
+const guest = await mk('guest');
+await call('/v1/users', { token: su.token, tenant: su.tenant.slug, body: { email: `guest-${sfx}@example.com`, roles: ['attendant'] } });
+const g = await session(`guest-${sfx}@example.com`);
+await g.waitForSelector('.banner:has-text("invites you")');
+ok(true, 'an existing account sees the invitation instead of being added');
+await g.getByRole('button', { name: 'Accept' }).click();
+await g.waitForFunction(() => !document.body.innerText.includes('invites you'));
+ok(true, 'accepted: the invitation disappears');
 await b.close();

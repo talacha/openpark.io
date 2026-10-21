@@ -348,3 +348,51 @@ describe('review fixes, round 2', () => {
     } finally { await h.close(); }
   });
 });
+
+describe('review fixes, round 3', () => {
+  it('a key limited to one site cannot administer the tenant or mint keys', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'US');
+      await h.app.inject({ method: 'POST', url: '/v1/sites', headers: t.h, payload: { code: 'S2', name: 'Second', timezone: 'UTC' } });
+      expect((await h.app.inject({ method: 'POST', url: '/v1/api-keys', headers: t.h, payload: { name: 'bad', role: 'admin', site: 'DEMO-01' } })).statusCode).toBe(400);
+      const sup = (await h.app.inject({ method: 'POST', url: '/v1/api-keys', headers: t.h, payload: { name: 'gate', role: 'supervisor', site: 'DEMO-01' } })).json().key;
+      const k = { 'x-api-key': sup };
+      expect((await h.app.inject({ method: 'PATCH', url: '/v1/sites/S2', headers: k, payload: { name: 'x' } })).statusCode).toBeGreaterThanOrEqual(403);
+      expect((await h.app.inject({ method: 'DELETE', url: '/v1/sites/S2', headers: k })).statusCode).toBeGreaterThanOrEqual(403);
+      expect((await h.app.inject({ method: 'POST', url: '/v1/sites', headers: k, payload: { code: 'S3', name: 'x', timezone: 'UTC' } })).statusCode).toBeGreaterThanOrEqual(403);
+      expect((await h.app.inject({ method: 'POST', url: '/v1/api-keys', headers: k, payload: { name: 'mint' } })).statusCode).toBeGreaterThanOrEqual(403);
+      expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers: k })).statusCode).toBe(403);
+      // an old admin+site key (made before this rule) is treated as a supervisor
+      const tid = await tenantId(t.slug);
+      const { newApiKey } = await import('../src/auth.js');
+      const old = newApiKey();
+      await h.app.db.withTenant(tid, async (db) => db.query("insert into api_key (tenant_id, site_id, name, prefix, key_hash, role) select $1, id, 'old', $2, $3, 'admin' from site where code = 'DEMO-01'", [tid, old.prefix, old.hash]));
+      expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers: { 'x-api-key': old.key } })).statusCode).toBe(403);
+    } finally { await h.close(); }
+  });
+
+  it('removing a resident, or moving them or their unit, cancels the passes they have not used', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      await addUnit(h.app, t, 'Q-1');
+      const r = await addResident(h.app, t, 'Q-1');
+      const mk = () => h.app.inject({ method: 'POST', url: '/v1/passes', headers: idem(r), payload: { guestName: 'Visita', guestPhone: '+525500000001' } });
+      const first = await mk();
+      expect(first.statusCode, first.body).toBe(201);
+      const id = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: t.h })).json().members.find((m: { email: string }) => m.email === r.email).id;
+      expect((await h.app.inject({ method: 'DELETE', url: `/v1/users/${id}`, headers: t.h })).statusCode).toBe(200);
+      const rows = (await h.app.db.withTenant(await tenantId(t.slug), (db) => db.query('select status from pass'))).rows;
+      expect(rows).toEqual([{ status: 'cancelled' }]);
+      // a unit that moves to another site takes its unused pass along
+      await addUnit(h.app, t, 'Q-2');
+      const r2 = await addResident(h.app, t, 'Q-2');
+      expect((await h.app.inject({ method: 'POST', url: '/v1/passes', headers: idem(r2), payload: { guestName: 'Otra', guestPhone: '+525500000002' } })).statusCode).toBe(201);
+      await h.app.inject({ method: 'POST', url: '/v1/sites', headers: t.h, payload: { code: 'S2', name: 'Second', timezone: 'UTC' } });
+      await h.app.inject({ method: 'PATCH', url: '/v1/units/Q-2', headers: t.h, payload: { site: 'S2' } });
+      const moved = (await h.app.db.withTenant(await tenantId(t.slug), (db) => db.query("select s.code from pass p join site s on s.id = p.site_id where p.status = 'active'"))).rows;
+      expect(moved).toEqual([{ code: 'S2' }]);
+    } finally { await h.close(); }
+  });
+});

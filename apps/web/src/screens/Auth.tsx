@@ -6,6 +6,7 @@ import { externalAuth, peekPending, savePending, supabase, takePending } from '.
 import { PasswordInput } from '../components/PasswordInput.js';
 import { LOCALES, NAMES, useI18n, useT } from '../i18n.js';
 import { errText } from '../errors.js';
+import { Invitations } from '../components/Invitations.js';
 
 const COUNTRIES = ['MX', 'US', 'BR', 'ES', 'FR', 'DE', 'CO', 'AR', 'CL', 'PE', 'CA', 'GB', 'SA', 'AE'];
 
@@ -77,6 +78,7 @@ export function Auth({ mode }: { mode: 'login' | 'signup' | 'forgot' | 'reset' }
     return (
       <div className="auth"><div className="card stack">
         <LangPick /><h1>{t('auth.closedTitle')}</h1><p className="muted">{t('auth.closedBody')}</p>
+        <Invitations />
         <Link className="btn primary" to="/login" style={{ textAlign: 'center', textDecoration: 'none', display: 'grid', placeItems: 'center' }}>{t('auth.signin')}</Link>
       </div></div>
     );
@@ -162,6 +164,7 @@ export function Onboarding() {
         <LangPick />
         <h1>{t('auth.onboardTitle')}</h1>
         <p className="muted">{who?.user?.email}</p>
+        <Invitations />
         <label className="field">{t('auth.org')}<input name="org" required minLength={2} defaultValue={p?.organisation} /></label>
         <label className="field">{t('auth.country')}
           <select name="country" defaultValue={p?.country ?? 'MX'}>{COUNTRIES.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}</select>

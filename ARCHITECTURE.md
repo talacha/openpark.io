@@ -293,13 +293,17 @@ Everything the UI does is a public REST call (OpenAPI 3.1, versioned under `/v1`
 
 **Security.** Postgres RLS isolates tenants even if application code misses a filter. Writes require an `Idempotency-Key`. API keys are scoped per tenant and per site. Plate images are served only through short-lived signed URLs. The audit log is append-only.
 
+A person can hold several roles; access is the union. Roles, least to most access:
+
 | Role | Can |
 | --- | --- |
-| Owner | Everything, including billing and tenant deletion |
-| Admin | Inventory, users, AI and locale settings, reports |
-| Supervisor | Override fees, void sessions, resolve exceptions (reason required) |
-| Attendant | Check in, check out, take payment, mark a slot out of service |
-| Auditor | Read-only, including the audit log |
+| Resident | Lives in the complex (belongs to a unit) and issues guest parking passes by QR code |
+| Attendant | Check in, check out, take payment, scan plates and QR codes, mark a slot out of service |
+| Supervisor | Everything an Attendant can, plus override fees, void sessions, manage guest passes; is notified per property when a car passes 10, 11 and 12 hours |
+| Admin | Configures one property: sites, zones, slots, units, people, rates, integrations, AI and locale settings |
+| Super Admin | A platform-wide flag, not a role of a property: configures every property and switches between them |
+
+See `docs/DOMAIN.md` for the vocabulary and how the entities relate.
 
 ## Screens and roadmap
 

@@ -463,5 +463,11 @@
   "pass.reason_pass_checked_in": "Der Gast ist bereits eingecheckt.",
   "err.invalid_sites": "Einige Einheiten nennen einen Standort, den es nicht gibt.",
   "err.not_previewed": "Sieh dir diesen Import zuerst in der Vorschau an.",
-  "err.user_required": "Diese Zugangsdaten haben kein Profil."
+  "err.user_required": "Diese Zugangsdaten haben kein Profil.",
+  "invite.title": "Einladungen",
+  "invite.text": "{org} lädt dich als {roles} ein.",
+  "invite.accept": "Annehmen",
+  "users.tempPasswordLost": "Das Passwort wurde nur einmal angezeigt und ist nicht mehr verfügbar. Entferne die Person und füge sie erneut hinzu, um ein neues zu erhalten.",
+  "res.noUnitAdmin": "Du bist keiner Einheit zugewiesen, daher gibt es nichts anzuzeigen. Um die Bewohneransicht zu nutzen, bearbeite dich unter Personen, hake Bewohner an und wähle eine Einheit.",
+  "res.assignSelf": "Personen öffnen"
 }

@@ -119,16 +119,31 @@ describe('inviting people', () => {
     expect(users.members.find((u: { email: string }) => u.email === email)).toMatchObject({ roles: ['resident', 'attendant'], unit: 'A-1' });
   });
 
-  it('adds someone who already has an account straight away, in a second tenant', async () => {
+  it('invites someone who already has an account; they join a second tenant only when they accept', async () => {
     const one = await org();
     const two = await org();
     await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: two.owner.bearer }); // known to the platform
     const r = await h.app.inject({ method: 'POST', url: '/v1/users', headers: one.headers, payload: { email: two.owner.email, roles: ['attendant'] } });
     expect(r.statusCode).toBe(201);
-    const m = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: two.owner.bearer })).json().memberships;
+    expect(r.json()).toMatchObject({ invited: true }); // the same answer as for an email nobody has used
+    // Nothing about them is visible to the inviting property, and they are not a member yet.
+    const users = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: one.headers })).json();
+    expect(users.members.map((m: { email: string }) => m.email)).not.toContain(two.owner.email);
+    expect(users.invites.map((i: { email: string }) => i.email)).toContain(two.owner.email);
+    let m = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: two.owner.bearer })).json().memberships;
+    expect(m.map((x: { slug: string }) => x.slug)).toEqual([two.slug]);
+    // They see the invitation, and accepting it is up to them (and only for invitations addressed to them).
+    const inv = (await h.app.inject({ method: 'GET', url: '/v1/auth/invitations', headers: two.owner.bearer })).json();
+    expect(inv).toEqual([expect.objectContaining({ slug: one.slug, roles: ['attendant'] })]);
+    const stranger = await person();
+    expect((await h.app.inject({ method: 'POST', url: `/v1/auth/invitations/${one.slug}/accept`, headers: stranger.bearer })).statusCode).toBe(404);
+    expect((await h.app.inject({ method: 'POST', url: `/v1/auth/invitations/${one.slug}/accept`, headers: two.owner.bearer })).statusCode).toBe(200);
+    m = (await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: two.owner.bearer })).json().memberships;
     expect(m.map((x: { slug: string }) => x.slug).sort()).toEqual([one.slug, two.slug].sort());
     // With several tenants, the caller must say which one.
     expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: two.owner.bearer })).json().error.code).toBe('tenant_required');
+    // Someone already in this property is reported as such.
+    expect((await h.app.inject({ method: 'POST', url: '/v1/users', headers: one.headers, payload: { email: two.owner.email, roles: ['supervisor'] } })).json().error.code).toBe('already_member');
   });
 
   it('keeps at least one admin, lets admins combine roles and change units, and reserves Super Admin for super admins', async () => {

@@ -463,5 +463,11 @@
   "pass.reason_pass_checked_in": "[Thé gûést hàs àlréàdý çhéçkéd îñ. one two three ]",
   "err.invalid_sites": "[Sômé ûñîts ñàmé à sîté thàt dôés ñôt éxîst. one two three four]",
   "err.not_previewed": "[Prévîéw thîs împôrt fîrst. one two thr]",
-  "err.user_required": "[Thîs çrédéñtîàl hàs ñô prôfîlé. one two three]"
+  "err.user_required": "[Thîs çrédéñtîàl hàs ñô prôfîlé. one two three]",
+  "invite.title": "[Îñvîtàtîôñs one t]",
+  "invite.text": "[{org} îñvîtés ýôû às {roles}. one two]",
+  "invite.accept": "[Àççépt one]",
+  "users.tempPasswordLost": "[Thé pàsswôrd wàs shôwñ ôñçé àñd îs ñô lôñgér àvàîlàblé. Rémôvé thé pérsôñ àñd àdd thém àgàîñ tô gét à ñéw ôñé. one two three four five six seven eight nine]",
+  "res.noUnitAdmin": "[Yôû àré ñôt àssîgñéd tô à ûñît, sô théré îs ñôthîñg tô shôw héré. Tô ûsé thé résîdéñt vîéw, édît ýôûrsélf ûñdér Péôplé, tîçk Résîdéñt àñd çhôôsé à ûñît. one two three four five six seven eight nine ten]",
+  "res.assignSelf": "[Ôpéñ Péôplé one t]"
 }

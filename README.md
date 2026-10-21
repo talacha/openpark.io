@@ -52,13 +52,13 @@ Not built yet:
 
 | Gap | Note |
 | --- | --- |
-| Passkeys, OIDC/SAML | Email + password only (scrypt, HS256 session tokens). |
+| Passkeys, SAML | Sign-in is email + password (scrypt, HS256 session tokens) or an external provider (Supabase Auth / OIDC). |
 | S3 / Azure Blob / GCS storage | Interface exists; only local disk is implemented. |
 | Terraform modules (AWS/GCP/Azure) | Helm chart exists but has not been linted or installed (no `helm` here). |
 | Gate (MQTT/webhook), IP camera (RTSP/ONVIF), payment adapters, ESC/POS printers | Webhooks exist; adapters do not. |
 | 3-5 frame character voting | `vote()` exists in the worker but `/v1/alpr/read` takes one image. |
 | VLM fallback against a real model | Code and tests use fakes; no model was run. |
-| Live plate box on the capture screen, QR scan at check-out, entry/exit crop side by side | Capture is a still frame; check-out takes a typed ticket code or plate. |
+| Plate box drawn over the live camera, entry/exit crop side by side | The camera reads plates and QR codes on the device and submits automatically, without an overlay. |
 | Per-tenant model benchmark, training-data export, customer portal, Weblate | |
 | `x-` extension keys | Accepted and validated on import, not persisted. |
 | Device clock gap | Flagged as a warning; no supervisor approval step yet. |

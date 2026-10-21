@@ -6,6 +6,7 @@ import { spaceCode } from '../pass.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
+import { Link } from 'react-router-dom';
 
 export interface PassView {
   id: string; status: 'active' | 'checked_in' | 'completed' | 'cancelled'; displayStatus: string;
@@ -63,7 +64,10 @@ export function ResidentHome() {
     });
   }
 
-  if (!me?.unit) return <div className="att"><div className="banner warn">{t('res.noUnit')}</div></div>;
+  if (!me?.unit) {
+    const staff = me?.superadmin || me?.roles.includes('admin');
+    return <div className="att"><div className="banner warn">{t(staff ? 'res.noUnitAdmin' : 'res.noUnit')}{staff && <> <Link to="../users">{t('res.assignSelf')}</Link></>}</div></div>;
+  }
   const expired = pass?.status === 'active' && (pass.displayStatus === 'expired' || countdown.done);
   const stayEnds = pass?.checkedInAt && policy ? new Date(new Date(pass.checkedInAt).getTime() + policy.maxStayHours * 3_600_000) : null;
 

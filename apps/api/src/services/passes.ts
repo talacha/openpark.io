@@ -48,6 +48,11 @@ const PREFIX = 'OPP2';
 const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford base32: no I, L, O or U, so it is easy to read aloud
 
 /** A short random code, e.g. 'K7Q2M9XA' (40 bits). */
+/** A host who leaves, loses the resident role or changes unit must not leave live QR codes behind: cancel their passes that have not been used. */
+export async function cancelUnusedPassesOfHost(db: Db, hostUserId: string): Promise<number> {
+  return (await db.query("update pass set status = 'cancelled', cancelled_at = now() where host_user_id = $1 and status = 'active'", [hostUserId])).rowCount ?? 0;
+}
+
 export function newVerifyCode(): string {
   const bytes = randomBytes(8);
   return Array.from(bytes, (b) => CODE_ALPHABET[b % 32]).join('');
