@@ -832,4 +832,4 @@ session. The seven acceptance criteria remain gate-backed in the shipped code.
 - `pnpm test` → ok (web 101 pass + 1 skipped; api 108 pass incl. the 2 new idempotency tests; core/sdk-ts/marketing unchanged)
 - `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
 
-**Pushed commit SHA:** `826fc14` (committed on `adversarial-loop`, fast-forwarded onto `main`, pushed to `origin/main` — normal push).
+**Pushed commit SHA:** `6b290f6` (iteration-13 tick, committed on `adversarial-loop`, fast-forwarded onto `main`, pushed to `origin/main` — normal push; this SHA recorded in a tiny follow-up commit per the repo's established pattern).
