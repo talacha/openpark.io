@@ -1,11 +1,16 @@
 import type { Role } from './app-context.js';
 
-export interface MenuItem { id: string; labelKey: string; to: string }
+/** A short identifier for the inline-SVG icon a destination shows when the sidebar is collapsed (see AppMenu). A default covers anything unset. */
+export type MenuIcon = 'resident' | 'platform' | 'operator' | 'admin' | 'profile' | 'newpass';
+
+export interface MenuItem { id: string; labelKey: string; to: string; icon?: MenuIcon }
 export interface MenuGroup {
   id: 'resident' | 'platform' | 'operator' | 'admin';
   labelKey: string;
   /** Where the group's heading links to (its first page). */
   to: string;
+  /** The icon shown for this group's top-level destination when the sidebar is collapsed. */
+  icon?: MenuIcon;
   items: MenuItem[];
 }
 
@@ -31,11 +36,17 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
   const base = slug ? `/t/${slug}` : '';
   const groups: MenuGroup[] = [];
 
-  if (slug && hasResidentView(roles, superadmin)) groups.push({ id: 'resident', labelKey: 'nav.resident', to: `${base}/r`, items: [] });
+  if (slug && hasResidentView(roles, superadmin)) groups.push({
+    id: 'resident', labelKey: 'nav.resident', to: `${base}/r`, icon: 'resident',
+    items: [
+      { id: 'profile', labelKey: 'nav.editProfile', to: `${base}/r?edit=1`, icon: 'profile' },
+      { id: 'newpass', labelKey: 'nav.newPass', to: `${base}/r#new`, icon: 'newpass' },
+    ],
+  });
 
   if (slug && isOps(roles, superadmin)) {
     groups.push({
-      id: 'platform', labelKey: 'nav.platformView', to: `${base}/dashboard`,
+      id: 'platform', labelKey: 'nav.platformView', to: `${base}/dashboard`, icon: 'platform',
       items: [
         { id: 'dashboard', labelKey: 'nav.dashboard', to: `${base}/dashboard` },
         { id: 'sessions', labelKey: 'nav.sessions', to: `${base}/sessions` },
@@ -48,7 +59,7 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
 
   if (slug && isOperator(roles, superadmin)) {
     groups.push({
-      id: 'operator', labelKey: 'nav.operatorView', to: `${base}/a`,
+      id: 'operator', labelKey: 'nav.operatorView', to: `${base}/a`, icon: 'operator',
       items: [
         { id: 'home', labelKey: 'att.home', to: `${base}/a` },
         { id: 'checkin', labelKey: 'att.checkin', to: `${base}/a/checkin` },
@@ -70,7 +81,7 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
       { id: 'locale', labelKey: 'nav.locale', to: `${base}/locale` },
     ] : [];
     if (superadmin) items.push({ id: 'organisations', labelKey: 'platform.tenants', to: '/platform' });
-    if (items.length) groups.push({ id: 'admin', labelKey: 'nav.adminGroup', to: items[0]!.to, items });
+    if (items.length) groups.push({ id: 'admin', labelKey: 'nav.adminGroup', to: items[0]!.to, icon: 'admin', items });
   }
   return groups;
 }

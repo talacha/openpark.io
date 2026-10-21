@@ -9,6 +9,12 @@ const ADMIN_ITEMS = ['rates', 'parking', 'inventory', 'units', 'users', 'integra
 
 describe('menu by roles', () => {
   it('residents see only the resident view', () => expect(ids(['resident'])).toEqual(['resident']));
+  it('the resident view is a group with Edit profile and Issue new parking pass child links', () => {
+    const resident = menu(['resident']).find((g) => g.id === 'resident')!;
+    expect(resident.items.map((i) => i.id)).toEqual(['profile', 'newpass']);
+    expect(resident.items.map((i) => i.to)).toEqual(['/t/acme/r?edit=1', '/t/acme/r#new']);
+    expect(resident.items.map((i) => i.labelKey)).toEqual(['nav.editProfile', 'nav.newPass']);
+  });
   it('attendants see only the operator view', () => expect(ids(['attendant'])).toEqual(['operator']));
   it('supervisors are attendants who also see the platform view', () => expect(ids(['supervisor'])).toEqual(['platform', 'operator']));
   it('admins see the resident, platform and operator views and the Admin group', () => expect(ids(['admin'])).toEqual(['resident', 'platform', 'operator', 'admin']));

@@ -6,12 +6,17 @@ import { AppMenu } from './AppMenu.js';
 import { Invitations } from './Invitations.js';
 import { SyncBadge } from './SyncBadge.js';
 
+const COLLAPSED_KEY = 'op.menu.collapsed';
+const readCollapsed = (): boolean => { try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; } };
+
 /** One shell for every role and every screen: the shared menu plus the page. Wide screens get a sidebar, phones a drawer. */
 export function AppShell() {
   const { who, me } = useApp();
   const t = useT();
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
+  // Wide-screen collapse (icons only). Lazy-init from localStorage, falling back to expanded in private mode.
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   useEffect(() => { setOpen(false); }, [pathname]);
   useEffect(() => {
     if (!open) return;
@@ -19,11 +24,12 @@ export function AppShell() {
     addEventListener('keydown', esc);
     return () => removeEventListener('keydown', esc);
   }, [open]);
+  const toggleCollapsed = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem(COLLAPSED_KEY, n ? '1' : '0'); } catch { /* private mode */ } return n; });
   if (!who) return <Navigate to="/login" replace />;
 
   return (
-    <div className="shell" data-open={open}>
-      <AppMenu onNavigate={() => setOpen(false)} />
+    <div className="shell" data-open={open} data-collapsed={collapsed}>
+      <AppMenu onNavigate={() => setOpen(false)} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
       {open && <button type="button" className="scrim" aria-label={t('nav.closeMenu')} onClick={() => setOpen(false)} />}
       <div className="content">
         <header className="topbar">
