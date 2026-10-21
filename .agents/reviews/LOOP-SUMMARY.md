@@ -119,5 +119,6 @@ no behaviour regressed.
   (web +6 pass-helper tests, api +2 stay-alert tests vs the iteration-1 baseline; no test weakened or deleted)
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 
-**Pushed commit SHA:** _(filled in after commit/push below)_
+**Pushed commit SHA:** `c39ccb3` (iteration-2 tick) + this docs commit recording the SHA; both fast-forwarded
+onto `main` and pushed to `origin/main`.
 
