@@ -169,6 +169,7 @@ export function People() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [newUnit, setNewUnit] = useState('');
+  const [newSuper, setNewSuper] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   // Anyone who may edit people sees this screen; only a Super Admin may grant Super Admin.
   const canEdit = !!me && (me.superadmin || me.roles.includes('admin'));
@@ -178,11 +179,11 @@ export function People() {
     e.preventDefault();
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
     setErr(''); setMsg('');
-    if (!roles.length) { setErr(t('users.noRole')); return; }
+    if (!roles.length && !newSuper) { setErr(t('users.noRole')); return; }
     try {
-      const r = await post<{ temporaryPassword?: string; invited?: boolean }>('/v1/users', { email: f.email, name: f.name || undefined, roles, unit: roles.includes('resident') ? f.unit : undefined });
-      setMsg(r.temporaryPassword ? t('users.tempPassword', { password: r.temporaryPassword }) : t('users.invited'));
-      form.reset(); setRoles(['attendant']); setNewUnit(''); await users.reload();
+      const r = await post<{ temporaryPassword?: string; invited?: boolean; superadminPending?: boolean }>('/v1/users', { email: f.email, name: f.name || undefined, roles: roles.length ? roles : ['attendant'], unit: roles.includes('resident') ? f.unit : undefined, superadmin: newSuper || undefined });
+      setMsg((r.temporaryPassword ? t('users.tempPassword', { password: r.temporaryPassword }) : t('users.invited')) + (r.superadminPending ? ` ${t('users.superPending')}` : ''));
+      form.reset(); setRoles(['attendant']); setNewUnit(''); setNewSuper(false); await users.reload();
     } catch (x) { setErr(errText(x)); }
   }
   async function remove(id: string) { try { await del(`/v1/users/${id}`); setErr(''); await users.reload(); } catch (x) { setErr(errText(x)); } }
@@ -215,7 +216,7 @@ export function People() {
             <label className="field grow">{t('auth.email')}<input name="email" type="email" required dir="ltr" /></label>
             <label className="field">{t('auth.name')}<input name="name" /></label>
           </div>
-          <RoleBoxes idPrefix="new" roles={roles} superadmin={false} canSuper={false} onChange={(n) => setRoles(n.roles)} />
+          <RoleBoxes idPrefix="new" roles={roles} superadmin={newSuper} canSuper={canSuper} onChange={(n) => { setRoles(n.roles); setNewSuper(n.superadmin); }} />
           {roles.includes('resident') && unitSelect(newUnit, setNewUnit, 'unit')}
           <div><button className="btn primary">{t('users.invite')}</button></div>
         </form>

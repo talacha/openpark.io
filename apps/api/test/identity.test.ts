@@ -72,6 +72,12 @@ describe('Supabase tokens', () => {
 });
 
 describe('inviting people', () => {
+  it('lets only a Super Admin add someone as Super Admin', async () => {
+    const { headers } = await org();
+    const denied = await h.app.inject({ method: 'POST', url: '/v1/users', headers, payload: { email: `sa-${uniq()}@example.com`, roles: ['admin'], superadmin: true } });
+    expect(denied.statusCode).toBe(403);
+  });
+
   it('invites by email and claims the invitation the first time that person signs in', async () => {
     const { slug, headers } = await org();
     await h.app.inject({ method: 'POST', url: '/v1/units', headers, payload: { code: 'A-1', name: 'Apartment A-1' } });

@@ -126,9 +126,10 @@ export function registerPeopleRoutes(app: App) {
 
   defineRoute(app, {
     method: 'POST', path: '/v1/users', summary: 'Add a person with one or more roles. Local auth returns a one-time password; external auth sends an invitation by email', perm: 'users.edit',
-    body: z.object({ email: z.string().email(), name: z.string().optional(), roles: RoleList, unit: z.string().optional() }),
+    body: z.object({ email: z.string().email(), name: z.string().optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
     async handler({ ctx, db, body }) {
       const email = body.email.toLowerCase();
+      if (body.superadmin && !ctx.superadmin) throw new HttpError(403, 'forbidden', 'Only a Super Admin can grant Super Admin access');
       let unitId: string | null = null;
       if (body.roles.includes('resident')) {
         unitId = (await db.query('select id from unit where code = $1', [body.unit ?? ''])).rows[0]?.id ?? null;
@@ -136,7 +137,9 @@ export function registerPeopleRoutes(app: App) {
       }
       const r = await addPerson(app, db, ctx.tenantId, ctx.userId, { email, name: body.name, roles: body.roles, unitId });
       await audit(db, ctx.tenantId, ctx.userId, r.invited ? 'user.invite' : 'user.add', r.invited ? 'membership_invite' : 'membership', null, { email, roles: body.roles, unit: body.unit });
-      return created(r.invited ? { invited: true, email } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) });
+      if (body.superadmin && !r.invited) await db.query('update app_user set is_superadmin = true where id = $1', [r.userId]);
+      // An invited person has no account yet, so Super Admin is granted from Edit once they have joined.
+      return created(r.invited ? { invited: true, email, ...(body.superadmin ? { superadminPending: true } : {}) } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) });
     },
   });
 

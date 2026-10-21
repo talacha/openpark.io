@@ -396,5 +396,6 @@
   "ev.fee_override": "Fee overridden",
   "ev.device_clock_gap": "Device clock differs",
   "ev.pass_redeemed": "Guest pass used",
-  "ev.plate_format_mismatch": "Plate format unusual"
+  "ev.plate_format_mismatch": "Plate format unusual",
+  "users.superPending": "Super Admin access is added from Edit once they have joined."
 }

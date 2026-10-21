@@ -396,5 +396,6 @@
   "ev.fee_override": "Tarifa modificada",
   "ev.device_clock_gap": "Reloj del dispositivo distinto",
   "ev.pass_redeemed": "Pase de invitado usado",
-  "ev.plate_format_mismatch": "Formato de matrícula inusual"
+  "ev.plate_format_mismatch": "Formato de matrícula inusual",
+  "users.superPending": "El acceso de superadministrador se añade desde Editar cuando se hayan unido."
 }

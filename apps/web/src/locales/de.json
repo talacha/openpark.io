@@ -396,5 +396,6 @@
   "ev.fee_override": "Gebühr geändert",
   "ev.device_clock_gap": "Gerätezeit weicht ab",
   "ev.pass_redeemed": "Gästepass eingelöst",
-  "ev.plate_format_mismatch": "Ungewöhnliches Kennzeichenformat"
+  "ev.plate_format_mismatch": "Ungewöhnliches Kennzeichenformat",
+  "users.superPending": "Super-Admin-Zugriff wird über Bearbeiten ergänzt, sobald die Person beigetreten ist."
 }
