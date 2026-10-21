@@ -492,4 +492,4 @@ because the `e2e/*.mjs` stories (two dev servers + ONNX models + Chrome + `.y4m`
   (web +8 this tick: pass-e2e 2, attendant-camera 2, crud-roles 4; policy-editor rewritten, still 2; none weakened/deleted)
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
-**Pushed commit SHA:** `f4a9a8d` — fast-forwarded onto `main` and pushed to `origin/main`.
+**Pushed commit SHA:** `598eca7` — fast-forwarded onto `main` and pushed to `origin/main`.
