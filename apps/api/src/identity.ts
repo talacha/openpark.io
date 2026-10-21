@@ -38,10 +38,11 @@ export class IdentityVerifier {
         ? await jwtVerify(token, this.jwks, opts)
         : await jwtVerify(token, this.secret!, { ...opts, algorithms: ['HS256'] });
       if (!payload.sub || payload.is_anonymous === true) return null;
-      const meta = (payload.user_metadata ?? {}) as { full_name?: string; name?: string };
+      const meta = (payload.user_metadata ?? {}) as { full_name?: string; name?: string; email_verified?: boolean };
       return {
         sub: payload.sub,
-        email: typeof payload.email === 'string' ? payload.email.toLowerCase() : null,
+        // An address the provider has not verified must never link to an account or claim invitations.
+        email: typeof payload.email === 'string' && (payload.email_verified ?? meta.email_verified) !== false ? payload.email.toLowerCase() : null,
         name: meta.full_name ?? meta.name ?? null,
       };
     } catch {

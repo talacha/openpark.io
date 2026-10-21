@@ -62,7 +62,7 @@ export function Integrations() {
           <div><button className="btn primary">{t('integ.createHook')}</button></div>
         </form>
         {editing && (
-          <form className="card stack" onSubmit={saveHook} aria-label={t('users.editing', { who: editing.url })}>
+          <form key={editing.id} className="card stack" onSubmit={saveHook} aria-label={t('users.editing', { who: editing.url })}>
             <label className="field">{t('integ.url')}<input name="url" type="url" required defaultValue={editing.url} dir="ltr" /></label>
             <fieldset className="roles"><legend>{t('integ.events')}</legend>
               {EVENTS.map((ev) => <div key={ev} className="rolebox"><input id={`ee-${ev}`} type="checkbox" checked={editing.events.includes(ev)} onChange={() => setEditing({ ...editing, events: toggle(editing.events, ev) })} /><label htmlFor={`ee-${ev}`}><strong dir="ltr">{ev}</strong></label></div>)}

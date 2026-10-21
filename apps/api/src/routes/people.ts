@@ -66,7 +66,7 @@ export function registerPeopleRoutes(app: App) {
     async handler({ ctx, db, body }) {
       let siteId: string | null = null;
       if (body.site) {
-        siteId = (await db.query('select id from site where code = $1', [body.site])).rows[0]?.id;
+        siteId = (await db.query('select id from site where code = $1 and retired_at is null', [body.site])).rows[0]?.id;
         if (!siteId) throw new HttpError(404, 'site_not_found', `No site ${body.site}`);
       }
       const r = await db.query('insert into unit (tenant_id, site_id, code, name, floor, note) values ($1,$2,$3,$4,$5,$6) on conflict (tenant_id, code) do nothing returning id',
@@ -323,6 +323,8 @@ export function registerPeopleRoutes(app: App) {
 
 /** A property must always keep at least one admin, or nobody could configure it. */
 async function assertAnotherAdmin(db: import('../db.js').Db, leaving: string) {
+  // Lock the admins first: two people demoting each other at once must not both pass the count below.
+  await db.query("select user_id from membership where 'admin' = any(roles) order by user_id for update");
   const n = (await db.query("select count(*)::int as n from membership where 'admin' = any(roles) and user_id <> $1", [leaving])).rows[0].n;
   if (!n) throw new HttpError(409, 'last_admin', 'A property needs at least one admin');
 }

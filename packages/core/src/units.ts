@@ -34,6 +34,8 @@ export interface LiveUnit {
   residents: { email: string }[];
   /** Guest passes reference the unit, so it cannot be removed once any exist. */
   hasPasses: boolean;
+  /** Pending invitations name the unit, and would vanish with it. */
+  hasInvites?: boolean;
 }
 
 export interface UnitsDiff {
@@ -41,7 +43,7 @@ export interface UnitsDiff {
   changed: { before: LiveUnit; after: UnitEntry }[];
   /** `replace` mode: units absent from the file that can be removed safely. */
   removed: LiveUnit[];
-  conflicts: { unit: LiveUnit; reason: 'has_residents' | 'has_passes' }[];
+  conflicts: { unit: LiveUnit; reason: 'has_residents' | 'has_passes' | 'has_invites' }[];
   /** Resident emails in the file that are not yet attached to that unit. */
   residentsToAdd: { unit: string; email: string; name?: string }[];
   /** Site codes in the file that the caller must check exist. */
@@ -67,6 +69,7 @@ export function diffUnits(live: LiveUnit[], incoming: UnitEntry[], mode: 'merge'
       if (inCodes.has(u.code)) continue;
       if (u.residents.length) diff.conflicts.push({ unit: u, reason: 'has_residents' });
       else if (u.hasPasses) diff.conflicts.push({ unit: u, reason: 'has_passes' });
+      else if (u.hasInvites) diff.conflicts.push({ unit: u, reason: 'has_invites' });
       else diff.removed.push(u);
     }
   }

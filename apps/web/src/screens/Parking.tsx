@@ -142,7 +142,7 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
             ))}</tbody>
           </table></div>
           {editZone && (
-            <form className="card row" onSubmit={saveZone} aria-label={t('users.editing', { who: editZone.code })}>
+            <form key={editZone.code} className="card row" onSubmit={saveZone} aria-label={t('users.editing', { who: editZone.code })}>
               <label className="field grow">{t('units.name')}<input name="name" required defaultValue={editZone.name} maxLength={100} /></label>
               <label className="field">{t('parking.level')}<input name="level" type="number" step={1} min={-20} max={200} defaultValue={editZone.level ?? ''} dir="ltr" /></label>
               <button className="btn primary">{t('common.save')}</button><button type="button" className="btn" onClick={() => setEditZone(null)}>{t('common.cancel')}</button>
@@ -173,7 +173,7 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
             ))}</tbody>
           </table></div>
           {editSlot && (
-            <form className="card row" onSubmit={saveSlot} aria-label={t('users.editing', { who: editSlot.code })}>
+            <form key={editSlot.code} className="card row" onSubmit={saveSlot} aria-label={t('users.editing', { who: editSlot.code })}>
               <label className="field">{t('common.zone')}<select name="zone" defaultValue={editSlot.zone}>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</select></label>
               <label className="field">{t('parking.type')}<select name="type" defaultValue={editSlot.type}>{types.map((x) => <option key={x.code} value={x.code}>{pickLabel(x.label, locale, x.code)}</option>)}</select></label>
               <label className="field">{t('common.status')}<select name="status" defaultValue={editSlot.status} disabled={editSlot.status === 'occupied'}>

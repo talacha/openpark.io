@@ -20,7 +20,7 @@ beforeAll(async () => {
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/hook`;
-  h = await harness({ env: { SERVERLESS: 'true', JOBS_ENABLED: 'true', SSE_ENABLED: 'false', CRON_SECRET: 'cron-secret-123' } });
+  h = await harness({ env: { WEBHOOKS_ALLOW_PRIVATE: 'true', SERVERLESS: 'true', JOBS_ENABLED: 'true', SSE_ENABLED: 'false', CRON_SECRET: 'cron-secret-123' } });
   owner = await signup(h.app, 'US');
 });
 afterAll(async () => { await h.close(); await new Promise((r) => server.close(r)); });

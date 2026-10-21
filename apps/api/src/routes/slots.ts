@@ -59,6 +59,7 @@ export function registerSlotRoutes(app: App) {
       if (open) throw new HttpError(409, 'site_in_use', 'Cars are still inside this site');
       await db.query('update site set retired_at = now() where id = $1', [cur.id]);
       await db.query('update slot set retired_at = coalesce(retired_at, now()) where site_id = $1', [cur.id]);
+      await db.query('update unit set site_id = null where site_id = $1', [cur.id]); // a retired site cannot receive passes
       await audit(db, ctx.tenantId, ctx.userId, 'site.retire', `site:${params.code}`, cur, null);
       return { ok: true };
     },

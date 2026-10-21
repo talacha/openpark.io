@@ -1,3 +1,4 @@
+import { assertPublicHost } from './netguard.js';
 import { createHmac } from 'node:crypto';
 import PgBoss from 'pg-boss';
 import type { Config } from './config.js';
@@ -83,7 +84,9 @@ export class Jobs {
     for (const h of hooks) {
       const sig = createHmac('sha256', h.secret).update(body).digest('hex');
       try {
+        if (!this.cfg.WEBHOOKS_ALLOW_PRIVATE) await assertPublicHost(h.url);
         const res = await fetch(h.url, {
+          redirect: 'manual',
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-openpark-event': job.event, 'x-openpark-signature': `sha256=${sig}` },
           body,

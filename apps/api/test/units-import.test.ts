@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addResident, addUnit, addUser, fakeSupabase, harness, idem, signup, type Harness, type Tenant } from './helpers.js';
+import { addResident, addUnit, addUser, fakeSupabase, harness, idem, signup, tenantId, type Harness, type Tenant } from './helpers.js';
 
 const uniq = () => randomBytes(3).toString('hex');
 const doc = (tenant: string, units: unknown[]) => ({ schemaVersion: 1, tenant, units });
@@ -239,6 +239,67 @@ describe('integrations CRUD', () => {
       expect((await call('DELETE', `/v1/webhooks/${hook.id}`)).statusCode).toBe(200);
       expect((await call('PATCH', `/v1/webhooks/${hook.id}`, { active: true })).json().error.code).toBe('webhook_not_found');
       expect((await call('GET', '/v1/webhooks')).json()).toEqual([]);
+    } finally { await h.close(); }
+  });
+});
+
+describe('review fixes', () => {
+  it('refuses webhook URLs that point at internal addresses', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'US');
+      for (const url of ['http://127.0.0.1/x', 'http://localhost:3000/x', 'http://169.254.169.254/latest', 'http://10.0.0.5/x', 'http://[::1]/x', 'ftp://example.com/x', 'http://svc.internal/x']) {
+        const r = await h.app.inject({ method: 'POST', url: '/v1/webhooks', headers: t.h, payload: { url, events: ['session.opened'] } });
+        expect(r.statusCode, url).toBe(400);
+      }
+      expect((await h.app.inject({ method: 'POST', url: '/v1/webhooks', headers: t.h, payload: { url: 'https://example.com/hook', events: ['session.opened'] } })).statusCode).toBe(201);
+    } finally { await h.close(); }
+  });
+
+  it('a replace-mode units import does not silently delete a unit with a pending invitation', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      await h.app.inject({ method: 'POST', url: '/v1/units', headers: t.h, payload: { code: 'KEEP', name: 'Keep' } });
+      await h.app.inject({ method: 'POST', url: '/v1/units', headers: t.h, payload: { code: 'INV', name: 'Has invite' } });
+      const tid = await tenantId(t.slug);
+      await h.app.db.withTenant(tid, (db) => db.query("insert into membership_invite (tenant_id, email, roles, unit_id) select $1, 'future@example.com', array['resident'], id from unit where code = 'INV'", [tid]));
+      const doc = { schemaVersion: 1, tenant: t.slug, units: [{ code: 'KEEP', name: 'Keep' }] };
+      const pre = await h.app.inject({ method: 'POST', url: '/v1/units/import?mode=replace', headers: t.h, payload: doc });
+      expect(pre.json().diff.conflicts).toEqual([expect.objectContaining({ reason: 'has_invites' })]);
+      expect(pre.json().diff.removed).toEqual([]);
+    } finally { await h.close(); }
+  });
+
+  it('a retired site cannot receive units, keys or passes', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      await h.app.inject({ method: 'POST', url: '/v1/sites', headers: t.h, payload: { code: 'OLD', name: 'Old', timezone: 'UTC' } });
+      await h.app.inject({ method: 'POST', url: '/v1/units', headers: t.h, payload: { code: 'U9', name: 'U9', site: 'OLD' } });
+      await h.app.inject({ method: 'DELETE', url: '/v1/sites/OLD', headers: t.h });
+      const units = (await h.app.inject({ method: 'GET', url: '/v1/units', headers: t.h })).json();
+      expect(units.find((u: { code: string }) => u.code === 'U9').site).toBeNull();
+      expect((await h.app.inject({ method: 'POST', url: '/v1/units', headers: t.h, payload: { code: 'U10', name: 'x', site: 'OLD' } })).json().error.code).toBe('site_not_found');
+      expect((await h.app.inject({ method: 'POST', url: '/v1/api-keys', headers: t.h, payload: { name: 'k', site: 'OLD' } })).json().error.code).toBe('site_not_found');
+    } finally { await h.close(); }
+  });
+
+  it('two admins cannot demote each other at the same time', async () => {
+    const h = await harness();
+    try {
+      const a = await signup(h.app, 'MX');
+      const b = await addUser(h.app, a, 'admin');
+      const users = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: a.h })).json().members as { id: string; email: string }[];
+      const idOf = (e: string) => users.find((u) => u.email === e)!.id;
+      const aId = users.find((u) => u.email !== b.email)!.id, bId = idOf(b.email!);
+      const rs = await Promise.all([
+        h.app.inject({ method: 'PATCH', url: `/v1/users/${bId}`, headers: a.h, payload: { roles: ['attendant'] } }),
+        h.app.inject({ method: 'PATCH', url: `/v1/users/${aId}`, headers: b.h, payload: { roles: ['attendant'] } }),
+      ]);
+      expect(rs.filter((r) => r.statusCode === 200)).toHaveLength(1); // the other is refused (409 last admin, or 403 once its caller was demoted)
+      const left = (await h.app.db.withTenant(await tenantId(a.slug), (db) => db.query("select count(*)::int as n from membership where 'admin' = any(roles)"))).rows[0].n;
+      expect(left).toBe(1);
     } finally { await h.close(); }
   });
 });

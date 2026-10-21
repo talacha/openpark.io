@@ -8,9 +8,10 @@ export async function loadLiveUnits(db: Db): Promise<LiveUnit[]> {
   const rows = (await db.query(
     `select u.code, u.name, s.code as site,
        coalesce((select json_agg(json_build_object('email', a.email) order by a.email) from membership m join app_user a on a.id = m.user_id where m.unit_id = u.id), '[]') as residents,
-       exists (select 1 from pass p where p.unit_id = u.id) as has_passes
+       exists (select 1 from pass p where p.unit_id = u.id) as has_passes,
+       exists (select 1 from membership_invite i where i.unit_id = u.id) as has_invites
      from unit u left join site s on s.id = u.site_id order by u.code`)).rows;
-  return rows.map((r) => ({ code: r.code, name: r.name, site: r.site, residents: r.residents, hasPasses: r.has_passes }));
+  return rows.map((r) => ({ code: r.code, name: r.name, site: r.site, residents: r.residents, hasPasses: r.has_passes, hasInvites: r.has_invites }));
 }
 
 export async function exportUnits(db: Db, tenantSlug: string, now: Date) {

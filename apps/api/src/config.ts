@@ -38,6 +38,8 @@ const Env = z.object({
   ALPR_URL: z.string().url().optional(),
   STORAGE_DIR: z.string().default('./data'),
   CORS_ORIGIN: z.string().default('*'),
+  /** Webhooks may only target public addresses; allow private ones for local development and tests. */
+  WEBHOOKS_ALLOW_PRIVATE: z.enum(['true', 'false', '1', '0']).default('false').transform((v) => v === 'true' || v === '1'),
   LOG_LEVEL: z.string().default('info'),
   /** On Vercel: no background workers or shared LISTEN connection; see server.ts. */
   SERVERLESS: z.enum(['true', 'false', '1', '0']).default(process.env.VERCEL ? 'true' : 'false').transform((v) => v === 'true' || v === '1'),

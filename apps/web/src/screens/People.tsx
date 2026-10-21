@@ -89,7 +89,7 @@ export function Units() {
       )}
       {err && <div className="banner bad" role="alert">{err}</div>}
       {editing && (
-        <form className="card stack" onSubmit={saveUnit} aria-label={t('users.editing', { who: editing.code })}>
+        <form key={editing.code} className="card stack" onSubmit={saveUnit} aria-label={t('users.editing', { who: editing.code })}>
           <h2>{t('users.editing', { who: editing.code })}</h2>
           <div className="row">
             <label className="field grow">{t('units.name')}<input name="name" required defaultValue={editing.name} maxLength={100} /></label>

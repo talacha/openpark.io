@@ -129,7 +129,8 @@ export function CheckInCapture() {
     const region = me!.tenant.plate_regions[0] ?? flow.region;
     const valid = matchesRegistry(p.text, me!.tenant.plate_regions);
     const threshold = site?.settings.aiThreshold ?? 0.85;
-    const confident = valid && (!p.manual || p.confidence >= threshold);
+    // Live reads were already agreed by several frames, but they still need the site's confidence to skip review.
+    const confident = valid && p.confidence >= threshold;
     set({ candidates: [{ text: p.text, norm, confidence: p.confidence, region, formatValid: valid }], plate: p.text, confidence: p.confidence, textRaw: p.text, source: confident ? 'ai_auto' : 'ai_assist', vehicle: {} });
     nav(`${b}/checkin/${confident ? 'confirm' : 'review'}`);
   }

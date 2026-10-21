@@ -1,3 +1,4 @@
+import { looksPublicHttpUrl } from '../netguard.js';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { ROLES, hashPassword, newApiKey, signToken, verifyPassword } from '../auth.js';
@@ -24,6 +25,9 @@ const Role = z.enum(ROLES);
 const WebhookEvent = z.enum(['session.opened', 'session.closed', 'slot.changed', 'read.needs_review', 'pass.overstay']);
 
 export function registerAuthRoutes(app: App) {
+  const assertWebhookUrl = (url: string) => {
+    if (!app.cfg.WEBHOOKS_ALLOW_PRIVATE && !looksPublicHttpUrl(url)) throw new HttpError(400, 'validation_failed', 'Webhook URLs must be public http(s) addresses');
+  };
   // Called by openpark.io: creates a trial tenant with one demo site and a country-template rate plan.
   definePublicRoute(app, {
     method: 'POST', path: '/v1/signup', summary: 'Create a trial tenant', body: Signup,
@@ -106,7 +110,7 @@ export function registerAuthRoutes(app: App) {
     async handler({ ctx, db, body }) {
       let siteId: string | null = null;
       if (body.site) {
-        siteId = (await db.query('select id from site where code = $1', [body.site])).rows[0]?.id;
+        siteId = (await db.query('select id from site where code = $1 and retired_at is null', [body.site])).rows[0]?.id;
         if (!siteId) throw new HttpError(404, 'site_not_found', `No site ${body.site}`);
       }
       const k = newApiKey();
@@ -145,6 +149,7 @@ export function registerAuthRoutes(app: App) {
     method: 'PATCH', path: '/v1/webhooks/:id', summary: 'Change a webhook endpoint: URL, events, or pause it', perm: 'settings.edit',
     body: z.object({ url: z.string().url().optional(), events: z.array(WebhookEvent).min(1).optional(), active: z.boolean().optional() }),
     async handler({ ctx, db, params, body }) {
+      if (body.url) assertWebhookUrl(body.url);
       const r = await db.query('update webhook_endpoint set url = coalesce($2, url), events = coalesce($3, events), active = coalesce($4, active) where id = $1 returning id',
         [params.id, body.url ?? null, body.events ?? null, body.active ?? null]);
       if (!r.rowCount) throw new HttpError(404, 'webhook_not_found', 'No such webhook endpoint');
@@ -170,6 +175,7 @@ export function registerAuthRoutes(app: App) {
       events: z.array(WebhookEvent).min(1),
     }),
     async handler({ ctx, db, body }) {
+      assertWebhookUrl(body.url);
       const secret = `whsec_${randomBytes(24).toString('base64url')}`;
       const r = await db.query('insert into webhook_endpoint (tenant_id, url, secret, events) values ($1,$2,$3,$4) returning id',
         [ctx.tenantId, body.url, secret, body.events]);
