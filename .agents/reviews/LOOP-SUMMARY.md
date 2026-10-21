@@ -624,4 +624,4 @@ findings #1/#2 — out of gate scope, too fragile at the budget edge.
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
 **Elapsed:** ≈11h25m of the (extended) budget at tick start; this is iteration 10 (the 10-iteration cap).
-**Tick commit SHA:** _(filled in after commit below)_
+**Tick commit SHA:** `fddd34b` — fast-forwarded onto `main` and pushed to `origin/main` (normal push).
