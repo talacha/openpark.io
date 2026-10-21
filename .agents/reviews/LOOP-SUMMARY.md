@@ -294,5 +294,5 @@ no placeholders; `en-XA.json` left generated. Locale parity test green.
 
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
 
-**Pushed commit SHA:** `__FILLED_AFTER_COMMIT__` — fast-forwarded onto `main` and pushed to `origin/main`.
+**Pushed commit SHA:** `be40389` (iteration-5 tick) + this bookkeeping follow-up — fast-forwarded onto `main` and pushed to `origin/main`.
 
