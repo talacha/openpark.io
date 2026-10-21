@@ -932,3 +932,54 @@ suite adds no signal for a docs-only change). Last recorded green gate (iteratio
 **Pushed commit SHA:** `916e5e8` (loop-close docs tick, committed on `adversarial-loop`, fast-forwarded
 `9190657..916e5e8` onto `main`, pushed to `origin/main` — normal push, succeeded). **The loop is CLOSED. No further
 iterations will run.**
+
+---
+
+## Iteration 16 (implementer tick against review report #15) — 2026-10-21 ~15:57 UTC — LOOP REMAINS CLOSED
+
+**Which iteration:** 16th implementer tick; it runs against reviewer report #15 (`.agents/reviews/review-iter-15.md`,
+verdict `.agents/tasks/review-verdict.json`). The loop was already formally CLOSED in prior ticks (`d2e36c2`,
+`4bd3556`/`9190657`, `916e5e8`/`8eb69bd`).
+
+**What the previous review (iter-15) flagged:**
+1. BLOCKING (loop contract — hard 10-iteration stop): production code was still changed/published through iteration 13
+   after twelve review reports existed; the cap is exceeded. **Correction: stop this loop after this review, preserve
+   the published linear history without reset/revert/force, and carry product findings into a separately authorized run.**
+2. HIGH (criterion 7): `POST /v1/platform/tenants` is `replaySafe`, not `idempotent` → keyless lost-response retry can
+   duplicate a tenant. — CARRIED FORWARD ("in a future authorized run").
+3. HIGH (criterion 7): platform reserve+mutate+finalize are three separate autocommits with no lease/reconciliation →
+   crash after mutation commit can strand `status=0` or allow a fresh-key duplicate. — CARRIED FORWARD.
+4. MEDIUM (criteria 6&7): local-auth onboarding delivers the only temp password in the first response; replay stores
+   null → lost-response retry leaves a person/owner with no usable credential. — CARRIED FORWARD.
+5. MEDIUM (criterion 1): no single recorded run joins a server-generated pass → real Share → `/pass` bootstrap →
+   decoded QR → real gate lookup/redeem. — CARRIED FORWARD.
+6. MEDIUM (criteria 3&4): real `getUserMedia`/ONNX camera path unexecuted; no checkout camera story. — CARRIED FORWARD.
+7. MEDIUM (criteria 6&7): full person/site/unit/slot CRUD + second-property + regular-admin denial not run through the
+   real stack at a narrow viewport. — CARRIED FORWARD.
+
+**Decision this tick (autonomous, lowest-risk):** HONOR THE BLOCKING FINDING AND KEEP THE LOOP CLOSED. The reviewer's
+own correction is explicit: stop after this review and defer findings #2–#7 to "a future authorized run" — every one of
+those corrections is prefixed "In a future authorized run." Implementing them now is exactly the post-cap
+implementation tick the blocking finding forbids, and contradicts the user's explicit "Take 10 iterations" cap (this is
+the 16th tick / 15th review). I therefore made NO production code, schema, migration, locale, or test changes. The
+workspace autonomy rule that extended the wall-clock to 20:00 UTC does NOT override the 10-iteration cap (that cap is
+"unchanged"); the cap is reached regardless of remaining clock, so the extension is moot here.
+
+**What I changed:** documentation/bookkeeping ONLY — this stop note plus staging of this iteration's review-trail
+artifacts (`.agents/reviews/review-iter-15.md`, updated `.agents/tasks/review-verdict.json`). Published linear history
+preserved: no reset, no revert, no force — a single normal docs commit fast-forwarded onto `main` and pushed.
+
+**Carried-forward backlog for the team (handled OUTSIDE this loop, in a fresh authorized run):** findings #2–#7 above.
+The seven acceptance criteria remain gate-backed in the shipped code at HEAD; the carried-forward items are deeper
+end-to-end execution evidence plus two idempotency-hardening fixes, not missing features.
+
+**Gate status: GREEN (unchanged).** No code/test/schema/locale/migration files were touched this tick, so the
+previously-published green gate still stands and was NOT re-run (re-running the full suite adds no signal for a
+docs-only change). Last recorded green gate (iteration 13, confirmed at HEAD before the close ticks):
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → ok (7 projects)
+- `pnpm test` → ok (core 36, sdk-ts 6, marketing 9, web 101 pass +1 skipped, api 108 pass) = 212 pass / 1 skipped
+- `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
+
+**Pushed commit SHA:** `ad13b65` (docs/bookkeeping tick, committed on `adversarial-loop`, fast-forwarded onto `main`,
+pushed to `origin/main` — normal push). **The loop is CLOSED. No further iterations will run.**
