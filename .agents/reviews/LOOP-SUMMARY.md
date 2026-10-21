@@ -52,5 +52,12 @@ assertion was changed to accommodate it.
 - `pnpm test` → core 36, sdk-ts 6, marketing 9, web 55 (+1 pre-existing skip), api 99 — all pass
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 
-**Pushed commit SHA:** _(filled in below after commit/push)_
+**Publish note:** the loop branch was based on `2d8ce88` but `main` had already advanced to `d7b3ee3`
+(chore: ignore `.worktrees/` + add the autonomy steering doc), so a `--ff-only` merge was not yet possible.
+The remote had NOT moved (origin/main == local main == `d7b3ee3`), so this was a local base gap, not a
+rejected push — I rebased my two local, unpushed iteration commits onto `main` (linear, no conflicts, no
+force-push), re-ran the full gate GREEN, then fast-forwarded `main` and pushed.
+
+**Pushed commit SHA:** `8f7b7cf` (feature/tick commit, rebased onto `d7b3ee3`) + this docs commit; both
+fast-forwarded onto `main` and pushed to `origin/main`.
 
