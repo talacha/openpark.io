@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataUrlToBlob, isPassExpired, parsePassQr, passAcceptPatch, passPrefillPlate, passRemovePatch, passShareMessage, planPassShare, qrGifDataUrl, spaceCode } from '../src/pass.js';
+import { dataUrlToBlob, isPassExpired, parseGuestPassToken, parsePassQr, passAcceptPatch, passPrefillPlate, passRemovePatch, passShareMessage, passShareUrl, planPassShare, qrGifDataUrl, spaceCode } from '../src/pass.js';
 
 const qr = 'OPP2|PyuMHp1KTH6KVQtvbx0skA|3|K7Q2M9XA|DEMO-01|A-101|Rosa%20Gu%C3%A9sped|ABC123|1792540800|AbCdEfGhIjKlMnOpQrStUv';
 
@@ -60,6 +60,18 @@ describe('sharing a guest pass', () => {
     expect(planPassShare({ canShare: false, canShareFiles: false, canCopy: true })).toEqual({ method: 'download', copies: true, statusKey: 'res.shareCopied' });
     // No Web Share and no Clipboard: only download — never claim a copy happened.
     expect(planPassShare({ canShare: false, canShareFiles: false, canCopy: false })).toEqual({ method: 'download', copies: false, statusKey: 'res.shareDownloaded' });
+  });
+
+  it('shares a guest link whose QR artifact round-trips back to the scanner/redeem token', () => {
+    // A text-only share (no file support) still delivers something scannable: the guest opens this link, the page
+    // renders the QR from the fragment, and the attendant camera reads back the exact redeemable pass token.
+    const url = passShareUrl('https://park.example', qr);
+    expect(url.startsWith('https://park.example/pass#t=')).toBe(true);
+    const token = parseGuestPassToken(new URL(url).hash);
+    expect(token).toBe(qr); // the fragment carries the full signed token, not a lossy subset
+    expect(parsePassQr(token!)).not.toBeNull(); // and it parses as the pass the attendant redeems
+    expect(passShareUrl('https://park.example/', qr)).toBe(url); // a trailing slash on origin is normalised
+    expect(parseGuestPassToken('#nothing-here')).toBeNull();
   });
 
   it('prefills the plate only when the scanned pass carries a hint', () => {

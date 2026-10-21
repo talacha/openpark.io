@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, patch, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
-import { dataUrlToBlob, passShareMessage, planPassShare, qrGifDataUrl, spaceCode } from '../pass.js';
+import { dataUrlToBlob, passShareMessage, passShareUrl, planPassShare, qrGifDataUrl, spaceCode } from '../pass.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -151,7 +151,9 @@ function SharePass({ qr, guest, property, unit, code, expiresMinutes }: { qr: st
 
   async function share() {
     setBusy(true); setStatus('');
-    // The signed token rides along in the text so a text-only share or a copy still leaves the guest a redeemable pass.
+    // Share a guest-facing link that renders the QR client-side, so even a text-only share (no file support) leaves the
+    // guest something scannable at the gate. The signed token also rides in the body as a redeemable fallback.
+    const url = passShareUrl(location.origin, qr);
     const { title, text } = passShareMessage(t, { guest, unit, property, code, expiresMinutes, token: qr });
     const nav = navigator as Navigator & { canShare?: (d?: { files?: File[] }) => boolean };
     try {
@@ -160,10 +162,11 @@ function SharePass({ qr, guest, property, unit, code, expiresMinutes }: { qr: st
       const canShare = typeof nav.share === 'function';
       const canShareFiles = canShare && typeof nav.canShare === 'function' && nav.canShare({ files: [file] });
       const plan = planPassShare({ canShare, canShareFiles, canCopy: typeof navigator.clipboard?.writeText === 'function' });
-      if (plan.method === 'file') { await nav.share({ title, text, files: [file] }); return; }
-      if (plan.method === 'text') { await nav.share({ title, text }); return; }
-      // No Web Share API (most desktops): download the QR image, and copy the message only when the Clipboard API exists.
-      if (plan.copies) await navigator.clipboard.writeText(text);
+      // Every Web Share carries the guest link, so the guest can open it and present a scannable QR on their own device.
+      if (plan.method === 'file') { await nav.share({ title, text, url, files: [file] }); return; }
+      if (plan.method === 'text') { await nav.share({ title, text, url }); return; }
+      // No Web Share API (most desktops): download the QR image, and copy the message + link only when the Clipboard API exists.
+      if (plan.copies) await navigator.clipboard.writeText(`${text}\n${url}`);
       const a = document.createElement('a');
       a.href = dataUrl; a.download = 'parking-pass.gif'; a.rel = 'noopener';
       a.click();

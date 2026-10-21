@@ -6,6 +6,7 @@ import { Auth, Onboarding } from './screens/Auth.js';
 import { AiSettings, LocaleSettings } from './screens/Settings.js';
 import { AttendantHome, CheckInCapture, CheckInConfirm, CheckInReview, CheckOut, Flow } from './screens/Attendant.js';
 import { Dashboard } from './screens/Dashboard.js';
+import { GuestPass } from './screens/GuestPass.js';
 import { GuestPasses } from './screens/GuestPasses.js';
 import { Integrations } from './screens/Integrations.js';
 import { Inventory } from './screens/Inventory.js';
@@ -59,6 +60,8 @@ export function App() {
       <Route path="/forgot" element={<Auth mode="forgot" />} />
       <Route path="/reset" element={<Auth mode="reset" />} />
       <Route path="/onboarding" element={<Onboarding />} />
+      {/* Public: a guest opens the shared link and shows this QR at the gate. No auth; the token lives only in the URL fragment. */}
+      <Route path="/pass" element={<GuestPass />} />
 
       <Route element={<AppShell />}>
         <Route path="/platform" element={<Platform />} />

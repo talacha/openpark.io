@@ -6,7 +6,8 @@ import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
-import { parsePassQr, passAcceptPatch, passRemovePatch, spaceCode } from '../pass.js';
+import { parsePassQr, spaceCode } from '../pass.js';
+import { applyPassAccept, applyPassRemove, emptyFlow, type Candidate, type FlowState } from '../attendant-flow.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -18,27 +19,26 @@ const Scanner = (props: { onResult: (text: string) => void; onClose: () => void 
 
 /* ---------- shared check-in state ---------- */
 
-interface Candidate { text: string; norm: string; confidence: number; region?: string; formatValid: boolean | null }
-interface FlowState {
-  plate: string; region: string; source: 'manual' | 'ai_assist' | 'ai_auto';
-  candidates: Candidate[]; confidence?: number; textRaw?: string; cropKey?: string;
-  /** True while `plate` was filled from a scanned pass hint, so it clears when the pass is removed or replaced. */
-  plateFromPass: boolean;
-  vehicle: { make?: string; model?: string; color?: string; bodyType?: string };
-  /** A scanned resident guest pass: check-in is then free and tied to the pass. */
-  pass: { token: string; guest: string; unit: string; plateHint?: string; verifyCode?: string } | null;
-}
-const empty = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null, plateFromPass: false });
-/** Clear read metadata alongside a pass-derived plate, so a stale candidate/confidence never rides on the next pass. */
-const clearedRead = { candidates: [] as Candidate[], confidence: undefined, textRaw: undefined, cropKey: undefined };
-const FlowCtx = createContext<{ flow: FlowState; set: (f: Partial<FlowState>) => void; reset: () => void }>(null as never);
+const FlowCtx = createContext<{
+  flow: FlowState;
+  /** Merge a fixed patch (for synchronous edits like the keypad). */
+  set: (f: Partial<FlowState>) => void;
+  /** Merge a patch computed from the LATEST state — use this for anything that lands after an await, so a concurrent camera read is never overwritten by a stale snapshot. */
+  update: (fn: (s: FlowState) => Partial<FlowState>) => void;
+  reset: () => void;
+}>(null as never);
 const useFlow = () => useContext(FlowCtx);
 
 export function Flow({ children }: { children: ReactNode }) {
   const { me } = useApp();
   const region0 = me?.tenant.plate_regions[0] ?? 'US';
-  const [flow, setFlow] = useState<FlowState>(empty(region0));
-  const value = useMemo(() => ({ flow, set: (f: Partial<FlowState>) => setFlow((s) => ({ ...s, ...f })), reset: () => setFlow(empty(region0)) }), [flow, region0]);
+  const [flow, setFlow] = useState<FlowState>(emptyFlow(region0));
+  const value = useMemo(() => ({
+    flow,
+    set: (f: Partial<FlowState>) => setFlow((s) => ({ ...s, ...f })),
+    update: (fn: (s: FlowState) => Partial<FlowState>) => setFlow((s) => ({ ...s, ...fn(s) })),
+    reset: () => setFlow(emptyFlow(region0)),
+  }), [flow, region0]);
   return <FlowCtx.Provider value={value}>{children}</FlowCtx.Provider>;
 }
 
@@ -101,7 +101,7 @@ export function CheckInCapture() {
   const t = useT();
   const nav = useNavigate();
   const { me, site } = useApp();
-  const { flow, set } = useFlow();
+  const { flow, set, update } = useFlow();
   const aiOn = me!.tenant.ai_mode !== 'off';
   const [camera, setCamera] = useState(aiOn);
   const [busy, setBusy] = useState(false);
@@ -127,18 +127,12 @@ export function CheckInCapture() {
     try {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
       if (!r.valid) { setPassErr(passReason(t, r.reason ?? 'pass_invalid')); return; }
-      // A pass that carries a plate hint pre-fills the plate field so the attendant only verifies it; the keypad and
-      // camera stay available to correct it. A pass with no hint clears a plate left over from a PREVIOUS pass (so pass A's
-      // plate can never redeem against pass B) but keeps a plate the attendant captured independently.
-      const patch = passAcceptPatch({ plate: flow.plate, plateFromPass: flow.plateFromPass }, q);
-      set({
-        pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name, plateHint: q?.plate || undefined, verifyCode: q?.code },
-        plate: patch.plate, plateFromPass: patch.plateFromPass,
-        ...(patch.plate ? { region: me!.tenant.plate_regions[0] ?? flow.region, source: 'manual' as const } : {}),
-        ...(patch.clearRead ? clearedRead : {}),
-      });
-      // Reveal the editable prefilled plate (keypad view) so the attendant can see and verify it, not just the banner.
-      if (patch.plate) setCamera(false);
+      // Apply the pass against the LATEST flow state, because this lands after an await and a live camera read may have
+      // filled the plate in the meantime: a hinted pass pre-fills the plate (keypad/camera stay available to correct it);
+      // a no-hint pass clears a plate left over from a PREVIOUS pass but keeps one the attendant captured independently.
+      update((s) => applyPassAccept(s, { token, guest: r.pass.guestName, unit: r.pass.unit.name, q, regions: me!.tenant.plate_regions }));
+      // A hinted pass reveals the editable prefilled plate (keypad view) so the attendant sees and verifies it, not just the banner.
+      if (q?.plate) setCamera(false);
       setCode('');
     } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)); }
   }
@@ -177,11 +171,7 @@ export function CheckInCapture() {
           <strong>{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</strong>
           {flow.pass.verifyCode && <div className="num" dir="ltr">{t('att.passVerified', { code: spaceCode(flow.pass.verifyCode) })}</div>}
           {flow.pass.plateHint && <div className="muted">{t('att.passPlateHint', { plate: flow.pass.plateHint })}</div>}
-          <div><button type="button" className="btn" onClick={() => {
-            // Removing a pass drops the plate that came from it (never leave pass A's plate to submit later), keeping a captured one.
-            const patch = passRemovePatch({ plate: flow.plate, plateFromPass: flow.plateFromPass });
-            set({ pass: null, plate: patch.plate, plateFromPass: patch.plateFromPass, ...(patch.clearRead ? clearedRead : {}) });
-          }}>{t('att.passRemove')}</button></div>
+          <div><button type="button" className="btn" onClick={() => update(applyPassRemove)}>{t('att.passRemove')}</button></div>
         </div>
       ) : scanning ? (
         <Scanner onClose={() => setScanning(false)} onResult={(text) => { void usePass(text); }} />
@@ -319,7 +309,9 @@ export function CheckInConfirm() {
           {typeof err.details?.suggestion === 'string' && <div><button className="btn" onClick={() => confirm(err.details!.suggestion as string)}>{t('att.slot')} {String(err.details!.suggestion)}</button></div>}
         </div>
       )}
-      <button className="btn primary big" disabled={busy} onClick={() => confirm()}>{t('att.confirm')}</button>
+      {!flow.plate && <div className="banner warn" role="alert">{t('att.needPlate')}</div>}
+      <button className="btn primary big" disabled={busy || !flow.plate} onClick={() => confirm()}>{t('att.confirm')}</button>
+      <button type="button" className="btn" onClick={() => nav(`${b}/checkin`)}>{t('att.editPlate')}</button>
     </div>
   );
 }

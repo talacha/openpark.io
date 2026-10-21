@@ -44,6 +44,22 @@ export function passRemovePatch(prev: PlateProvenance): PlatePatch {
   return { plate: prev.plate, plateFromPass: false, clearRead: false };
 }
 
+/**
+ * A guest-facing link that renders the QR client-side. The signed token rides in the URL *fragment* (`#t=…`), which
+ * browsers never send to a server, so it is not leaked to access logs. The guest opens the link on their own device
+ * and shows the rendered QR to the attendant camera — so even a text-only share delivers a scannable pass.
+ */
+export function passShareUrl(origin: string, token: string): string {
+  return `${origin.replace(/\/$/, '')}/pass#t=${encodeURIComponent(token)}`;
+}
+
+/** Read the pass token out of a guest-page URL fragment (`#t=…`); null if absent. Mirror of {@link passShareUrl}. */
+export function parseGuestPassToken(hash: string): string | null {
+  const m = /[#&]t=([^&]+)/.exec(hash);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]!); } catch { return m[1]!; }
+}
+
 /** What the browser can do, so Share can pick a path and report its outcome honestly. */
 export interface ShareCaps { canShare: boolean; canShareFiles: boolean; canCopy: boolean }
 /** The chosen share path, whether it copies text, and the status message key (empty while the share sheet handles it). */

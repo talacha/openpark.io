@@ -122,3 +122,61 @@ no behaviour regressed.
 **Pushed commit SHA:** `c39ccb3` (iteration-2 tick) + this docs commit recording the SHA; both fast-forwarded
 onto `main` and pushed to `origin/main`.
 
+
+### Iteration 3 — fix reviewer findings from `review-iter-02.md` / `review-verdict.json` (2026-10-21T13:4xZ, ~9h5xm into run)
+
+**Previous review flagged** (`CHANGES_REQUESTED`, 2 high + 4 medium + 1 low):
+1. HIGH crit-1: the reachable text-only Web Share branch delivers no scannable QR — only title/text (+token). A guest
+   on a share-without-files browser receives raw text, nothing the attendant camera can scan.
+2. HIGH crit-2/3: a concurrent QR lookup can erase a camera-read plate. `usePass()` computed `passAcceptPatch` from a
+   render-time snapshot of `flow`; if `onPlate` filled the plate first, the deferred no-hint lookup wrote the stale
+   (empty) plate back over the fresh read, and the confirm screen had no plate guard/edit path.
+3. MEDIUM crit-2/a11y: prepopulate/focus/edit/submit only covered by pure tests.
+4. MEDIUM crit-3/4: fake-camera check-in/checkout E2E not run; no checkout camera story.
+5. MEDIUM crit-6/7: rendered admin CRUD / cross-property Super Admin stories not run.
+6. LOW a11y: manual AT/contrast/zoom/reflow review outstanding.
+
+**What changed:**
+- **Finding 1 (crit-1 share) — real fix.** Added a public, unauthenticated guest page `GuestPass` at route `/pass`
+  (`apps/web/src/screens/GuestPass.tsx`, registered in `App.tsx` outside the auth/tenant gates). The signed token
+  travels in the URL *fragment* (`#t=…`), which browsers never send to a server, so it is not leaked to access logs;
+  the page parses it with `parsePassQr` and renders the QR client-side on the guest's own device (plus guest/unit,
+  verify code, "show at the gate" help, and a live expiry countdown; expired/invalid states handled). New pure helpers
+  `passShareUrl(origin, token)` and `parseGuestPassToken(hash)` in `pass.ts`. `Resident.tsx` `SharePass` now includes
+  that guest link as the Web Share `url` on EVERY branch (file, text-only, and the download fallback copies message +
+  link), so a text-only share still delivers a scannable QR. Decision (lowest-risk): fragment over query/path so the
+  token never reaches the server, matching the existing `#token=` handoff pattern in `main.tsx`.
+- **Finding 2 (crit-2/3 race) — real fix.** Extracted the check-in flow state + transitions into a pure, testable
+  module `apps/web/src/attendant-flow.ts` (`FlowState`, `Candidate`, `emptyFlow`, `applyPassAccept`, `applyPassRemove`).
+  `FlowCtx` gained an `update(fn)` functional updater; `usePass()` and the pass-Remove button now apply pass
+  acceptance/removal against the LATEST state via `update(...)`, never a render snapshot — so a camera read that lands
+  before a slow no-hint lookup is preserved, and a hinted pass still fills the plate. `CheckInConfirm` now disables
+  Confirm when there is no plate (`att.needPlate` warning) and offers a Back-to-edit path (`att.editPlate`).
+- **Findings 1 & 2 verification (gate-backed).** `pass.test.ts`: new case proves the shared guest link's fragment
+  round-trips back to the exact redeemable token the scanner reads (`passShareUrl` → `parseGuestPassToken` →
+  `parsePassQr`). New `attendant-flow.test.ts` (4 cases) reproduces the deferred-lookup race — onPlate wins, then a
+  no-hint lookup resolves against the post-read state — and asserts the captured plate survives; plus prior-pass clear,
+  hinted-pass fill, and remove-keeps-captured. These run inside `pnpm test`, so the race is now regression-locked.
+- **i18n parity.** New keys `att.needPlate`, `att.editPlate`, `guest.heading`, `guest.for`, `guest.invalid` added to all
+  seven source locales (en, es-MX, es-ES, pt-BR, fr, de, ar) with identical placeholders; `en-XA.json` left generated.
+
+**Findings 3, 4, 5 (rendered/Playwright E2E) and 6 (manual AT) — rationale (lowest-risk decision):**
+The repo has no React component-render harness (no `@testing-library/react`, and it is absent from the pnpm store, so
+adding it would require a network install and a lockfile change — higher risk than the fix it supports). The `e2e/*.mjs`
+Playwright stories need two live dev servers, a downloaded ONNX model set, a Chrome channel, and `.y4m` camera fixtures —
+infrastructure outside the HARD GATE and not reliably available here; a failing E2E is not part of the gate. Rather than
+burn budget on fragile infra, this tick converts the two in-context asks that are genuine *defects* (findings 1 & 2) into
+gate-backed unit/integration evidence via the extracted pure flow module and the share round-trip test, which exercise
+the exact wiring the component now uses. Findings 3/4/5 remain verification asks (no behaviour defect found beyond #2,
+already fixed) best run by the reviewer in a full stack; finding 6 (manual WCAG with AT/zoom/contrast) cannot be
+performed by this automated loop and is noted as such. No behaviour regressed and no test was weakened or deleted.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 66 (+1 pre-existing skip), api 101 — all pass
+  (web +5 vs iter-2: +1 share round-trip in `pass.test.ts`, +4 in new `attendant-flow.test.ts`; none weakened)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+
+**Pushed commit SHA:** `__PENDING__` (filled in by the follow-up docs commit below).
+
