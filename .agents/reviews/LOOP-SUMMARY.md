@@ -442,4 +442,4 @@ the new rendered tests now assert programmatic focus management on both the acce
   (web +11 this tick: share-pass +4, guest-pass 3, attendant-screen 2, policy-editor 2; none weakened or deleted)
 - `pnpm --filter @openpark/web check:css` → "logical properties only"
 **i18n parity:** no new UI strings this tick; all seven locales unchanged, parity test green.
-**Pushed commit SHA:** _(filled in after commit/push below)_
+**Pushed commit SHA:** `2fd5a8e` (iteration-7 tick) + this bookkeeping follow-up — fast-forwarded onto `main` and pushed to `origin/main`.
