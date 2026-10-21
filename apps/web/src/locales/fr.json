@@ -458,5 +458,10 @@
   "integ.ev_pass_overstay": "Un invité a dépassé la durée autorisée",
   "err.api_key_not_found": "Cette clé n’est pas active.",
   "err.webhook_not_found": "Ce webhook n’existe plus.",
-  "ai.regionDefault": "par défaut"
+  "ai.regionDefault": "par défaut",
+  "pass.reason_pass_not_found": "Ce passe n’existe pas (il peut appartenir à une autre propriété).",
+  "pass.reason_pass_checked_in": "L’invité est déjà entré.",
+  "err.invalid_sites": "Certaines unités nomment un site qui n’existe pas.",
+  "err.not_previewed": "Prévisualisez d’abord cet import.",
+  "err.user_required": "Cet identifiant n’a pas de profil."
 }

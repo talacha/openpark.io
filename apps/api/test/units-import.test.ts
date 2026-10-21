@@ -303,3 +303,48 @@ describe('review fixes', () => {
     } finally { await h.close(); }
   });
 });
+
+describe('review fixes, round 2', () => {
+  it('blocks webhook targets hidden in IPv6 forms and other internal ranges', async () => {
+    const { isPrivateAddress, looksPublicHttpUrl } = await import('../src/netguard.js');
+    for (const a of ['::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:169.254.169.254', '64:ff9b::7f00:1', '2002:7f00:1::', '::1', '::', 'fe80::1', 'fc00::1', 'fd12::1', 'ff02::1', '10.1.2.3', '192.0.2.5', '198.18.0.1', '100.64.0.1', '2001:db8::1'])
+      expect(isPrivateAddress(a), a).toBe(true);
+    for (const a of ['8.8.8.8', '93.184.216.34', '2606:4700:4700::1111', '::ffff:8.8.8.8']) expect(isPrivateAddress(a), a).toBe(false);
+    expect(looksPublicHttpUrl('http://[::ffff:127.0.0.1]:3000/hook')).toBe(false);
+    expect(looksPublicHttpUrl('http://[::ffff:169.254.169.254]/latest')).toBe(false);
+    expect(looksPublicHttpUrl('https://hooks.example.com/x')).toBe(true);
+  });
+
+  it('never stores one-time passwords in idempotency records, and malformed ids are a 4xx', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      await h.app.inject({ method: 'POST', url: '/v1/units', headers: t.h, payload: { code: 'P1', name: 'P1' } });
+      const doc = { schemaVersion: 1, tenant: t.slug, units: [{ code: 'P1', name: 'P1', residents: [{ email: `pw-${Date.now()}@example.com` }] }] };
+      const pre = (await h.app.inject({ method: 'POST', url: '/v1/units/import', headers: t.h, payload: doc })).json();
+      const applied = await h.app.inject({ method: 'POST', url: `/v1/units/import/${pre.job}/apply`, headers: idem(t), payload: {} });
+      expect(applied.json().applied.residents.created[0].temporaryPassword).toBeTruthy(); // shown once to the admin
+      const stored = (await h.app.db.withTenant(await tenantId(t.slug), (db) => db.query('select response::text as r from idempotency_key'))).rows.map((r) => r.r).join();
+      expect(stored).not.toMatch(/temporaryPassword":"[^n]/);
+      for (const [method, url] of [['PATCH', '/v1/users/abc'], ['DELETE', '/v1/users/abc'], ['DELETE', '/v1/api-keys/abc'], ['PATCH', '/v1/webhooks/abc'], ['DELETE', '/v1/webhooks/abc'], ['GET', '/v1/passes/abc']] as const) {
+        const r = await h.app.inject({ method, url, headers: method === 'GET' ? t.h : idem(t), payload: method === 'PATCH' ? { active: true, roles: ['admin'] } : undefined });
+        expect(r.statusCode, `${method} ${url}`).toBeLessThan(500);
+      }
+      expect((await h.app.inject({ method: 'DELETE', url: `/v1/invites/${encodeURIComponent('50%@x.com')}`, headers: t.h })).statusCode).toBe(404);
+    } finally { await h.close(); }
+  });
+
+  it('renaming a zone drops stale translated labels; unknown slot types are refused on edit', async () => {
+    const h = await harness();
+    try {
+      const t = await signup(h.app, 'MX');
+      const zone = () => h.app.inject({ method: 'GET', url: '/v1/sites', headers: t.h }).then((r) => r.json()[0].zones[0]);
+      const before = await zone();
+      expect(Object.keys(before.labels).length).toBeGreaterThan(0);
+      await h.app.inject({ method: 'PATCH', url: `/v1/sites/DEMO-01/zones/${before.code}`, headers: t.h, payload: { name: 'Renamed' } });
+      expect(await zone()).toMatchObject({ name: 'Renamed', labels: {} });
+      const slot = (await h.app.inject({ method: 'GET', url: '/v1/slots?site=DEMO-01', headers: t.h })).json()[0].code;
+      expect((await h.app.inject({ method: 'PATCH', url: `/v1/slots/${slot}?site=DEMO-01`, headers: t.h, payload: { type: 'x'.repeat(30) } })).json().error.code).toBe('slot_type_unknown');
+    } finally { await h.close(); }
+  });
+});

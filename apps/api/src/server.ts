@@ -144,6 +144,8 @@ export async function buildApp({ cfg, now = () => new Date(), storage, notifier,
   app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, req, reply) => {
     if (err instanceof HttpError) return reply.code(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });
     if (err instanceof ZodError) return reply.code(400).send({ error: { code: 'validation_failed', message: 'Invalid request', details: err.issues } });
+    // Postgres: malformed uuid / number / value in a path or body is the caller's mistake, not ours.
+    if (['22P02', '22003', '22007', '22008'].includes(String(err.code))) return reply.code(400).send({ error: { code: 'validation_failed', message: 'Invalid request' } });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: { code: err.code ?? 'bad_request', message: err.message } });
     req.log.error(err);
     return reply.code(500).send({ error: { code: 'internal', message: 'Internal error' } });

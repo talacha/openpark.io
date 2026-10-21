@@ -458,5 +458,10 @@
   "integ.ev_pass_overstay": "[À gûést pàsséd thé stàý lîmît one two thre]",
   "err.api_key_not_found": "[Thàt kéý îs ñôt àçtîvé. one two th]",
   "err.webhook_not_found": "[Thàt wébhôôk ñô lôñgér éxîsts. one two thre]",
-  "ai.regionDefault": "[défàûlt one]"
+  "ai.regionDefault": "[défàûlt one]",
+  "pass.reason_pass_not_found": "[Thàt pàss dôés ñôt éxîst (ît màý bélôñg tô àñôthér prôpértý). one two three four five s]",
+  "pass.reason_pass_checked_in": "[Thé gûést hàs àlréàdý çhéçkéd îñ. one two three ]",
+  "err.invalid_sites": "[Sômé ûñîts ñàmé à sîté thàt dôés ñôt éxîst. one two three four]",
+  "err.not_previewed": "[Prévîéw thîs împôrt fîrst. one two thr]",
+  "err.user_required": "[Thîs çrédéñtîàl hàs ñô prôfîlé. one two three]"
 }

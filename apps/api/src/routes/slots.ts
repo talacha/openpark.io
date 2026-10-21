@@ -88,7 +88,9 @@ export function registerSlotRoutes(app: App) {
       const cur = (await db.query('select id, name, level, labels from zone where site_id = $1 and code = $2', [site.id, params.code])).rows[0];
       if (!cur) throw new HttpError(404, 'zone_not_found', `No zone ${params.code}`);
       await db.query('update zone set name = $2, level = $3, labels = $4 where id = $1',
-        [cur.id, body.name ?? cur.name, body.level === undefined ? cur.level : body.level, JSON.stringify(body.labels ?? cur.labels)]);
+        [cur.id, body.name ?? cur.name, body.level === undefined ? cur.level : body.level,
+          // Translated labels would keep showing the old name, so renaming without new labels drops them.
+          JSON.stringify(body.labels ?? (body.name && body.name !== cur.name ? {} : cur.labels))]);
       await audit(db, ctx.tenantId, ctx.userId, 'zone.update', `zone:${site.code}/${params.code}`, cur, body);
       return { ok: true };
     },
@@ -200,13 +202,17 @@ export function registerSlotRoutes(app: App) {
     query: z.object({ site: z.string() }),
     body: z.object({
       status: z.enum(['available', 'out_of_service', 'reserved']).optional(),
-      note: z.string().optional(),
-      type: z.string().optional(),
+      note: z.string().max(300).optional(),
+      type: z.string().min(1).max(30).optional(),
       zone: z.string().optional(),
       attributes: z.record(z.unknown()).optional(),
     }),
     async handler({ ctx, db, params, query: q, body }) {
       if ((body.type || body.attributes || body.zone) && !can(ctx, 'inventory.edit')) throw new HttpError(403, 'forbidden', 'Editing slot type needs inventory.edit');
+      if (body.type) {
+        const types: { code: string }[] = (await db.query('select slot_types from tenant')).rows[0].slot_types ?? [];
+        if (types.length && !types.some((x) => x.code === body.type)) throw new HttpError(400, 'slot_type_unknown', `Unknown slot type ${body.type}`);
+      }
       const site = await resolveSite(db, ctx, q.site);
       const cur = (await db.query('select id, status, type, attributes, note from slot where site_id = $1 and code = $2 and retired_at is null for update', [site.id, params.code])).rows[0];
       if (!cur) throw new HttpError(404, 'slot_not_found', `No slot ${params.code}`);

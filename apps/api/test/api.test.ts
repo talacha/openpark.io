@@ -298,7 +298,7 @@ describe('serverless mode (Vercel)', () => {
       expect((await app.inject({ method: 'GET', url: '/v1/cron/retention' })).statusCode).toBe(401);
       const ok = await app.inject({ method: 'GET', url: '/v1/cron/retention', headers: { authorization: 'Bearer cron-secret-123' } });
       expect(ok.statusCode).toBe(200);
-      expect(ok.json()).toEqual({ purged: 0 });
+      expect(ok.json()).toEqual({ purged: 0, idempotencyKeys: 0 });
     } finally { await app.close(); }
   });
 });

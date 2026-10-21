@@ -458,5 +458,10 @@
   "integ.ev_pass_overstay": "Um convidado excedeu o tempo permitido",
   "err.api_key_not_found": "Essa chave não está ativa.",
   "err.webhook_not_found": "Esse webhook não existe mais.",
-  "ai.regionDefault": "padrão"
+  "ai.regionDefault": "padrão",
+  "pass.reason_pass_not_found": "Esse passe não existe (pode ser de outra propriedade).",
+  "pass.reason_pass_checked_in": "O convidado já entrou.",
+  "err.invalid_sites": "Algumas unidades citam um local que não existe.",
+  "err.not_previewed": "Visualize esta importação primeiro.",
+  "err.user_required": "Esta credencial não tem perfil."
 }

@@ -458,5 +458,10 @@
   "integ.ev_pass_overstay": "Ein Gast hat die Zeitgrenze überschritten",
   "err.api_key_not_found": "Dieser Schlüssel ist nicht aktiv.",
   "err.webhook_not_found": "Dieser Webhook existiert nicht mehr.",
-  "ai.regionDefault": "Standard"
+  "ai.regionDefault": "Standard",
+  "pass.reason_pass_not_found": "Diesen Pass gibt es nicht (vielleicht gehört er zu einem anderen Objekt).",
+  "pass.reason_pass_checked_in": "Der Gast ist bereits eingecheckt.",
+  "err.invalid_sites": "Einige Einheiten nennen einen Standort, den es nicht gibt.",
+  "err.not_previewed": "Sieh dir diesen Import zuerst in der Vorschau an.",
+  "err.user_required": "Diese Zugangsdaten haben kein Profil."
 }

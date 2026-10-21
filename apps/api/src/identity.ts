@@ -18,12 +18,14 @@ export class IdentityVerifier {
   private jwks?: JWTVerifyGetKey;
   private secret?: Uint8Array;
   private issuer?: string;
+  private supabase = false;
   private audience?: string;
 
   constructor(cfg: Config, opts: { keySet?: JWTVerifyGetKey; issuer?: string; audience?: string } = {}) {
     this.enabled = externalAuthEnabled(cfg) || !!opts.keySet;
     const supa = cfg.SUPABASE_URL?.replace(/\/$/, '');
     this.issuer = opts.issuer ?? cfg.OIDC_ISSUER ?? (supa ? `${supa}/auth/v1` : undefined);
+    this.supabase = !!supa && !cfg.OIDC_ISSUER;
     this.audience = opts.audience ?? cfg.OIDC_AUDIENCE ?? (supa ? 'authenticated' : undefined);
     const jwksUrl = cfg.OIDC_JWKS_URL ?? (supa ? `${supa}/auth/v1/.well-known/jwks.json` : undefined);
     this.jwks = opts.keySet ?? (jwksUrl ? createRemoteJWKSet(new URL(jwksUrl), { cooldownDuration: 30_000 }) : undefined);
@@ -41,8 +43,10 @@ export class IdentityVerifier {
       const meta = (payload.user_metadata ?? {}) as { full_name?: string; name?: string; email_verified?: boolean };
       return {
         sub: payload.sub,
-        // An address the provider has not verified must never link to an account or claim invitations.
-        email: typeof payload.email === 'string' && (payload.email_verified ?? meta.email_verified) !== false ? payload.email.toLowerCase() : null,
+        // An address the provider has not verified must never link to an account or claim invitations. Only the token's own
+        // top-level claim counts (user_metadata is user-editable). Supabase omits the claim because it refuses sign-in until the
+        // address is confirmed (keep "Confirm email" on); any other issuer must say email_verified: true.
+        email: typeof payload.email === 'string' && (payload.email_verified === true || (payload.email_verified === undefined && this.supabase)) ? payload.email.toLowerCase() : null,
         name: meta.full_name ?? meta.name ?? null,
       };
     } catch {

@@ -106,7 +106,7 @@ export function registerAuthRoutes(app: App) {
 
   defineRoute(app, {
     method: 'POST', path: '/v1/api-keys', summary: 'Create a tenant (and optionally site) scoped API key; shown once', perm: 'users.edit',
-    body: z.object({ name: z.string().min(1), role: Role.default('attendant'), site: z.string().optional() }),
+    body: z.object({ name: z.string().trim().min(1).max(100), role: Role.default('attendant'), site: z.string().optional() }),
     async handler({ ctx, db, body }) {
       let siteId: string | null = null;
       if (body.site) {

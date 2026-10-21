@@ -19,7 +19,9 @@ export function Integrations() {
   const [secret, setSecret] = useState<{ label: string; value: string } | null>(null);
   const [events, setEvents] = useState<string[]>(['session.opened', 'session.closed']);
   const [editing, setEditing] = useState<Hook | null>(null);
-  const run = async (fn: () => Promise<void>) => { try { await fn(); setErr(''); } catch (x) { setErr(errText(x)); } };
+  const [busy, setBusy] = useState(false);
+  // One request at a time: a double click must not create two keys and show only one secret.
+  const run = async (fn: () => Promise<void>) => { if (busy) return; setBusy(true); try { await fn(); setErr(''); } catch (x) { setErr(errText(x)); } finally { setBusy(false); } };
 
   const addKey = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
     return run(async () => { const r = await post<{ key: string }>('/v1/api-keys', { name: f.name, role: f.role, site: f.site || undefined }); setSecret({ label: t('integ.keyOnce'), value: r.key }); form.reset(); await keys.reload(); }); };
@@ -41,7 +43,7 @@ export function Integrations() {
           <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
           <label className="field">{t('users.role')}<select name="role" defaultValue="attendant">{ROLES.filter((r) => r !== 'resident').map((r) => <option key={r} value={r}>{t(`role.${r}`)}</option>)}</select></label>
           <label className="field">{t('units.site')}<select name="site"><option value="">{t('integ.allSites')}</option>{sites.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</select></label>
-          <button className="btn primary">{t('integ.createKey')}</button>
+          <button className="btn primary" disabled={busy}>{t('integ.createKey')}</button>
         </form>
         <div className="tablewrap"><table>
           <thead><tr><th>{t('units.name')}</th><th>{t('integ.prefix')}</th><th>{t('users.role')}</th><th>{t('units.site')}</th><th>{t('common.status')}</th><th /></tr></thead>
@@ -59,7 +61,7 @@ export function Integrations() {
           <fieldset className="roles"><legend>{t('integ.events')}</legend>
             {EVENTS.map((ev) => <div key={ev} className="rolebox"><input id={`ev-${ev}`} type="checkbox" checked={events.includes(ev)} onChange={() => setEvents(toggle(events, ev))} /><label htmlFor={`ev-${ev}`}><strong dir="ltr">{ev}</strong><small>{t(`integ.ev_${ev.replace('.', '_')}`)}</small></label></div>)}
           </fieldset>
-          <div><button className="btn primary">{t('integ.createHook')}</button></div>
+          <div><button className="btn primary" disabled={busy}>{t('integ.createHook')}</button></div>
         </form>
         {editing && (
           <form key={editing.id} className="card stack" onSubmit={saveHook} aria-label={t('users.editing', { who: editing.url })}>

@@ -458,5 +458,10 @@
   "integ.ev_pass_overstay": "تجاوز ضيف المدة المسموحة",
   "err.api_key_not_found": "هذا المفتاح غير نشط.",
   "err.webhook_not_found": "لم يعد هذا الـ webhook موجودًا.",
-  "ai.regionDefault": "الافتراضية"
+  "ai.regionDefault": "الافتراضية",
+  "pass.reason_pass_not_found": "هذا التصريح غير موجود (قد يكون لعقار آخر).",
+  "pass.reason_pass_checked_in": "لقد دخل الضيف بالفعل.",
+  "err.invalid_sites": "بعض الوحدات تذكر موقعًا غير موجود.",
+  "err.not_previewed": "عاين هذا الاستيراد أولًا.",
+  "err.user_required": "هذه البيانات لا تملك ملفًا شخصيًا."
 }

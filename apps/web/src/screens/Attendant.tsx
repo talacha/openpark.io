@@ -6,11 +6,11 @@ import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
-import { isPassExpired, parsePassQr, spaceCode } from '../pass.js';
+import { parsePassQr, spaceCode } from '../pass.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
-import { feeLabel } from '../labels.js';
+import { feeLabel, passReason } from '../labels.js';
 
 // The QR decoder is only needed once someone taps Scan, so it stays out of the main bundle.
 const QrScanner = lazy(() => import('../components/QrScanner.js').then((m) => ({ default: m.QrScanner })));
@@ -114,13 +114,13 @@ export function CheckInCapture() {
     if (!token) return;
     // The QR carries the guest, unit, plate hint and expiry, so an expired or foreign code is rejected before any round trip.
     const q = parsePassQr(token);
-    if (q && isPassExpired(q)) { setPassErr(t('pass.reason_pass_expired')); return; }
+    // Expiry is the server's call: this phone's clock may be wrong, and a wrong clock must not turn a valid guest away.
     if (q && site && q.site !== site.code) { setPassErr(t('pass.reason_pass_wrong_site')); return; }
     try {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
-      if (!r.valid) { setPassErr(t(`pass.reason_${r.reason}`)); return; }
+      if (!r.valid) { setPassErr(passReason(t, r.reason ?? 'pass_invalid')); return; }
       set({ pass: { token, guest: r.pass.guestName, unit: r.pass.unit.name, plateHint: q?.plate || undefined, verifyCode: q?.code } }); setCode('');
-    } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? t(`pass.reason_${e.code}`) : errText(e)); }
+    } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)); }
   }
 
   /** A plate read on-device. Seen in several frames it goes straight to confirm; a single "Capture" read below the site threshold goes to review. */
@@ -251,7 +251,7 @@ export function CheckInConfirm() {
         setDone(r.queued ? 'queued' : r.data);
       }
     } catch (e) {
-      if (e instanceof ApiError) setErr({ message: e.code.startsWith('pass_') ? t(`pass.reason_${e.code}`) : e.message, code: e.code, details: e.details as Record<string, unknown> });
+      if (e instanceof ApiError) setErr({ message: e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e), code: e.code, details: e.details as Record<string, unknown> });
       else setErr({ message: errText(e) });
     } finally { setBusy(false); }
   }

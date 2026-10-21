@@ -62,7 +62,7 @@ export function registerPeopleRoutes(app: App) {
 
   defineRoute(app, {
     method: 'POST', path: '/v1/units', summary: 'Create a unit', perm: 'users.edit',
-    body: z.object({ code: z.string().min(1).max(30), name: z.string().min(1).max(100), site: z.string().optional(), floor: z.number().int().min(-20).max(300).nullable().optional(), note: z.string().max(500).nullable().optional() }),
+    body: z.object({ code: z.string().trim().min(1).max(30), name: z.string().trim().min(1).max(100), site: z.string().optional(), floor: z.number().int().min(-20).max(300).nullable().optional(), note: z.string().max(500).nullable().optional() }),
     async handler({ ctx, db, body }) {
       let siteId: string | null = null;
       if (body.site) {
@@ -159,7 +159,7 @@ export function registerPeopleRoutes(app: App) {
 
   defineRoute(app, {
     method: 'POST', path: '/v1/users', summary: 'Add a person with one or more roles. Local auth returns a one-time password; external auth sends an invitation by email', perm: 'users.edit',
-    body: z.object({ email: z.string().email(), name: z.string().optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
+    body: z.object({ email: z.string().email().max(254), name: z.string().trim().max(100).optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
     async handler({ ctx, db, body }) {
       const email = body.email.toLowerCase();
       if (body.superadmin && !ctx.superadmin) throw new HttpError(403, 'forbidden', 'Only a Super Admin can grant Super Admin access');
@@ -217,7 +217,7 @@ export function registerPeopleRoutes(app: App) {
     method: 'PATCH', path: '/v1/invites/:email', summary: "Change a pending invitation's roles or unit", perm: 'users.edit',
     body: z.object({ roles: RoleList, unit: z.string().nullable().optional(), superadmin: z.boolean().optional() }),
     async handler({ ctx, db, params, body }) {
-      const email = decodeURIComponent(params.email!).toLowerCase();
+      const email = params.email!.toLowerCase();
       if (body.superadmin !== undefined && !ctx.superadmin) throw new HttpError(403, 'forbidden', 'Only a Super Admin can change Super Admin access');
       const cur = (await db.query('select roles, unit_id from membership_invite where email = $1', [email])).rows[0];
       if (!cur) throw new HttpError(404, 'invite_not_found', 'No such pending invitation');
@@ -236,7 +236,7 @@ export function registerPeopleRoutes(app: App) {
   defineRoute(app, {
     method: 'DELETE', path: '/v1/invites/:email', summary: 'Withdraw a pending invitation', perm: 'users.edit',
     async handler({ ctx, db, params }) {
-      const email = decodeURIComponent(params.email!).toLowerCase();
+      const email = params.email!.toLowerCase();
       const gone = await db.query('delete from membership_invite where email = $1 returning roles', [email]);
       if (!gone.rowCount) throw new HttpError(404, 'invite_not_found', 'No such pending invitation');
       await audit(db, ctx.tenantId, ctx.userId, 'user.invite_remove', `invite:${email}`, gone.rows[0], null);
@@ -263,7 +263,7 @@ export function registerPeopleRoutes(app: App) {
 
   definePlatformRoute(app, {
     method: 'POST', path: '/v1/platform/tenants/:slug/members', summary: 'Add a person to any property with roles and (for residents) a unit of that property',
-    body: z.object({ email: z.string().email(), name: z.string().optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
+    body: z.object({ email: z.string().email().max(254), name: z.string().trim().max(100).optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
     async handler({ req, body, userId }) {
       const { slug } = req.params as { slug: string };
       const t = (await app.db.raw((db) => db.query('select id from tenant_by_slug($1)', [slug]))).rows[0];

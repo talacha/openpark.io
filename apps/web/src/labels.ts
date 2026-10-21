@@ -13,3 +13,10 @@ export function eventLabel(t: (k: string) => string, type: string): string {
   const out = t(key);
   return out === key ? type : out;
 }
+
+/** Why a guest pass was refused, in the current language; unknown codes fall back to the server's text. */
+export function passReason(t: (k: string) => string, code: string, fallback = ''): string {
+  const key = `pass.reason_${code}`;
+  const out = t(key);
+  return out === key ? (fallback || code) : out;
+}

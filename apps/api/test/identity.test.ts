@@ -38,6 +38,17 @@ describe('Supabase tokens', () => {
     expect(again.memberships).toEqual([expect.objectContaining({ slug, roles: ['admin'] })]);
   });
 
+  it('does not trust an unverified email, nor a user-editable verified flag', async () => {
+    const sub = `sb-${uniq()}`;
+    const unverified = await sb.sign({ sub, email: `u-${uniq()}@example.com`, extra: { email_verified: false } });
+    const r = await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: { authorization: `Bearer ${unverified}` } });
+    expect(r.statusCode).toBeGreaterThanOrEqual(400); // refused: no verified email, no account
+    expect(r.statusCode).toBeLessThan(500);
+    // user_metadata is editable by the user; saying "verified" there changes nothing
+    const spoof = await sb.sign({ sub: `sb-${uniq()}`, email: `v-${uniq()}@example.com`, extra: { email_verified: false, user_metadata: { email_verified: true } } });
+    expect((await h.app.inject({ method: 'GET', url: '/v1/auth/memberships', headers: { authorization: `Bearer ${spoof}` } })).statusCode).toBeGreaterThanOrEqual(400);
+  });
+
   it('rejects missing, forged, expired and wrong-audience tokens', async () => {
     const { slug } = await org();
     const good = await person();

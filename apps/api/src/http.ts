@@ -106,7 +106,7 @@ export function defineRoute<B extends ZodTypeAny = z.ZodUndefined, Q extends Zod
         }
         if (def.idempotent) {
           await db.query('insert into idempotency_key (tenant_id, key, request_hash, status, response) values ($1,$2,$3,$4,$5)',
-            [ctx.tenantId, idemKey, hash, r.status, JSON.stringify(r.body ?? null)]);
+            [ctx.tenantId, idemKey, hash, r.status, JSON.stringify(r.body ?? null, (k, v) => (k === 'temporaryPassword' ? null : v))]); // one-time passwords are never stored
         }
         return { replayed: false, ...r };
       }).catch((e) => {

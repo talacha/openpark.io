@@ -126,7 +126,8 @@ export function registerMiscRoutes(app: App) {
     method: 'GET', path: '/v1/cron/retention', summary: 'Purge plate crops past retention (cron only)',
     async handler({ req }) {
       if (!app.cfg.CRON_SECRET || req.headers.authorization !== `Bearer ${app.cfg.CRON_SECRET}`) throw new HttpError(401, 'unauthorized', 'Cron secret required');
-      return { purged: await app.jobs.purge(app) };
+      const keys = (await app.db.raw((db) => db.query('select purge_idempotency_keys(7) as n'))).rows[0].n;
+      return { purged: await app.jobs.purge(app), idempotencyKeys: keys };
     },
   });
 

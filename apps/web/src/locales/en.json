@@ -458,5 +458,10 @@
   "integ.ev_pass_overstay": "A guest passed the stay limit",
   "err.api_key_not_found": "That key is not active.",
   "err.webhook_not_found": "That webhook no longer exists.",
-  "ai.regionDefault": "default"
+  "ai.regionDefault": "default",
+  "pass.reason_pass_not_found": "That pass does not exist (it may belong to another property).",
+  "pass.reason_pass_checked_in": "The guest has already checked in.",
+  "err.invalid_sites": "Some units name a site that does not exist.",
+  "err.not_previewed": "Preview this import first.",
+  "err.user_required": "This credential has no profile."
 }
