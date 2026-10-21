@@ -242,6 +242,7 @@
   "att.passInvalid": "Dieser Pass kann nicht verwendet werden.",
   "att.passUse": "Diesen Pass verwenden",
   "att.passRemove": "Pass entfernen",
+  "att.passChecking": "Pass wird überprüft…",
   "att.needPlate": "Fügen Sie das Kennzeichen hinzu, bevor Sie die Einfahrt bestätigen.",
   "att.editPlate": "Zurück zum Kennzeichen bearbeiten",
   "guest.heading": "Parkausweis",

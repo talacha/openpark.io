@@ -242,6 +242,7 @@
   "att.passInvalid": "Ce pass ne peut pas être utilisé.",
   "att.passUse": "Utiliser ce pass",
   "att.passRemove": "Retirer le pass",
+  "att.passChecking": "Vérification du laissez-passer…",
   "att.needPlate": "Ajoutez la plaque avant de confirmer l'entrée.",
   "att.editPlate": "Revenir pour modifier la plaque",
   "guest.heading": "Pass de stationnement",

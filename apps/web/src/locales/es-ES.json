@@ -242,6 +242,7 @@
   "att.passInvalid": "Este pase no se puede usar.",
   "att.passUse": "Usar este pase",
   "att.passRemove": "Quitar pase",
+  "att.passChecking": "Verificando el pase…",
   "att.needPlate": "Añade la matrícula antes de confirmar la entrada.",
   "att.editPlate": "Volver para editar la matrícula",
   "guest.heading": "Pase de aparcamiento",

@@ -7,7 +7,7 @@ import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
 import { parsePassQr, spaceCode } from '../pass.js';
-import { applyPassAccept, applyPassRemove, emptyFlow, type Candidate, type FlowState } from '../attendant-flow.js';
+import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, emptyFlow, isStalePassLookup, type Candidate, type FlowState } from '../attendant-flow.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
@@ -111,6 +111,9 @@ export function CheckInCapture() {
   const [code, setCode] = useState('');
   const [passErr, setPassErr] = useState('');
   const passBannerRef = useRef<HTMLDivElement>(null);
+  // The sequence of the latest pass lookup we started. A lookup that resolves while a newer one is in flight is stale
+  // and must be ignored, so two QR scans that resolve out of order never leave the older pass attached.
+  const passSeq = useRef(0);
 
   // When a pass is accepted, move focus to its banner so keyboard and screen-reader users land on the result and hear it.
   useEffect(() => { if (flow.pass) passBannerRef.current?.focus(); }, [flow.pass?.token]);
@@ -124,9 +127,14 @@ export function CheckInCapture() {
     const q = parsePassQr(token);
     // Expiry is the server's call: this phone's clock may be wrong, and a wrong clock must not turn a valid guest away.
     if (q && site && q.site !== site.code) { setPassErr(t('pass.reason_pass_wrong_site')); return; }
+    // Mark the lookup in flight so Confirm stays disabled until it settles: a concurrent camera plate read may have
+    // navigated to confirm already, and the attendant must not submit the walk-in branch while a valid pass is resolving.
+    const mySeq = ++passSeq.current;
+    update(beginPassLookup);
     try {
       const r = await get<{ valid: boolean; reason: string | null; pass: { guestName: string; unit: { name: string } } }>(`/v1/passes/lookup?token=${encodeURIComponent(token)}`);
-      if (!r.valid) { setPassErr(passReason(t, r.reason ?? 'pass_invalid')); return; }
+      if (isStalePassLookup(mySeq, passSeq.current)) return; // a newer scan superseded this one; it owns the pending state
+      if (!r.valid) { update(applyPassError); setPassErr(passReason(t, r.reason ?? 'pass_invalid')); return; }
       // Apply the pass against the LATEST flow state, because this lands after an await and a live camera read may have
       // filled the plate in the meantime: a hinted pass pre-fills the plate (keypad/camera stay available to correct it);
       // a no-hint pass clears a plate left over from a PREVIOUS pass but keeps one the attendant captured independently.
@@ -134,7 +142,11 @@ export function CheckInCapture() {
       // A hinted pass reveals the editable prefilled plate (keypad view) so the attendant sees and verifies it, not just the banner.
       if (q?.plate) setCamera(false);
       setCode('');
-    } catch (e) { setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e)); }
+    } catch (e) {
+      if (isStalePassLookup(mySeq, passSeq.current)) return;
+      update(applyPassError);
+      setPassErr(e instanceof ApiError && e.code.startsWith('pass_') ? passReason(t, e.code, errText(e)) : errText(e));
+    }
   }
 
   /** A plate read on-device. Seen in several frames it goes straight to confirm; a single "Capture" read below the site threshold goes to review. */
@@ -171,7 +183,7 @@ export function CheckInCapture() {
           <strong>{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</strong>
           {flow.pass.verifyCode && <div className="num" dir="ltr">{t('att.passVerified', { code: spaceCode(flow.pass.verifyCode) })}</div>}
           {flow.pass.plateHint && <div className="muted">{t('att.passPlateHint', { plate: flow.pass.plateHint })}</div>}
-          <div><button type="button" className="btn" onClick={() => update(applyPassRemove)}>{t('att.passRemove')}</button></div>
+          <div><button type="button" className="btn" onClick={() => { passSeq.current++; update(applyPassRemove); }}>{t('att.passRemove')}</button></div>
         </div>
       ) : scanning ? (
         <Scanner onClose={() => setScanning(false)} onResult={(text) => { void usePass(text); }} />
@@ -309,8 +321,9 @@ export function CheckInConfirm() {
           {typeof err.details?.suggestion === 'string' && <div><button className="btn" onClick={() => confirm(err.details!.suggestion as string)}>{t('att.slot')} {String(err.details!.suggestion)}</button></div>}
         </div>
       )}
-      {!flow.plate && <div className="banner warn" role="alert">{t('att.needPlate')}</div>}
-      <button className="btn primary big" disabled={busy || !flow.plate} onClick={() => confirm()}>{t('att.confirm')}</button>
+      {flow.passPending && <div className="banner" role="status" aria-live="polite">{t('att.passChecking')}</div>}
+      {!flow.passPending && !flow.plate && <div className="banner warn" role="alert">{t('att.needPlate')}</div>}
+      <button className="btn primary big" disabled={!canConfirm(flow, busy)} onClick={() => confirm()}>{t('att.confirm')}</button>
       <button type="button" className="btn" onClick={() => nav(`${b}/checkin`)}>{t('att.editPlate')}</button>
     </div>
   );

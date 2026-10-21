@@ -306,6 +306,40 @@ describe('reminders and the 12-hour overstay notice', () => {
     expect((await w.events(session.session.id)).filter((e) => e.type === 'overstay_charge')).toHaveLength(1);
   });
 
+  it('uses the configured (non-default) overstay amount in every 12-hour notice, leaving 10h/11h unchanged', async () => {
+    const w = await world();
+    // An administrator raises the HOA overstay charge from the MXN default ($5,000) to a custom $7,500.00.
+    const patched = await h.app.inject({ method: 'PATCH', url: '/v1/pass-policy', headers: w.t.h, payload: { overstayCharge: 750000 } });
+    expect(patched.json().policy.overstayCharge).toBe(750000);
+    const { session } = await w.checkIn(T0);
+
+    // The 10h reminder reflects the configured amount, not a literal default, and still does not tell them to move the car.
+    h.clock.now = at(10);
+    await w.cron();
+    const ten = h.notifier.to({ phone: w.g.guestPhone }).at(-1)!;
+    expect(ten.body).toContain('7,500');
+    expect(ten.body).not.toContain('5,000');
+    expect(ten.body).not.toContain('del estacionamiento');
+
+    // At 12h every party's notice states the CONFIGURED currency-formatted amount plus the move-vehicle instruction.
+    h.clock.now = at(12);
+    const before = h.notifier.sent.length;
+    await w.cron();
+    const fresh = h.notifier.sent.slice(before);
+    const to = (email: string | null | undefined) => fresh.find((m) => m.to.email === email);
+    expect(fresh).toHaveLength(3); // guest, host, supervisor
+    expect(to(w.g.guestEmail)).toBeTruthy();
+    expect(to(w.r.email)).toBeTruthy();
+    expect(to(w.sup.email)).toBeTruthy();
+    for (const m of fresh) {
+      expect(m.body).toContain('$7,500.00'); // formatted FROM the policy value, never a hardcoded 5,000
+      expect(m.body).not.toContain('$5,000.00');
+      expect(m.body).toContain('el vehículo del estacionamiento'); // the move-vehicle instruction
+    }
+    const events = await w.events(session.session.id);
+    expect(events.find((e) => e.type === 'overstay_charge')!.payload).toMatchObject({ amount: 750000, currency: 'MXN', platform: 'hoa', status: 'pending' });
+  });
+
   it('sends only the latest notice when the cron was late, never a burst of stale reminders', async () => {
     const w = await world();
     const { pass } = await w.checkIn(at(30));

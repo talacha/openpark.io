@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPassAccept, applyPassRemove, emptyFlow, type FlowState } from '../src/attendant-flow.js';
+import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, emptyFlow, isStalePassLookup, type FlowState, type PassAccept } from '../src/attendant-flow.js';
 import { parsePassQr } from '../src/pass.js';
 
 // A hinted pass (plate ABC123) and the same pass with no plate hint.
@@ -47,5 +47,74 @@ describe('check-in flow transitions survive a camera/lookup race', () => {
     b = apply(b, applyPassRemove(b));
     expect(b.plate).toBe('XYZ999');
     expect(b.pass).toBeNull();
+  });
+});
+
+/**
+ * A faithful model of how `usePass()` in Attendant.tsx drives a lookup: it bumps a sequence, marks the flow pending,
+ * and when the response lands applies it against the LATEST state ONLY if its sequence is still the latest. This
+ * exercises the exact pure helpers (`beginPassLookup`, `isStalePassLookup`, `applyPassAccept`, `applyPassError`,
+ * `canConfirm`) the component uses, so the camera/lookup race is regression-locked without a browser.
+ */
+function lookupHarness() {
+  let s: FlowState = emptyFlow('MX');
+  let latestSeq = 0;
+  return {
+    get state() { return s; },
+    patch(p: Partial<FlowState>) { s = { ...s, ...p }; },
+    /** Start a lookup; returns its sequence tag, mirroring `const mySeq = ++passSeq.current`. */
+    begin() { latestSeq += 1; s = { ...s, ...beginPassLookup() }; return latestSeq; },
+    /** A lookup resolves valid: ignored if a newer scan has since started. */
+    resolveValid(mySeq: number, accept: PassAccept) {
+      if (isStalePassLookup(mySeq, latestSeq)) return false;
+      s = { ...s, ...applyPassAccept(s, accept) };
+      return true;
+    },
+    /** A lookup resolves invalid/failed: ignored if stale, else clears pending with no pass attached. */
+    resolveInvalid(mySeq: number) {
+      if (isStalePassLookup(mySeq, latestSeq)) return false;
+      s = { ...s, ...applyPassError() };
+      return true;
+    },
+  };
+}
+
+describe('a pass lookup is a sequenced pending operation', () => {
+  it('blocks confirmation until the lookup settles, then only the pass path is possible', () => {
+    const h = lookupHarness();
+    // A QR is scanned: the lookup goes pending.
+    const seq = h.begin();
+    expect(h.state.passPending).toBe(true);
+    // Meanwhile the live camera reads the plate and navigates to confirm — but Confirm must stay disabled while pending,
+    // so the attendant cannot submit the ordinary /v1/sessions (walk-in) branch and strand a valid pass.
+    h.patch({ plate: 'XYZ999', plateFromPass: false, source: 'ai_auto' });
+    expect(canConfirm(h.state, false)).toBe(false); // pending blocks confirm even though a plate is present
+    // The lookup now resolves valid: the pass attaches and pending clears, so redemption (the pass path) is possible.
+    expect(h.resolveValid(seq, { token: 'tok', guest: 'Rosa', unit: 'A-101', q: noHint, regions: ['MX'] })).toBe(true);
+    expect(h.state.pass).toMatchObject({ token: 'tok' });
+    expect(h.state.plate).toBe('XYZ999'); // the camera plate is preserved for the redeem
+    expect(canConfirm(h.state, false)).toBe(true);
+  });
+
+  it('an invalid lookup clears pending and leaves no pass, so a walk-in can proceed', () => {
+    const h = lookupHarness();
+    const seq = h.begin();
+    h.patch({ plate: 'WALK01', plateFromPass: false });
+    expect(canConfirm(h.state, false)).toBe(false);
+    expect(h.resolveInvalid(seq)).toBe(true);
+    expect(h.state.pass).toBeNull();
+    expect(h.state.passPending).toBe(false);
+    expect(canConfirm(h.state, false)).toBe(true); // the plate stands as an ordinary paid stay
+  });
+
+  it('when two QR lookups resolve out of order, the newest scan wins', () => {
+    const h = lookupHarness();
+    const first = h.begin(); // scan A
+    const second = h.begin(); // scan B supersedes A before either resolves
+    // A resolves last (out of order) and must be ignored.
+    expect(h.resolveValid(second, { token: 'B', guest: 'Beto', unit: 'B-2', q: noHint, regions: ['MX'] })).toBe(true);
+    expect(h.resolveValid(first, { token: 'A', guest: 'Ana', unit: 'A-1', q: noHint, regions: ['MX'] })).toBe(false);
+    expect(h.state.pass).toMatchObject({ token: 'B' });
+    expect(h.state.passPending).toBe(false);
   });
 });

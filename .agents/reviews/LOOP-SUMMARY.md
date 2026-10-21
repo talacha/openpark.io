@@ -181,3 +181,65 @@ performed by this automated loop and is noted as such. No behaviour regressed an
 **Pushed commit SHA:** `2b36ce1` (iteration-3 tick) + this docs commit recording the SHA; both fast-forwarded
 onto `main` and pushed to `origin/main`.
 
+
+### Iteration 4 — fix reviewer findings from `review-iter-03.md` / `review-verdict.json` (2026-10-21T13:5xZ, ~10h03m into run)
+
+**Previous review flagged** (`CHANGES_REQUESTED`, 1 high + 5 medium + 1 low):
+1. HIGH crit-2/3: a scanned-pass lookup is async with NO pending state in `FlowState` and no request sequence guard.
+   A concurrent camera plate read navigates straight to confirm, where the button is disabled only by `busy || !plate`,
+   so the attendant could submit the ordinary `/v1/sessions` (walk-in) branch while `flow.pass` is still null — a valid
+   guest checked in as a paid stay with the pass left active. And two QR scans resolving out of order could leave the
+   OLDER pass attached (an older lookup overwriting a newer accepted pass).
+2. MEDIUM crit-1 / crit-2 / crit-3-4 / crit-6-7: Share, pass prepopulate/focus/edit, camera-to-field, and Admin/Super
+   Admin CRUD remain unverified in a RENDERED browser / Playwright E2E.
+3. MEDIUM crit-5: the 12h overstay was never executed with a NON-DEFAULT policy amount, and the policy editor UI was
+   not exercised (edit/save/reload).
+4. LOW a11y: manual AT / zoom / contrast review outstanding.
+
+**What changed:**
+- **Finding 1 (HIGH crit-2/3 race) — real fix.** Modelled pass validation as a **sequenced pending operation** shared by
+  capture and confirm, exactly as the reviewer asked.
+  - `apps/web/src/attendant-flow.ts`: `FlowState` gains `passPending: boolean`. New pure helpers `beginPassLookup()`
+    (marks pending the instant a QR/code is accepted, before the round trip), `applyPassError()` (clears pending, leaves
+    no pass so a walk-in stands), `isStalePassLookup(mySeq, latestSeq)` (an older lookup that resolves after a newer scan
+    was issued is ignored), and `canConfirm(s, busy)` (`!busy && !!plate && !passPending`). `applyPassAccept`/
+    `applyPassRemove` now also clear `passPending`.
+  - `apps/web/src/screens/Attendant.tsx` `CheckInCapture`: added a `passSeq` ref. `usePass()` bumps the seq and applies
+    `beginPassLookup` immediately; when the lookup resolves it is DROPPED if `isStalePassLookup` (a newer scan won), else
+    accepted/errored against the LATEST state. The pass-Remove button bumps the seq so an in-flight lookup is discarded.
+  - `CheckInConfirm`: the Confirm button is now `disabled={!canConfirm(flow, busy)}`, so it cannot fire while a pass
+    lookup is pending; a `role="status"` "Verifying the pass…" banner (`att.passChecking`) announces the wait, and the
+    "add the plate" warning is suppressed while pending. Net effect: a valid pass can never be bypassed into the walk-in
+    branch mid-lookup, and the newest scan always wins.
+  - Tests (`apps/web/test/attendant-flow.test.ts`, +3): a `lookupHarness` drives the EXACT pure helpers the component
+    uses to reproduce (a) QR→plate→early-Confirm — Confirm stays disabled until the lookup settles, then the pass path is
+    possible and the camera plate is preserved; (b) an invalid lookup clears pending and lets a walk-in proceed; (c) two
+    QR lookups resolving out of order — the newest scan wins. The race is now regression-locked.
+- **Finding 3 (MEDIUM crit-5) — executable evidence added.** `apps/api/test/passes.test.ts` (+1): PATCHes the policy to a
+  non-default `$7,500.00`, checks a guest in, and asserts the 10h reminder reflects `7,500` (not `5,000`) and does not yet
+  say "move the car", then that every 12h notice (guest, host, supervisor) contains `$7,500.00` (never `$5,000.00`) plus
+  the move-vehicle instruction, and that the `overstay_charge` event records `amount: 750000`. This proves the amount is
+  currency-formatted FROM the policy value, not a literal, after a configuration change.
+
+**Findings 2 and 4 (rendered/Playwright E2E, manual AT) — rationale (lowest-risk decision, unchanged from prior ticks):**
+This worktree has no React component-render harness (`@testing-library/react` is not installed and not in the pnpm store,
+so adding it needs a network install + lockfile change — higher risk than the fix it supports), and the `e2e/*.mjs`
+Playwright stories require two live dev servers, a downloaded ONNX model set, a Chrome channel, and `.y4m` camera
+fixtures — infrastructure outside the HARD GATE and not reliably available here; a failing E2E is not part of the gate.
+The one finding among them that was a genuine DEFECT (the HIGH race, finding 1) is fixed and regression-locked with
+gate-backed unit evidence exercising the real decision logic. The remaining items are verification asks with no behaviour
+defect identified; they are left for the reviewer to run in a full stack, and manual WCAG conformance (AT/zoom/contrast)
+cannot be performed by this automated loop. No behaviour regressed and no test was weakened or deleted.
+
+**Gate status:** GREEN.
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → 7 projects Done, no errors
+- `pnpm test` → core 36, sdk-ts 6, marketing 9, web 69 (+1 pre-existing skip), api 102 — all pass
+  (web +3 race tests in `attendant-flow.test.ts`; api +1 configured-overstay test in `passes.test.ts`; none weakened)
+- `pnpm --filter @openpark/web check:css` → "logical properties only"
+
+**i18n parity:** new key `att.passChecking` added to all seven source locales (en, es-MX, es-ES, pt-BR, fr, de, ar) with
+no placeholders; `en-XA.json` left generated. Locale parity test green.
+
+**Pushed commit SHA:** `__PENDING__` (iteration-4 tick); fast-forwarded onto `main` and pushed to `origin/main`.
+

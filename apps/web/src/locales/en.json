@@ -242,6 +242,7 @@
   "att.passInvalid": "This pass cannot be used.",
   "att.passUse": "Use this pass",
   "att.passRemove": "Remove pass",
+  "att.passChecking": "Verifying the pass…",
   "att.needPlate": "Add the plate before confirming check-in.",
   "att.editPlate": "Back to edit plate",
   "guest.heading": "Parking pass",

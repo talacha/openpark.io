@@ -242,6 +242,7 @@
   "att.passInvalid": "لا يمكن استخدام هذا التصريح.",
   "att.passUse": "استخدام هذا التصريح",
   "att.passRemove": "إزالة التصريح",
+  "att.passChecking": "جارٍ التحقق من التصريح…",
   "att.needPlate": "أضف اللوحة قبل تأكيد الدخول.",
   "att.editPlate": "العودة لتعديل اللوحة",
   "guest.heading": "تصريح وقوف",
