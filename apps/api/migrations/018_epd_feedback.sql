@@ -10,3 +10,8 @@ alter table app_user add column notify_guest_events boolean not null default tru
 -- Who issued a guest pass. Lets the resident-facing history distinguish host- vs attendant-issued passes without
 -- exposing the staff member's identity. Nullable: legacy rows predating this migration are labelled neutrally.
 alter table pass add column created_by uuid references app_user(id);
+
+-- Who authorized a walk-in's access to the lot, captured at check-in. Nullable JSONB shaped either
+-- { "unit": "A-101" } (the attendant named a community unit) or { "name": "...", "phone": "+52..." }
+-- (an ad-hoc "Other" authorizer). Always NULL for a pass redemption, whose host unit is the pass's unit.
+alter table session add column authorized_by jsonb;

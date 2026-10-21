@@ -418,3 +418,64 @@ describe('AI privacy settings persist', () => {
     expect(await me()).toMatchObject({ retention_days: 45, training_export: false });
   });
 });
+
+describe('operator view: walk-in host, occupancy counts, sessions sort/search', () => {
+  it('captures a named host unit on a walk-in and persists it to the session and the check_in event', async () => {
+    const own = await signup(h.app, 'MX');
+    await addUnit(h.app, own, 'HOST-1');
+    const ci = (own: Tenant, plate: string, extra: object = {}) =>
+      h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(own), payload: { site: 'DEMO-01', plate: { display: plate }, ...extra } });
+    const r = await ci(own, 'HOSTED-1', { host: { unit: 'HOST-1' } });
+    expect(r.statusCode).toBe(201);
+    const events = (await h.app.inject({ method: 'GET', url: `/v1/sessions/${r.json().session.id}/events`, headers: own.h })).json();
+    expect(events.find((e: { type: string }) => e.type === 'check_in').payload.authorizedBy).toEqual({ unit: 'HOST-1' });
+    // The session row resolves its unit from the walk-in host.
+    const list = (await h.app.inject({ method: 'GET', url: '/v1/sessions?site=DEMO-01&q=HOST-1', headers: own.h })).json();
+    expect(list.items.map((i: { plate: string }) => i.plate)).toContain('HOSTED-1');
+  });
+
+  it('rejects an unknown host unit (404) and a malformed host (400 host_invalid)', async () => {
+    const own = await signup(h.app, 'MX');
+    const bad = await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(own), payload: { site: 'DEMO-01', plate: { display: 'BAD-1' }, host: { unit: 'NOPE' } } });
+    expect(bad.statusCode).toBe(404);
+    expect(bad.json().error.code).toBe('unit_not_found');
+    const shape = await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(own), payload: { site: 'DEMO-01', plate: { display: 'BAD-2' }, host: { name: 'No Phone' } } });
+    expect(shape.statusCode).toBe(400);
+    expect(shape.json().error.code).toBe('host_invalid');
+  });
+
+  it('search matches plate or unit prefix but never the "Other" authorizer name; "Other" sorts last under sort=unit', async () => {
+    const own = await signup(h.app, 'MX');
+    await addUnit(h.app, own, 'ZZ-UNIT');
+    const ci = (plate: string, extra: object = {}) =>
+      h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(own), payload: { site: 'DEMO-01', plate: { display: plate }, ...extra } });
+    await ci('UNITCAR1', { host: { unit: 'ZZ-UNIT' } });
+    await ci('WALKCAR1', { host: { name: 'Mariana Lopez', phone: '+525598765432' } });
+    // Found by unit-code prefix.
+    const byUnit = (await h.app.inject({ method: 'GET', url: '/v1/sessions?site=DEMO-01&q=ZZ-UN', headers: own.h })).json();
+    expect(byUnit.items.map((i: { plate: string }) => i.plate)).toEqual(['UNITCAR1']);
+    // The "Other" authorizer's name is NOT searchable.
+    const byName = (await h.app.inject({ method: 'GET', url: '/v1/sessions?site=DEMO-01&q=Mariana', headers: own.h })).json();
+    expect(byName.items.map((i: { plate: string }) => i.plate)).not.toContain('WALKCAR1');
+    // Under sort=unit the walk-in with no unit sorts after the unit-hosted one.
+    const sorted = (await h.app.inject({ method: 'GET', url: '/v1/sessions?site=DEMO-01&status=open&sort=unit', headers: own.h })).json();
+    const idx = (p: string) => sorted.items.findIndex((i: { plate: string }) => i.plate === p);
+    expect(idx('UNITCAR1')).toBeLessThan(idx('WALKCAR1'));
+  });
+
+  it('occupancy returns issuedPending/over10/over12 scoped to the site predicate', async () => {
+    const own = await signup(h.app, 'MX');
+    h.clock.now = new Date('2026-10-22T08:00:00Z');
+    // One car parked 13h ago (over10 and over12), one parked just now.
+    await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(own), payload: { site: 'DEMO-01', plate: { display: 'OLD-13H' } } });
+    const occEarly = (await h.app.inject({ method: 'GET', url: '/v1/occupancy?site=DEMO-01', headers: own.h })).json();
+    expect(occEarly).toMatchObject({ over10: 0, over12: 0 });
+    h.clock.now = new Date('2026-10-22T21:30:00Z'); // 13.5h later
+    await h.app.inject({ method: 'POST', url: '/v1/sessions', headers: idem(own), payload: { site: 'DEMO-01', plate: { display: 'FRESH-1' } } });
+    const occ = (await h.app.inject({ method: 'GET', url: '/v1/occupancy?site=DEMO-01', headers: own.h })).json();
+    expect(occ.over10).toBe(1);
+    expect(occ.over12).toBe(1);
+    expect(occ.issuedPending).toBe(0);
+    expect(occ.totals.occupied).toBe(2);
+  });
+});

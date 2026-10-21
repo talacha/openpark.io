@@ -157,7 +157,23 @@ export function registerSlotRoutes(app: App) {
       const today = (await db.query(
         `select coalesce(sum(fee), 0)::int as fees, count(*)::int as closed from session
          where status = 'closed' and out_at >= now() - interval '24 hours'`)).rows[0];
-      return { totals: { free: sum('free'), occupied: sum('occupied'), reserved: sum('reserved'), outOfService: sum('out_of_service') }, last24h: today, breakdown: rows };
+      // Capacity-bar counts, each reusing the SAME site predicate + args as the breakdown above, so a single-site
+      // attendant never sees another site's passes or overstays. issuedPending = active passes not yet checked in
+      // (yellow); over10/over12 = open sessions past 10h/12h (subsets of occupied, rendered as overlays).
+      const now = app.now();
+      const issuedPending = (await db.query(
+        `select count(*)::int as n from pass p join site st on st.id = p.site_id
+         where p.status = 'active' and p.expires_at > $3
+           and ($1::text is null or st.code = $1) and ($2::uuid is null or st.id = $2)`, [q.site ?? null, ctx.siteId, now])).rows[0].n;
+      const over10 = (await db.query(
+        `select count(*)::int as n from session s join site st on st.id = s.site_id
+         where s.status = 'open' and ($1::text is null or st.code = $1) and ($2::uuid is null or st.id = $2)
+           and s.in_at < $3::timestamptz - interval '10 hours'`, [q.site ?? null, ctx.siteId, now])).rows[0].n;
+      const over12 = (await db.query(
+        `select count(*)::int as n from session s join site st on st.id = s.site_id
+         where s.status = 'open' and ($1::text is null or st.code = $1) and ($2::uuid is null or st.id = $2)
+           and s.in_at < $3::timestamptz - interval '12 hours'`, [q.site ?? null, ctx.siteId, now])).rows[0].n;
+      return { totals: { free: sum('free'), occupied: sum('occupied'), reserved: sum('reserved'), outOfService: sum('out_of_service') }, issuedPending, over10, over12, last24h: today, breakdown: rows };
     },
   });
 

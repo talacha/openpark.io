@@ -100,13 +100,20 @@ export function registerPeopleRoutes(app: App) {
   // ---- units ----------------------------------------------------------------------------------------------------
   defineRoute(app, {
     method: 'GET', path: '/v1/units', summary: 'Units (apartments/houses) and their residents', perm: 'read',
-    async handler({ ctx, db }) {
+    query: z.object({ site: z.string().optional() }),
+    async handler({ ctx, db, query: q }) {
+      // A human attendant working a gate passes ?site=CODE to narrow the host dropdown to that site's units PLUS
+      // community-wide units with no site (unit.site_id is nulled when a site is retired), so legitimate units stay
+      // nameable. The ctx.siteId scope (an API key limited to one site) still applies on top.
       const rows = (await db.query(
         `select u.code, u.name, s.code as site, u.floor, u.note,
            coalesce((select json_agg(json_build_object('id', a.id, 'email', a.email, 'name', a.name) order by a.email)
              from membership m join app_user a on a.id = m.user_id where m.unit_id = u.id), '[]') as residents,
            (select p.status from pass p where p.unit_id = u.id and p.status in ('active','checked_in') limit 1) as pass_status
-         from unit u left join site s on s.id = u.site_id where ($1::uuid is null or u.site_id = $1) order by u.code`, [ctx.siteId])).rows;
+         from unit u left join site s on s.id = u.site_id
+         where ($1::uuid is null or u.site_id = $1)
+           and ($2::text is null or s.code = $2 or u.site_id is null)
+         order by u.code limit 500`, [ctx.siteId, q.site ?? null])).rows;
       // Who lives where is for the people who manage people; an attendant sees the units only.
       return can(ctx, 'users.edit') ? rows : rows.map((r) => ({ ...r, residents: [] }));
     },

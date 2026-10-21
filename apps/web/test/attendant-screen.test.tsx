@@ -84,7 +84,8 @@ describe('CheckInCapture: a scanned/typed pass prepopulates and verifies the che
       return a;
     });
     expect(alert.textContent ?? '').toContain(translate('en', 'pass.reason_pass_expired'));
-    expect(container.querySelector('[role="status"]')).toBeNull(); // no accepted pass banner
+    // No ACCEPTED-pass banner is shown (the Camera tab's own camera-unavailable status is unrelated and allowed).
+    expect([...container.querySelectorAll('[role="status"]')].some((n) => (n.textContent ?? '').includes(translate('en', 'att.passFor', { guest: 'Rosa', unit: 'A-101' })))).toBe(false);
     expect(document.activeElement).toBe(alert); // the failure takes focus, not something past it
 
     // "Dismiss and scan again" is the explicit acknowledgment that clears the persisted rejection.

@@ -15,6 +15,8 @@ export interface CheckInInput {
   slot?: string;
   source: 'manual' | 'ai_assist' | 'ai_auto';
   read?: { textRaw?: string; confidence?: number; engine?: string; latencyMs?: number; cropKey?: string };
+  /** Who authorized a walk-in's access: a community unit or an ad-hoc "Other" person. Never set for a pass redemption. */
+  authorizedBy?: { unit: string } | { name: string; phone: string };
   deviceId?: string;
   gate?: string;
   deviceAt?: string;
@@ -135,9 +137,10 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
   for (let i = 0; i < 5 && !sess; i++) {
     try {
       sess = (await db.query(
-        `insert into session (tenant_id, site_id, vehicle_id, slot_id, ticket_code, in_at, in_by, rate_plan_id)
-         values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (tenant_id, ticket_code) do nothing returning id, ticket_code`,
-        [ctx.tenantId, site.id, veh.id, slot.id, newTicketCode(), now, ctx.userId, opts.pass ? null : site.default_rate_plan_id])).rows[0];
+        `insert into session (tenant_id, site_id, vehicle_id, slot_id, ticket_code, in_at, in_by, rate_plan_id, authorized_by)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) on conflict (tenant_id, ticket_code) do nothing returning id, ticket_code`,
+        [ctx.tenantId, site.id, veh.id, slot.id, newTicketCode(), now, ctx.userId, opts.pass ? null : site.default_rate_plan_id,
+          input.authorizedBy ? JSON.stringify(input.authorizedBy) : null])).rows[0];
     } catch (e) {
       if ((e as { constraint?: string }).constraint === 'session_one_open_per_vehicle') throw new HttpError(409, 'already_inside', 'Vehicle is already inside');
       throw e;
@@ -154,7 +157,7 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
         input.read.latencyMs ?? null, input.read.textRaw && normalizePlate(input.read.textRaw) !== norm ? norm : null, ctx.userId]);
   }
   const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt, at: now };
-  await addEvent(db, ctx, sess.id, 'check_in', { plate: display, region, source: input.source, confidence: input.read?.confidence ?? null, ...(opts.pass ? { passId: opts.pass.id } : {}) }, extra);
+  await addEvent(db, ctx, sess.id, 'check_in', { plate: display, region, source: input.source, confidence: input.read?.confidence ?? null, ...(opts.pass ? { passId: opts.pass.id } : {}), ...(input.authorizedBy ? { authorizedBy: input.authorizedBy } : {}) }, extra);
   await addEvent(db, ctx, sess.id, 'slot_assigned', { slot: slot.code, reason }, extra);
 
   const out = {

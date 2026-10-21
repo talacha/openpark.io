@@ -21,7 +21,7 @@ export interface FlowState {
    * silently submit an ordinary walk-in that hides a failed pass — they must explicitly acknowledge the rejection first.
    */
   passError: string | null;
-  vehicle: { make?: string; model?: string; color?: string; bodyType?: string };
+  vehicle: { make?: string; model?: string; color?: string; bodyType?: string; year?: number };
   /** A scanned resident guest pass: check-in is then free and tied to the pass. */
   pass: { token: string; guest: string; unit: string; plateHint?: string; verifyCode?: string } | null;
 }
@@ -73,6 +73,27 @@ export function applyPassAccept(s: FlowState, a: PassAccept): Partial<FlowState>
     ...(patch.plate ? { region: a.regions[0] ?? s.region, source: 'manual' as const } : {}),
     ...(patch.clearRead ? clearedRead : {}),
   };
+}
+
+/**
+ * Segment layout for the capacity bar from the live occupancy counts. `n` is the bar length, already computed as
+ * totals.free + totals.occupied + totals.reserved (every assignable slot). Passes are NOT slot reservations, so
+ * yellow is a visual continuation after green, never an overlap:
+ *  - green  = checked-in vehicles, capped at n
+ *  - yellow = logged-but-not-checked-in passes that still fit after green
+ *  - free   = the light-gray remainder
+ *  - pendingSurplus = pending passes with no segment left (shown only in the caption, never drawn)
+ *  - over10/over12 = currently-parked cars past the thresholds (subsets of occupied), drawn as overlays on the
+ *    rightmost green segments (RED over ORANGE), never as extra length — passed through unchanged.
+ */
+export function capacityBar(input: { n: number; occupied: number; issuedPending: number; over10: number; over12: number }):
+  { green: number; yellow: number; free: number; pendingSurplus: number; over10: number; over12: number } {
+  const n = Math.max(0, input.n);
+  const green = Math.min(input.occupied, n);
+  const yellow = Math.max(0, Math.min(n - green, input.issuedPending));
+  const free = n - green - yellow;
+  const pendingSurplus = Math.max(0, input.issuedPending - (n - green));
+  return { green, yellow, free, pendingSurplus, over10: input.over10, over12: input.over12 };
 }
 
 /** The state patch when the current pass is removed: drop a plate that came from it, keep one the attendant captured. */

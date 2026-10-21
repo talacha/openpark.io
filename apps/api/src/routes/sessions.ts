@@ -8,6 +8,13 @@ const Plate = z.object({ display: z.string().min(1).max(20), region: z.string().
 const Payment = z.object({ method: z.enum(['cash', 'card', 'account']), amount: z.number().int().min(0), receiptNo: z.string().optional() });
 const Device = { deviceId: z.string().uuid().optional(), gate: z.string().optional(), deviceAt: z.string().datetime({ offset: true }).optional() };
 
+// Who authorized a walk-in: a community unit, OR an ad-hoc "Other" person (name + E.164 phone). Exactly one shape.
+// Validated in the handler (not the body schema) so a bad shape is a precise 400 host_invalid, not validation_failed.
+const Host = z.union([
+  z.object({ unit: z.string().min(1).max(30) }).strict(),
+  z.object({ name: z.string().min(1).max(80), phone: z.string().regex(/^\+[1-9]\d{7,14}$/) }).strict(),
+]);
+
 const CheckInBody = z.object({
   site: z.string(),
   plate: Plate,
@@ -17,6 +24,7 @@ const CheckInBody = z.object({
   }).optional(),
   slot: z.string().optional(),
   source: z.enum(['manual', 'ai_assist', 'ai_auto']).default('manual'),
+  host: z.unknown().optional(),
   read: z.object({
     textRaw: z.string().optional(), confidence: z.number().min(0).max(1).optional(), engine: z.string().optional(),
     latencyMs: z.number().int().optional(), cropKey: z.string().optional(),
@@ -37,7 +45,21 @@ const MatchBody = z.object({ site: z.string(), plate: z.string().optional(), reg
 export function registerSessionRoutes(app: App) {
   defineRoute(app, {
     method: 'POST', path: '/v1/sessions', summary: 'Check in', perm: 'checkin', body: CheckInBody, idempotent: true,
-    handler: async ({ ctx, db, body, after }) => created(await checkIn(app, db, ctx, after, body)),
+    async handler({ ctx, db, body, after }) {
+      const { host, ...rest } = body;
+      let authorizedBy: { unit: string } | { name: string; phone: string } | undefined;
+      if (host !== undefined && host !== null) {
+        const parsed = Host.safeParse(host);
+        if (!parsed.success) throw new HttpError(400, 'host_invalid', 'Host must be a unit, or a name and E.164 phone');
+        if ('unit' in parsed.data) {
+          // A named host unit must exist; an unknown code is a 404, mirroring slot/site lookups.
+          const u = (await db.query('select code from unit where code = $1', [parsed.data.unit])).rows[0];
+          if (!u) throw new HttpError(404, 'unit_not_found', `No unit ${parsed.data.unit}`);
+          authorizedBy = { unit: u.code };
+        } else authorizedBy = { name: parsed.data.name, phone: parsed.data.phone };
+      }
+      return created(await checkIn(app, db, ctx, after, { ...rest, authorizedBy }));
+    },
   });
 
   defineRoute(app, {
@@ -102,6 +124,7 @@ export function registerSessionRoutes(app: App) {
       site: z.string().optional(), status: z.enum(['open', 'closed', 'void']).optional(),
       from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(),
       attendant: z.string().uuid().optional(), zone: z.string().optional(), plate: z.string().optional(),
+      sort: z.enum(['in_at_desc', 'in_at_asc', 'unit']).default('in_at_desc'), q: z.string().max(40).optional(),
       limit: z.coerce.number().int().min(1).max(500).default(50), offset: z.coerce.number().int().min(0).default(0),
     }),
     async handler({ ctx, db, query: q }) {
@@ -115,15 +138,27 @@ export function registerSessionRoutes(app: App) {
       if (q.attendant) add('(s.in_by = ? or s.out_by = ?)', q.attendant);
       if (q.zone) add('z.code = ?', q.zone);
       if (q.plate) add('v.plate_norm like ?', `%${q.plate.toUpperCase().replace(/[^A-Z0-9]/g, '')}%`);
+      // A session's host unit: the redeemed pass's unit first (authoritative), else a walk-in's named unit; an
+      // "Other" walk-in has no unit and resolves to NULL. Search matches plate prefix OR unit prefix only — never
+      // the authorizer's name/phone.
+      if (q.q) {
+        args.push(`${q.q.toUpperCase().replace(/[^A-Z0-9]/g, '')}%`, `${q.q}%`);
+        where.push(`(v.plate_norm like $${args.length - 1} or coalesce(pu.code, s.authorized_by->>'unit') ilike $${args.length})`);
+      }
       const from = `from session s join site st on st.id = s.site_id join vehicle v on v.id = s.vehicle_id
         left join slot sl on sl.id = s.slot_id left join zone z on z.id = sl.zone_id
+        left join pass p on p.session_id = s.id left join unit pu on pu.id = p.unit_id
         left join app_user ui on ui.id = s.in_by left join app_user uo on uo.id = s.out_by where ${where.join(' and ')}`;
+      const order = q.sort === 'in_at_asc' ? 's.in_at asc'
+        : q.sort === 'unit' ? "coalesce(pu.code, s.authorized_by->>'unit') asc nulls last, s.in_at desc"
+        : 's.in_at desc';
       const total = (await db.query(`select count(*)::int as n ${from}`, args)).rows[0].n;
       const rows = (await db.query(
         `select s.id, s.status, s.ticket_code, st.code as site, v.plate_display as plate, v.make, v.model, v.color, sl.code as slot, z.code as zone,
+           coalesce(pu.code, s.authorized_by->>'unit') as unit,
            s.in_at, s.out_at, extract(epoch from (coalesce(s.out_at, now()) - s.in_at))::int / 60 as minutes, s.fee,
            coalesce(ui.name, ui.email) as in_by, coalesce(uo.name, uo.email) as out_by
-         ${from} order by s.in_at desc limit ${q.limit} offset ${q.offset}`, args)).rows;
+         ${from} order by ${order} limit ${q.limit} offset ${q.offset}`, args)).rows;
       return { total, items: rows };
     },
   });

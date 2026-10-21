@@ -1,6 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, clearPassError, emptyFlow, isStalePassLookup, type FlowState, type PassAccept } from '../src/attendant-flow.js';
+import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, capacityBar, clearPassError, emptyFlow, isStalePassLookup, type FlowState, type PassAccept } from '../src/attendant-flow.js';
 import { parsePassQr } from '../src/pass.js';
+
+describe('capacityBar segment layout', () => {
+  it('fills green then yellow then free, and surfaces pending over capacity', () => {
+    // 7 parked, 5 pending passes on 10 slots: green=7, yellow fills the 3 free, 2 pending have nowhere to go.
+    expect(capacityBar({ n: 10, occupied: 7, issuedPending: 5, over10: 3, over12: 1 }))
+      .toEqual({ green: 7, yellow: 3, free: 0, pendingSurplus: 2, over10: 3, over12: 1 });
+  });
+
+  it('leaves free segments when there is slack', () => {
+    expect(capacityBar({ n: 10, occupied: 3, issuedPending: 2, over10: 0, over12: 0 }))
+      .toEqual({ green: 3, yellow: 2, free: 5, pendingSurplus: 0, over10: 0, over12: 0 });
+  });
+
+  it('caps green at n and reports no free when full', () => {
+    expect(capacityBar({ n: 4, occupied: 4, issuedPending: 3, over10: 2, over12: 2 }))
+      .toEqual({ green: 4, yellow: 0, free: 0, pendingSurplus: 3, over10: 2, over12: 2 });
+  });
+
+  it('handles an empty lot (n=0)', () => {
+    expect(capacityBar({ n: 0, occupied: 0, issuedPending: 2, over10: 0, over12: 0 }))
+      .toEqual({ green: 0, yellow: 0, free: 0, pendingSurplus: 2, over10: 0, over12: 0 });
+  });
+});
 
 // A hinted pass (plate ABC123) and the same pass with no plate hint.
 const qr = 'OPP2|PyuMHp1KTH6KVQtvbx0skA|3|K7Q2M9XA|DEMO-01|A-101|Rosa%20Gu%C3%A9sped|ABC123|1792540800|AbCdEfGhIjKlMnOpQrStUv';
