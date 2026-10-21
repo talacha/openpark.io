@@ -1,8 +1,8 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../src/auth.js';
-import { fakeSupabase, harness, type Harness } from './helpers.js';
+import { fakeSupabase, harness, tenantId, type Harness } from './helpers.js';
 
 const uniq = () => randomBytes(4).toString('hex');
 const slugOf = (name: string) => `${name}-${uniq()}`;
@@ -112,5 +112,74 @@ describe('closed preview, Supabase accounts (TRIAL_SIGNUP off)', () => {
     expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: known.h(slug) })).statusCode).toBe(200);
     const r = await h.app.inject({ method: 'POST', url: '/v1/platform/tenants', headers: known.bearer, payload: { organisation: 'Nope', country: 'US', ownerEmail: 'z@example.com' } });
     expect(r.statusCode).toBe(403);
+  });
+});
+
+describe('platform writes are idempotent for a Super Admin', () => {
+  let h: Harness;
+  beforeAll(async () => { h = await harness({ env: { TRIAL_SIGNUP: 'false' } }); });
+  afterAll(async () => { await h.close(); });
+
+  /** A fresh platform super admin, signed in. */
+  const root = async () => {
+    const c = new pg.Client({ connectionString: process.env.ADMIN_DATABASE_URL });
+    await c.connect();
+    const email = `root-${uniq()}@example.com`;
+    await c.query('insert into app_user (email, name, password_hash, is_superadmin) values ($1,$2,$3,true)', [email, 'Root', await hashPassword('correct-horse-battery')]);
+    await c.end();
+    const login = (await h.app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password: 'correct-horse-battery' } })).json();
+    return { authorization: `Bearer ${login.token}` };
+  };
+
+  const count = async (sql: string, params: unknown[]) => {
+    const c = new pg.Client({ connectionString: process.env.ADMIN_DATABASE_URL });
+    await c.connect();
+    try { return (await c.query(sql, params)).rows[0].n as number; } finally { await c.end(); }
+  };
+
+  it('replays a committed tenant create instead of provisioning a second auto-suffixed organisation', async () => {
+    const r = await root();
+    const key = randomUUID();
+    const ownerEmail = `idem-owner-${uniq()}@example.com`;
+    const payload = { organisation: 'Idem HOA', country: 'MX', ownerEmail }; // no slug: the collision path would auto-suffix a duplicate
+
+    const first = await h.app.inject({ method: 'POST', url: '/v1/platform/tenants', headers: { ...r, 'idempotency-key': key }, payload });
+    expect(first.statusCode, first.body).toBe(201);
+    const slug = first.json().slug;
+    expect(first.json().temporaryPassword).toEqual(expect.any(String));
+
+    const again = await h.app.inject({ method: 'POST', url: '/v1/platform/tenants', headers: { ...r, 'idempotency-key': key }, payload });
+    expect(again.statusCode, again.body).toBe(201);
+    expect(again.headers['idempotent-replayed']).toBe('true');
+    expect(again.json().slug).toBe(slug); // the SAME organisation, not a random-suffixed second one
+
+    // Exactly one organisation/owner exists for this owner, with one admin membership.
+    expect(await count('select count(*)::int n from membership m join app_user a on a.id = m.user_id where a.email = $1', [ownerEmail])).toBe(1);
+
+    // A different body under the same key is refused, never silently run as a new create.
+    const reuse = await h.app.inject({ method: 'POST', url: '/v1/platform/tenants', headers: { ...r, 'idempotency-key': key }, payload: { ...payload, organisation: 'Different HOA' } });
+    expect(reuse.statusCode).toBe(422);
+    expect(reuse.json().error.code).toBe('idempotency_key_reuse');
+  });
+
+  it('replays a committed cross-property member add instead of a false already_member on retry', async () => {
+    const r = await root();
+    const slug = slugOf('place');
+    await h.app.inject({ method: 'POST', url: '/v1/platform/tenants', headers: { ...r, 'idempotency-key': randomUUID() }, payload: { organisation: 'Place HOA', country: 'MX', ownerEmail: `place-owner-${uniq()}@example.com`, slug } });
+
+    const key = randomUUID();
+    const memberEmail = `member-${uniq()}@example.com`;
+    const payload = { email: memberEmail, roles: ['attendant'] };
+
+    const first = await h.app.inject({ method: 'POST', url: `/v1/platform/tenants/${slug}/members`, headers: { ...r, 'idempotency-key': key }, payload });
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json()).toMatchObject({ userId: expect.any(String), temporaryPassword: expect.any(String) });
+
+    const again = await h.app.inject({ method: 'POST', url: `/v1/platform/tenants/${slug}/members`, headers: { ...r, 'idempotency-key': key }, payload });
+    expect(again.statusCode, again.body).toBe(201); // the honoured key replays the 201, not a 409 already_member
+    expect(again.headers['idempotent-replayed']).toBe('true');
+
+    const tid = await tenantId(slug);
+    expect(await count('select count(*)::int n from membership m join app_user a on a.id = m.user_id where a.email = $1 and m.tenant_id = $2', [memberEmail, tid])).toBe(1);
   });
 });

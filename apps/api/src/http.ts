@@ -149,17 +149,62 @@ export function definePublicRoute<B extends ZodTypeAny = z.ZodUndefined>(app: Ap
 /** Platform-level routes: the caller must be a super admin; no tenant is selected. */
 export function definePlatformRoute<B extends ZodTypeAny = z.ZodUndefined>(app: App, def: {
   method: 'GET' | 'POST'; path: string; summary: string; body?: B;
+  /** Writes require an Idempotency-Key header and replay the stored response (see `idempotent` on RouteDef). */
+  idempotent?: boolean;
+  /** Writes honour an Idempotency-Key when the client sends one, but do not require it (see `replaySafe` on RouteDef). */
+  replaySafe?: boolean;
   handler: (a: { app: App; req: FastifyRequest; body: z.infer<B>; userId: string }) => Promise<unknown | Reply>;
 }) {
-  registry.push({ method: def.method, path: def.path, summary: def.summary, perm: 'platform', body: def.body });
+  registry.push({ method: def.method, path: def.path, summary: def.summary, perm: 'platform', body: def.body, idempotent: def.idempotent, replaySafe: def.replaySafe });
   app.route({
     method: def.method, url: def.path,
     handler: async (req, reply) => {
       const who = await app.identify(req);
       if (!who.superadmin) throw new HttpError(403, 'forbidden', 'Platform administrators only');
       const body = def.body ? def.body.parse(req.body) : undefined;
-      const out = await def.handler({ app, req, body, userId: who.userId });
-      const r: Reply = isReply(out) ? out : { status: 200, body: out };
+      const idemKey = req.headers['idempotency-key'];
+      if (def.idempotent && typeof idemKey !== 'string') throw new HttpError(400, 'idempotency_key_required', 'Idempotency-Key header is required');
+      const useIdem = (def.idempotent || def.replaySafe) && typeof idemKey === 'string';
+
+      const run = async (): Promise<Reply> => {
+        const out = await def.handler({ app, req, body, userId: who.userId });
+        return isReply(out) ? out : { status: 200, body: out };
+      };
+
+      if (!useIdem) {
+        const r = await run();
+        return reply.code(r.status).send(r.body);
+      }
+
+      // Actor-scoped idempotency: platform writes are not inside a tenant tx, so the (super admin, key) pair is
+      // reserved up front in platform_idempotency_key. That stops a lost-response retry OR a double submit from
+      // running the handler twice — provisionTenant's auto-suffixed-slug path would otherwise create a second org.
+      const key = idemKey as string;
+      const hash = createHash('sha256').update(`${def.method} ${req.url} ${JSON.stringify(body ?? null)}`).digest('hex');
+      let reserved = false;
+      try {
+        await app.db.raw((db) => db.query('insert into platform_idempotency_key (actor_id, key, request_hash, status) values ($1,$2,$3,0)', [who.userId, key, hash]));
+        reserved = true;
+      } catch (e) {
+        if ((e as { code?: string }).code !== '23505') throw e; // only a key clash falls through to replay/in-flight below
+      }
+      if (!reserved) {
+        const prior = (await app.db.raw((db) => db.query('select request_hash, status, response from platform_idempotency_key where actor_id = $1 and key = $2', [who.userId, key]))).rows[0];
+        if (!prior || prior.status === 0) throw new HttpError(409, 'request_in_progress', 'A request with this Idempotency-Key is still being processed');
+        if (prior.request_hash !== hash) throw new HttpError(422, 'idempotency_key_reuse', 'Idempotency-Key was used with a different request');
+        reply.header('Idempotent-Replayed', 'true');
+        return reply.code(prior.status as number).send(prior.response);
+      }
+      let r: Reply;
+      try {
+        r = await run();
+      } catch (e) {
+        // The write failed: drop the reservation so the caller can retry the same key.
+        await app.db.raw((db) => db.query('delete from platform_idempotency_key where actor_id = $1 and key = $2 and status = 0', [who.userId, key])).catch(() => {});
+        throw e;
+      }
+      await app.db.raw((db) => db.query('update platform_idempotency_key set status = $3, response = $4 where actor_id = $1 and key = $2',
+        [who.userId, key, r.status, JSON.stringify(r.body ?? null, (k, v) => (k === 'temporaryPassword' ? null : v))])); // one-time passwords are never stored
       return reply.code(r.status).send(r.body);
     },
   });

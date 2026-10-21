@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ApiError, post } from '../api.js';
 import { useApp } from '../app-context.js';
-import { useApi } from '../components/hooks.js';
+import { useApi, useSubmitKey } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
 
 interface Tenant { slug: string; name: string; country: string; created_at: string; suspended_at: string | null; suspended_reason: string | null; members: number; sites: number; open_sessions: number }
@@ -16,15 +16,25 @@ export function Platform() {
   const tenants = useApi<Tenant[]>('/v1/platform/tenants');
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const createKey = useSubmitKey();
 
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy) return; // block a double submit; the button is disabled while pending too
     const form = e.currentTarget; const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
+    const payload = { organisation: f.org, country: f.country, ownerEmail: f.owner };
+    setBusy(true);
+    // The submission-scoped Idempotency-Key is reused on every retry so a lost-response retry replays the original
+    // create (one organisation, one owner) instead of provisioning a second auto-suffixed tenant. It rotates only
+    // after a success, so the next organisation is a distinct request.
     try {
-      const r = await post<{ slug: string; ownerEmail: string; temporaryPassword?: string; invited?: boolean }>('/v1/platform/tenants', { organisation: f.org, country: f.country, ownerEmail: f.owner });
+      const r = await post<{ slug: string; ownerEmail: string; temporaryPassword?: string; invited?: boolean }>('/v1/platform/tenants', payload, createKey.key(`POST /v1/platform/tenants ${JSON.stringify(payload)}`));
+      createKey.rotate();
       setNote(`${t('platform.created')} ${r.temporaryPassword ? t('users.tempPassword', { password: r.temporaryPassword }) : t('platform.ownerInvited', { email: r.ownerEmail })}`);
       setErr(''); form.reset(); await tenants.reload();
     } catch (x) { setErr(x instanceof ApiError ? x.message : String(x)); }
+    finally { setBusy(false); }
   }
 
   async function suspend(slug: string) {
@@ -45,7 +55,7 @@ export function Platform() {
           <label className="field grow">{t('auth.org')}<input name="org" required minLength={2} /></label>
           <label className="field">{t('auth.country')}<select name="country" defaultValue="MX">{['MX', 'US', 'BR', 'ES', 'FR', 'DE'].map((c) => <option key={c}>{c}</option>)}</select></label>
           <label className="field grow">{t('platform.ownerEmail')}<input name="owner" type="email" required dir="ltr" /></label>
-          <button className="btn primary">{t('platform.create')}</button>
+          <button className="btn primary" disabled={busy}>{t('platform.create')}</button>
         </form>
         {note && <div className="banner" role="status">{note}</div>}
         {err && <div className="banner bad" role="alert">{err}</div>}

@@ -298,6 +298,7 @@ export function registerPeopleRoutes(app: App) {
 
   definePlatformRoute(app, {
     method: 'POST', path: '/v1/platform/tenants/:slug/members', summary: 'Add a person to any property with roles and (for residents) a unit of that property',
+    replaySafe: true,
     body: z.object({ email: z.string().email().max(254), name: z.string().trim().max(100).optional(), roles: RoleList, unit: z.string().optional(), superadmin: z.boolean().optional() }),
     async handler({ req, body, userId }) {
       const { slug } = req.params as { slug: string };
@@ -320,6 +321,7 @@ export function registerPeopleRoutes(app: App) {
   // Closed preview: platform admins create organisations for invited testers (public signup is off).
   definePlatformRoute(app, {
     method: 'POST', path: '/v1/platform/tenants', summary: 'Create an organisation and invite its owner (works while public sign-up is closed)',
+    replaySafe: true,
     body: z.object({ organisation: z.string().min(2).max(100), country: z.string().length(2).toUpperCase(), ownerEmail: z.string().email(), slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}$/).optional(), ownerName: z.string().optional() }),
     async handler({ body }) {
       const email = body.ownerEmail.toLowerCase();

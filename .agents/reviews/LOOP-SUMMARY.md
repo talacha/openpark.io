@@ -765,3 +765,71 @@ one past the cap would risk an unfinished change with no loop left to review it.
 **This step's publish:** docs/bookkeeping only (this note + the review artifacts). Committed on `adversarial-loop`,
 fast-forwarded onto `main`, pushed to `origin/main` (normal push). Stop-record commit SHA: recorded below.
 **Stop-record commit SHA:** `d2e36c2` (fast-forwarded onto `main` and pushed to `origin/main`, normal push; this SHA recorded in a tiny follow-up commit, per the repo's established pattern).
+
+---
+
+### Iteration 13 — fix tick responding to review-iter-12 (2026-10-21T15:40Z, ~11h48m into run)
+
+**Context / time box:** the extended time box runs to 20:00 UTC (2026-10-21); ~11h48m of wall-clock elapsed at the
+start of this tick, within budget. `review-verdict.json` = `CHANGES_REQUESTED` pointing at `review-iter-12.md`
+(1 high, 5 medium, 1 low). This tick fixes the single actionable HIGH data-integrity bug and its directly-coupled
+MEDIUM; the remaining mediums are carried forward with rationale below.
+
+**What the previous review (iter-12) flagged:**
+1. HIGH (criterion 7): `definePlatformRoute` ignores `Idempotency-Key`, and the Platform create form sends no key /
+   no in-flight guard — a retry after a lost response or a double-submit runs `provisionTenant` twice, and its
+   auto-suffixed-slug collision path creates a SECOND live organisation.
+2. MEDIUM (criterion 7): `POST /v1/platform/tenants/:slug/members` (same `definePlatformRoute`) ignores the stable
+   key People already supplies; an exact retry re-runs `addPerson` and returns `already_member`.
+3. MEDIUM (criterion 6): local-auth `addPerson` replay returns 201 without the one-time credential (recoverable
+   onboarding redesign). — carried forward.
+4. MEDIUM (criterion 1): live generate→Share→`/pass`→gate chain not executed in one process. — carried forward.
+5. MEDIUM (criteria 3 & 4): real `getUserMedia`/ONNX camera path not executed; no checkout camera story. — carried forward.
+6. MEDIUM (criteria 6 & 7): full person/site/unit/slot CRUD + second-property + regular-admin denial not run in a real browser. — carried forward.
+7. LOW: full WCAG conformance needs manual AT/hardware checks. — carried forward.
+
+**What I changed (fixes #1 and #2 — one shared root cause):**
+- `apps/api/migrations/017_platform_idempotency.sql` — new actor-scoped `platform_idempotency_key` table (keyed on
+  `(actor_id, key)`). Platform writes are not inside a tenant tx and tenant-create has no tenant yet, so they cannot
+  use the per-tenant `idempotency_key` table. Global table modelled on `app_user`: RLS on with an `app_access`
+  policy `to openpark_app`, so the Supabase Data API roles get nothing; `grant select,insert,update,delete` to
+  `openpark_app`.
+- `apps/api/src/http.ts` — `definePlatformRoute` now accepts `idempotent`/`replaySafe` and, when a key is present,
+  **reserves** the `(super admin, key)` row up front (status 0), runs the handler once, then stores the committed
+  status/response (one-time `temporaryPassword` stripped on write, matching the tenant store). A lost-response retry
+  replays the stored 201 with `Idempotent-Replayed: true`; a concurrent duplicate gets `409 request_in_progress`; a
+  same-key/different-body gets `422 idempotency_key_reuse`; a handler error deletes the reservation so the caller can
+  retry. This stops one Super Admin action from creating two organisations/memberships.
+- `apps/api/src/routes/people.ts` — marked `POST /v1/platform/tenants` and `POST /v1/platform/tenants/:slug/members`
+  `replaySafe: true` (key honoured when sent; not forced, so existing keyless callers/tests are unaffected).
+- `apps/web/src/screens/Platform.tsx` — the create form now uses `useSubmitKey()` (payload-scoped key, rotated only
+  after success) + a `busy` in-flight guard with the submit button disabled while pending, mirroring People/Parking.
+- `apps/api/test/closed-preview.test.ts` — added a real-route describe: (a) same-key tenant create with NO slug
+  replays the SAME org (not a suffixed duplicate), proves exactly one owner membership, and 422s a different body
+  under the same key; (b) same-key cross-property member add replays 201 (not `already_member`) and proves exactly
+  one membership. +2 API tests (closed-preview 5→7).
+
+**Lowest-risk decisions (ambiguous choices resolved without pausing):**
+- *Reserve-first vs commit-at-end idempotency:* chose reserve-first so a truly-concurrent double submit cannot run
+  `provisionTenant` twice (the tenant table's commit-at-end pattern would let both run before one fails the insert).
+  Tradeoff: a hard process crash between reserve and finalize can leave a stale `status=0` row for that exact
+  `(actor,key)`; the form rotates to a new key on the next submission, so this is rare and self-healing. Documented.
+- *`replaySafe` vs `idempotent` (required) on the platform routes:* chose `replaySafe` so the many existing keyless
+  callers and tests keep working while the real UI always sends a key + in-flight guard — lower-risk, no forced
+  breaking change.
+- *New global table RLS:* followed the existing `app_user` precedent (RLS on, policy `to openpark_app`) rather than
+  tenant-isolation RLS (which would block a table that has no tenant and is read without `app.tenant_id` set).
+
+**Why #3–#6 are carried forward, not forced:** #3 is a product/behaviour redesign (replace one-time-credential
+onboarding with a recoverable setup/reset flow) — outside a safe in-loop fix. #4–#6 ask for execution evidence from a
+real browser + downloaded ONNX models + `.y4m` camera fixtures + a joined unauthenticated `/pass` bootstrap process,
+which the headless `pnpm test` + `check:css` gate cannot stand up; they need a real-browser harness in a future
+session. The seven acceptance criteria remain gate-backed in the shipped code.
+
+**Gate status: GREEN.**
+- `pnpm --filter @openpark/core build` → ok
+- `pnpm typecheck` → ok (7 projects)
+- `pnpm test` → ok (web 101 pass + 1 skipped; api 108 pass incl. the 2 new idempotency tests; core/sdk-ts/marketing unchanged)
+- `pnpm --filter @openpark/web check:css` → ok ("logical properties only")
+
+**Pushed commit SHA:** `826fc14` (committed on `adversarial-loop`, fast-forwarded onto `main`, pushed to `origin/main` — normal push).
