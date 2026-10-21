@@ -7,6 +7,15 @@ export const catalogs: Record<string, Record<string, string>> = Object.fromEntri
 );
 
 export const LOCALES = ['en', 'es-MX', 'es-ES', 'pt-BR', 'fr', 'de', 'ar'] as const;
+/**
+ * The locales a user may actually pick in the UI: Spanish (Mexico) and English. The other catalogs stay on disk and in
+ * LOCALES to keep the ICU parity + Arabic RTL coverage, but are not user-selectable. en-XA (pseudo) stays dev-only.
+ */
+export const SELECTABLE_LOCALES = ['es-MX', 'en'] as const;
+/** Fold a resolved catalog that is not user-selectable onto the surface set: any Spanish -> es-MX, everything else -> en. */
+export function foldToSurface(resolved: string): string {
+  return resolved.split('-')[0] === 'es' ? 'es-MX' : 'en';
+}
 export const NAMES: Record<string, string> = {
   en: 'English', 'es-MX': 'Español (México)', 'es-ES': 'Español (España)', 'pt-BR': 'Português (Brasil)', fr: 'Français', de: 'Deutsch', ar: 'العربية', 'en-XA': 'Pseudo (en-XA)',
 };
@@ -47,7 +56,10 @@ const I18n = createContext<Ctx>({ locale: 'en', setLocale: () => {}, t: (k) => k
 
 export function I18nProvider({ defaultLocale, terminology, onLocaleChange, children }: { defaultLocale: string; terminology: Terminology; onLocaleChange?: (l: string) => void; children: ReactNode }) {
   const [override, setOverride] = useState<string | null>(() => { try { return localStorage.getItem('op.locale'); } catch { return null; } });
-  const locale = resolveLocale(override ?? defaultLocale);
+  const resolved = resolveLocale(override ?? defaultLocale);
+  // A stored preference outside the two-locale surface (e.g. es-ES) folds transparently: es-* -> es-MX, else -> en.
+  // resolveLocale is left untouched (it still returns es-ES etc. for the parity tests); only the ACTIVE locale folds.
+  const locale = (SELECTABLE_LOCALES as readonly string[]).includes(resolved) ? resolved : foldToSurface(resolved);
   active = locale;
   const setLocale = useCallback((l: string) => { setOverride(l); try { localStorage.setItem('op.locale', l); } catch { /* ignore */ } onLocaleChange?.(l); }, [onLocaleChange]);
   const dir = isRtl(locale) ? 'rtl' : 'ltr';

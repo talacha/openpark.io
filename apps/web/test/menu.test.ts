@@ -5,7 +5,10 @@ import { buildMenu } from '../src/menu.js';
 const menu = (roles: Role[], superadmin = false, slug: string | null = 'acme') => buildMenu({ slug, roles, superadmin });
 const ids = (roles: Role[], superadmin = false, slug: string | null = 'acme') => menu(roles, superadmin, slug).map((g) => g.id);
 const adminItems = (roles: Role[], sa = false) => menu(roles, sa).find((g) => g.id === 'admin')?.items.map((i) => i.id);
-const ADMIN_ITEMS = ['rates', 'parking', 'inventory', 'units', 'users', 'integrations', 'ai', 'locale'];
+// Reshaped admin surface (FEAT-005): primary entities + one Bulk import/export, then an Advanced group (Rates,
+// Integrations, AI). The Localization entry is removed — the product surfaces es-MX + en from code.
+const ADMIN_ITEMS = ['parking', 'units', 'users', 'bulkio', 'rates', 'integrations', 'ai'];
+const ADVANCED = ['rates', 'integrations', 'ai'];
 
 describe('menu by roles', () => {
   it('residents see only the resident view', () => expect(ids(['resident'])).toEqual(['resident']));
@@ -29,6 +32,16 @@ describe('menu by roles', () => {
   it('puts every admin-only item under Admin, and Organisations only for super admins', () => {
     expect(adminItems(['admin'])).toEqual(ADMIN_ITEMS);
     expect(adminItems(['admin'], true)).toEqual([...ADMIN_ITEMS, 'organisations']);
+  });
+  it('drops the Localization admin entry (locale is code-controlled now) and keeps a Bulk import/export entry', () => {
+    const items = adminItems(['admin'])!;
+    expect(items).not.toContain('locale');
+    expect(items).toContain('bulkio');
+  });
+  it('ends the admin group with the Advanced items (Rates, Integrations, AI) after the primary entities', () => {
+    const items = adminItems(['admin'])!;
+    expect(items.slice(-ADVANCED.length)).toEqual(ADVANCED);
+    expect(items.slice(0, items.length - ADVANCED.length)).toEqual(['parking', 'units', 'users', 'bulkio']);
   });
   it('keeps admin-only pages out of the platform view', () => {
     const platform = menu(['admin']).find((g) => g.id === 'platform')!.items.map((i) => i.id);

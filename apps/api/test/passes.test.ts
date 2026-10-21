@@ -104,6 +104,66 @@ describe('resident profile: avatar and notify opt-in', () => {
   });
 });
 
+describe('unit-access verification gates pass issuance', () => {
+  /** Flip a resident's unit grant to unverified directly (mimics an unvouched/bulk-imported grant). */
+  const unverify = async (email: string) => h.app.db.withTenant(await tenantId(owner.slug), (db) =>
+    db.query('update membership set unit_verified = false where user_id = (select id from app_user where email = $1)', [email]));
+
+  it('rejects an unverified resident with 403 unit_unverified, but accepts them once verified', async () => {
+    const code = `U-${randomBytes(3).toString('hex')}`;
+    await addUnit(h.app, owner, code);
+    const r = await addResident(h.app, owner, code);
+    await unverify(r.email!);
+
+    const blocked = await create(r);
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json().error.code).toBe('unit_unverified');
+
+    // An admin verifies the unit access; the resident can now issue a pass.
+    const member = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: owner.h })).json().members.find((m: { email: string }) => m.email === r.email);
+    expect(member.unit_verified).toBe(false);
+    const verified = await h.app.inject({ method: 'PATCH', url: `/v1/users/${member.id}/verify`, headers: idem(owner) });
+    expect(verified.statusCode, verified.body).toBe(200);
+    expect((await h.app.inject({ method: 'GET', url: '/v1/users', headers: owner.h })).json().members.find((m: { email: string }) => m.email === r.email).unit_verified).toBe(true);
+    // The resident's own /v1/me now reports unitVerified true.
+    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json().unitVerified).toBe(true);
+    expect((await create(r)).statusCode).toBe(201);
+  });
+
+  it('lets staff with pass.admin issue a pass for an unverified unit (staff are trusted), and keeps reads ungated', async () => {
+    const code = `U-${randomBytes(3).toString('hex')}`;
+    await addUnit(h.app, owner, code);
+    const r = await addResident(h.app, owner, code);
+    await unverify(r.email!);
+    // Staff bypass: the admin issues a pass for the unit on the resident's behalf.
+    expect((await create(owner, { unit: code })).statusCode).toBe(201);
+    // Reads stay open so the Resident screen can render the pending banner: /v1/passes/active returns { pass, policy }.
+    const active = (await h.app.inject({ method: 'GET', url: '/v1/passes/active', headers: r.h })).json();
+    expect(active.policy).toMatchObject({ maxStayHours: expect.any(Number), overstayCharge: expect.any(Number) });
+    expect((await h.app.inject({ method: 'GET', url: '/v1/passes?limit=10', headers: r.h })).statusCode).toBe(200);
+  });
+
+  it('returns { pass:null, policy } from /v1/passes/active for an unverified resident with no active pass', async () => {
+    const code = `U-${randomBytes(3).toString('hex')}`;
+    await addUnit(h.app, owner, code);
+    const r = await addResident(h.app, owner, code);
+    await unverify(r.email!);
+    const active = (await h.app.inject({ method: 'GET', url: '/v1/passes/active', headers: r.h })).json();
+    expect(active.pass).toBeNull();
+    expect(active.policy).toBeTruthy();
+    // me.unitVerified is false, so the UI shows the pending-verification banner.
+    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json().unitVerified).toBe(false);
+  });
+
+  it('the verify route 404s a non-member and 409 not_resident a non-resident member', async () => {
+    expect((await h.app.inject({ method: 'PATCH', url: `/v1/users/${randomBytes(16).toString('hex').replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5')}/verify`, headers: idem(owner) })).statusCode).toBe(404);
+    const att = (await h.app.inject({ method: 'GET', url: '/v1/users', headers: owner.h })).json().members.find((m: { roles: string[] }) => m.roles.includes('attendant') && !m.roles.includes('resident'));
+    const res = await h.app.inject({ method: 'PATCH', url: `/v1/users/${att.id}/verify`, headers: idem(owner) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('not_resident');
+  });
+});
+
 describe('creating a pass', () => {
   it('issues a QR that lasts 2 hours and needs a way to reach the guest', async () => {
     h.clock.now = T0;

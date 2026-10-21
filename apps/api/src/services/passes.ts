@@ -155,6 +155,10 @@ function assertOwns(ctx: Ctx, p: { unit_id: string }, mayAdmin: (perm: 'pass.adm
 
 export async function createPass(app: App, db: Db, ctx: Ctx, input: z.infer<typeof NewPass>) {
   const unit = await unitFor(db, ctx, input.unit);
+  // Only verified residents may issue passes. Staff with pass.admin (attendant/supervisor/admin) name the unit and
+  // bypass the gate entirely; a resident acting on their own unit must have a verified grant. Reads stay ungated so the
+  // Resident screen can still load the pending-verification banner's pass/policy. This is the single enforcement point.
+  if (!can(ctx, 'pass.admin') && ctx.unitVerified === false) throw new HttpError(403, 'unit_unverified', 'Your unit access is pending verification; an administrator must verify it before you can issue passes');
   const sites = (await db.query('select id from site where retired_at is null order by code')).rows;
   const siteId = unit.site_id ?? (sites.length === 1 ? sites[0].id : null);
   if (!siteId) throw new HttpError(409, 'site_required', 'This unit is not assigned to a site yet');

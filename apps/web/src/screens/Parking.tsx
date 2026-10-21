@@ -8,7 +8,7 @@ import { useI18n, useT } from '../i18n.js';
 
 interface Zone { code: string; name: string; labels: Record<string, string>; level: number | null; slots: number }
 interface SiteRow { code: string; name: string; timezone: string; address: string | null; settings: { aiThreshold?: number }; slots: number; open_sessions: number; zones: Zone[] }
-interface SlotRow { code: string; zone: string; type: string; status: string; note: string | null; plate: string | null }
+interface SlotRow { code: string; zone: string; level: number | null; type: string; status: string; note: string | null; plate: string | null }
 
 const STATUSES = ['available', 'reserved', 'out_of_service'] as const;
 
@@ -51,6 +51,7 @@ export function Parking() {
       <h1>{t('parking.title')}</h1>
       <p className="muted">{t('parking.intro')}</p>
       {err && <div className="banner bad" role="alert">{err}</div>}
+      {canEdit && <CommunitySettings />}
       {canEdit && (
         <form className="card stack" onSubmit={addSite}>
           <h2>{t('parking.addSite')}</h2>
@@ -67,6 +68,35 @@ export function Parking() {
       {sites.data?.map((s) => <SiteCard key={s.code} site={s} tz={tz} canEdit={canEdit} run={run} />)}
       {sites.data && !sites.data.length && <div className="banner">{t('parking.none')}</div>}
     </div>
+  );
+}
+
+/** Community-level (the surfaced name for the tenant) optional details: an address and free-form notes. */
+function CommunitySettings() {
+  const t = useT();
+  const { me, reload } = useApp();
+  const [open, setOpen] = useState(false);
+  const [address, setAddress] = useState(me!.tenant.address ?? '');
+  const [notes, setNotes] = useState(me!.tenant.notes ?? '');
+  const [msg, setMsg] = useState('');
+  async function save() {
+    try { await patch('/v1/tenant', { address, notes }); await reload(); setMsg(t('common.saved')); }
+    catch (x) { setMsg(errText(x)); }
+  }
+  return (
+    <section className="card stack" data-community>
+      <div className="row between">
+        <h2>{t('community.settings')} <small className="muted">{me!.tenant.name}</small></h2>
+        <button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t('common.hide') : t('community.edit')}</button>
+      </div>
+      {open && (
+        <>
+          <label className="field">{t('community.address')}<input value={address} maxLength={300} onChange={(e) => setAddress(e.target.value)} /></label>
+          <label className="field">{t('community.notes')}<textarea value={notes} maxLength={2000} onChange={(e) => setNotes(e.target.value)} /></label>
+          <div className="row"><button className="btn primary" onClick={save}>{t('common.save')}</button>{msg && <span className="muted">{msg}</span>}</div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -184,10 +214,10 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
             <select value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)} aria-label={t('common.zone')}>
               <option value="">{t('sessions.all')}</option>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</select></div>
           <div className="tablewrap"><table>
-            <thead><tr><th>{t('units.code')}</th><th>{t('common.zone')}</th><th>{t('parking.type')}</th><th>{t('common.status')}</th><th>{t('slots.note')}</th><th /></tr></thead>
+            <thead><tr><th>{t('units.code')}</th><th>{t('common.zone')}</th><th>{t('parking.level')}</th><th>{t('parking.type')}</th><th>{t('common.status')}</th><th>{t('slots.note')}</th><th /></tr></thead>
             <tbody>{shown.map((x) => (
               <tr key={x.code}>
-                <td dir="ltr">{x.code}</td><td dir="ltr">{x.zone}</td><td>{typeLabel(x.type)}</td><td>{t(`slots.${x.status}`)}{x.plate ? ` · ${x.plate}` : ''}</td><td>{x.note ?? '–'}</td>
+                <td dir="ltr">{x.code}</td><td dir="ltr">{x.zone}</td><td className="num">{x.level ?? '–'}</td><td>{typeLabel(x.type)}</td><td>{t(`slots.${x.status}`)}{x.plate ? ` · ${x.plate}` : ''}</td><td>{x.note ?? '–'}</td>
                 <td>{canEdit && <div className="row">
                   <button className="btn" onClick={() => setEditSlot(x)}>{t('users.edit')}</button>
                   <button className="btn danger" disabled={x.status === 'occupied'} onClick={() => void refresh(() => del(`/v1/slots/${x.code}?site=${site.code}`))}>{t('common.remove')}</button>

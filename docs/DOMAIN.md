@@ -7,12 +7,12 @@ screens and docs use the **term**. For who uses the product and the journeys eac
 
 | Term | Meaning | Code / table |
 | --- | --- | --- |
-| **Property** | An organisation's whole estate, e.g. a housing complex or a car-park operator. The unit of isolation: people, rates and data never cross properties. | `tenant` |
-| **Site** | One parking facility of a property (a car park, a gate). Has a time zone, an address and the plate-reading confidence it needs to auto-accept. | `site` |
-| **Zone** | A level or area of a site (Basement 1, Visitors). | `zone` |
-| **Slot** | One parking space in a zone. Has a type (standard, accessible, EV…), a status (available, occupied, reserved, out of service) and a note. | `slot` |
-| **Unit** | A home (apartment, house) in the property. A resident belongs to a unit, not to a slot. Has a code, a name, a floor, a note and optionally a site. | `unit` |
-| **Person** | Anyone with an account in a property. Holds one or more **roles**. | `app_user` + `membership` |
+| **Community** | A collection of houses or units — a housing complex or a car-park operator's estate. The unit of isolation: people, rates and data never cross communities. Has an optional address and optional notes. (Surfaced name for what the schema still calls a *property*.) | `tenant` (settings.address, settings.notes) |
+| **Site** | One parking facility of a community (a car park, a gate). Has a time zone, an address and the plate-reading confidence it needs to auto-accept. | `site` |
+| **Zone** | A level or area of a site (Basement 1, Visitors). Owns the slot's **level**. | `zone` |
+| **Slot** | One parking space in a zone. Has a type (standard, accessible, EV…), a **level** (from its zone), a **status** (operational/available, reserved, out of service — plus the runtime *occupied*, set only by check-out) and a note. Only `available` slots are assignable at the gate. | `slot` |
+| **Unit** | A home (apartment, house) in the community. A resident belongs to a unit, not to a slot. Has a code, a name, a floor, a note and optionally a site. | `unit` |
+| **Person** | Anyone with an account in a community. Holds one or more **roles**. A resident's unit grant may be **verified** (`membership.unit_verified`): only a verified resident may issue guest passes; staff-placed grants are verified on creation, bulk-imported grants await an admin's verify. | `app_user` + `membership` |
 | **Role** | Cumulative access, least to most: **Resident**, **Attendant**, **Supervisor**, **Admin**. A person can hold several. | `membership.roles` |
 | **Super Admin** | A platform-wide flag on a person: can configure every property and switch between them. Not a role of a property. | `app_user.is_superadmin` |
 | **Invitation** | A pending offer of roles (and a unit) to an email address; claimed at first sign-in. May carry Super Admin. | `membership_invite` |
@@ -95,8 +95,12 @@ slot stays as history; a unit with residents, invitations or passes cannot be de
 
 ## How the screens connect
 
-- The **menu** is built from the person's roles (see `apps/web/src/menu.ts`); Super Admins also get a **Property** switcher listing every property.
-- **Units** → resident names link to **People**; a person's unit code links back to **Units**; a form that needs a unit but finds none says so and links to Units.
-- **Sites & slots** → bulk changes link to **Import / export**; a site's AI threshold is the same value as in **AI plate reading**.
-- **Platform** (Super Admin) → *Enter* opens any property; **People** lets a Super Admin place a person in any property with one of that property's units.
+- The **menu** is built from the person's roles (see `apps/web/src/menu.ts`); Super Admins also get a **Community** switcher listing every community.
+- **Units** → resident names link to **People**; a person's unit code links back to **Units**; a form that needs a unit but finds none says so and links to Units. **People** shows each resident's verification state and a *Verify unit access* action; only a verified resident may issue passes.
+- **Communities & parking** → a Community settings panel edits the optional address and notes; bulk changes link to **Bulk import/export** (entity tabs: Communities, Slots, Units, Users); a site's AI threshold is the same value as in **AI plate reading**.
+- **Platform** (Super Admin) → *Enter* opens any community; **People** lets a Super Admin place a person in any community with one of its units.
 - API errors are shown in the person's language from the error code; fee lines and timeline events are translated from their codes.
+
+## Locales
+
+The product surfaces two user-selectable languages: **Spanish — Mexico (es-MX, default)** and **English**. Localization is controlled in code — there is no Localization admin screen. Other catalogs (es-ES, pt-BR, fr, de, ar) stay in the repo to keep ICU-parity and right-to-left coverage but are not user-selectable; a stored preference outside the surface set folds to es-MX (any Spanish) or English.

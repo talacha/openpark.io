@@ -216,13 +216,13 @@ Shift reports (cash taken per attendant), the Sessions log screen and CSV/JSON e
 
 ## Localization
 
-v1 ships English, Spanish (es-MX, es-ES), Portuguese (pt-BR), French, German and Arabic; Arabic is in the first release to prove right-to-left layout from day one. Further locales come through community translation.
+The product **surfaces two user-selectable languages: Spanish — Mexico (es-MX, the default) and English**. Localization is controlled in code (there is no Localization admin screen); the language switcher offers exactly these two (`SELECTABLE_LOCALES` in `apps/web/src/i18n.tsx`). Additional catalogs — Spanish (es-ES), Portuguese (pt-BR), French, German and Arabic — remain in the repo to keep ICU-parity and right-to-left coverage (Arabic is retained as the day-one RTL proof), but are **not user-selectable**. A stored preference outside the surface set folds transparently (`foldToSurface`: any `es-*` → es-MX, everything else → en); `resolveLocale` is unchanged so BCP-47 mapping and the parity tests still exercise every catalog.
 
 - **Strings:** ICU MessageFormat in JSON files per locale and namespace (plurals, select, gender). Translation runs on Weblate, which is itself open source and self-hostable.
-- **Layout:** CSS logical properties only (`margin-inline-start`, not `margin-left`); `dir` set from the locale; only directional icons mirror.
+- **Layout:** CSS logical properties only (`margin-inline-start`, not `margin-left`); `dir` set from the locale; only directional icons mirror. Arabic exercises RTL on every release.
 - **Formatting:** `Intl` for dates, numbers, currency and relative time; times render in the *site's* timezone, not the device's.
 - **Tenant terminology:** per-tenant overrides layered on the base locale, so one client says *cajón*, another *lugar* or *plaza*. Slot-type and zone labels are localized inside the inventory JSON.
-- **Per-user locale:** attendants switch language on the device without changing the tenant default.
+- **Per-user locale:** people switch between the two surfaced languages on the device without changing the tenant default.
 - **Data stays as captured:** plates always show in their native script; make and model names are never translated; colours, body types and slot types are enums with translated labels.
 - **Keypads:** manual plate entry offers the character set of the site's enabled plate regions, from the plate-format registry.
 - **CI guard:** a pseudo-locale build (accented, 40% longer strings) catches truncation and hard-coded text before release.
@@ -300,7 +300,7 @@ A person can hold several roles; access is the union. Roles, least to most acces
 | Resident | Lives in the complex (belongs to a unit) and issues guest parking passes by QR code |
 | Attendant | Check in, check out, take payment, scan plates and QR codes, mark a slot out of service |
 | Supervisor | Everything an Attendant can, plus override fees, void sessions, manage guest passes; is notified per property when a car passes 10, 11 and 12 hours |
-| Admin | Configures one property: sites, zones, slots, units, people, rates, integrations, AI and locale settings |
+| Admin | Configures one community (the surfaced name for a property): sites, zones, slots, units, people (verifying residents' unit access), bulk import/export, and — under Advanced — rates, integrations and AI. Localization is code-controlled, not an admin screen. |
 | Super Admin | A platform-wide flag, not a role of a property: configures every property and switches between them |
 
 See `docs/DOMAIN.md` for the vocabulary and how the entities relate.
@@ -318,7 +318,7 @@ Fourteen screens across the two apps cover v1; all are mocked up in the companio
 | Inventory import / export | app | Admin | Paste or upload JSON, validate, review diff, apply, roll back |
 | Rate plans | app | Admin | Versioned pricing rules and a fee simulator |
 | AI plate reading settings | app | Admin | Mode, threshold, engines, plate regions, retention |
-| Localization settings | app | Admin | Default and enabled locales, terminology overrides, pseudo-locale preview |
+| Bulk import/export | app | Admin | One screen with entity tabs (Communities, Slots, Units, Users): validate, review diff, apply, roll back — no secrets in any export or diff |
 | Attendant home | app | Attendant | Check in / Check out, live free count, recent activity |
 | Check-in capture | app | Attendant | Camera with live plate box, read and confidence |
 | Check-in confirm | app | Attendant | Vehicle details, suggested slot, ticket |

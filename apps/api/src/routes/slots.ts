@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { can } from '../auth.js';
 import { audit, emit } from '../db.js';
-import { HttpError, created, defineRoute } from '../http.js';
+import { HttpError, created, defineRoute, boolQuery } from '../http.js';
+import { locateJsonError } from '../jsonpos.js';
 import type { App } from '../server.js';
 import { resolveSite, suggestSlot } from '../services/sessions.js';
+import { applySites, exportSites, parseSitesDoc, previewSites } from '../services/sites.js';
 
 function validTimezone(tz: string) { try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; } }
 
@@ -120,7 +122,7 @@ export function registerSlotRoutes(app: App) {
     async handler({ ctx, db, query: q }) {
       const site = await resolveSite(db, ctx, q.site);
       return (await db.query(
-        `select sl.code, z.code as zone, sl.type, sl.status, sl.attributes, sl.assignment, sl.note,
+        `select sl.code, z.code as zone, z.level as level, sl.type, sl.status, sl.attributes, sl.assignment, sl.note,
            v.plate_display as plate, s.ticket_code, s.in_at
          from slot sl join zone z on z.id = sl.zone_id
          left join session s on s.slot_id = sl.id and s.status = 'open' left join vehicle v on v.id = s.vehicle_id
@@ -246,6 +248,55 @@ export function registerSlotRoutes(app: App) {
       const data = { site: q.site, slot: params.code, status: body.status ?? cur.status };
       await emit(db, ctx.tenantId, 'slot.changed', data);
       return { ok: true, ...data };
+    },
+  });
+
+  // ---- bulk sites (communities' parking facilities): validate -> diff -> preview -> apply -> rollback ----------------
+  defineRoute(app, {
+    method: 'GET', path: '/v1/sites/export', summary: 'Sites (code, name, timezone, address, notes) as JSON', perm: 'inventory.edit',
+    handler: async ({ ctx, db }) => exportSites(db, ctx.tenantSlug, app.now()),
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/sites/import', summary: 'Validate a sites file and preview the changes; returns a job', perm: 'inventory.edit',
+    query: z.object({ mode: z.enum(['merge', 'replace']).default('merge'), dryRun: boolQuery() }),
+    body: z.record(z.unknown()),
+    async handler({ ctx, db, query, body }) {
+      if (ctx.siteId) throw new HttpError(403, 'forbidden', 'A key limited to one site cannot import sites');
+      const doc = parseSitesDoc(body, locateJsonError);
+      const diff = await previewSites(db, doc, query.mode);
+      const job = (await db.query(
+        "insert into inventory_import (tenant_id, kind, mode, doc, diff, created_by) values ($1,'sites',$2,$3,$4,$5) returning id",
+        [ctx.tenantId, query.mode, JSON.stringify(doc), JSON.stringify({ ...diff, dryRun: query.dryRun }), ctx.userId])).rows[0];
+      const summary = { added: diff.added.length, changed: diff.changed.length, removed: diff.removed.length, conflicts: diff.conflicts.length };
+      return created({ job: job.id, mode: query.mode, dryRun: query.dryRun, summary, diff });
+    },
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/sites/import/:job/apply', summary: 'Apply a previewed sites import', perm: 'inventory.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'sites' for update", [params.job])).rows[0];
+      if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
+      if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
+      if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
+      const snapshot = await exportSites(db, ctx.tenantSlug, app.now());
+      const applied = await applySites(db, ctx.tenantId, ctx.userId, parseSitesDoc(job.doc, locateJsonError), job.mode);
+      await db.query("update inventory_import set status = 'applied', snapshot = $2, applied_at = now() where id = $1", [job.id, JSON.stringify(snapshot)]);
+      return { job: job.id, applied };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/sites/import/:job/rollback', summary: 'Restore the pre-import sites snapshot', perm: 'inventory.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'sites' for update", [params.job])).rows[0];
+      if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
+      if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
+      // Replace restores exactly the snapshot: sites the import added (absent from the snapshot) are retired again.
+      const applied = await applySites(db, ctx.tenantId, ctx.userId, parseSitesDoc(job.snapshot, locateJsonError), 'replace');
+      await db.query("update inventory_import set status = 'rolled_back' where id = $1", [job.id]);
+      return { job: job.id, rolledBack: applied };
     },
   });
 }

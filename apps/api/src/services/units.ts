@@ -78,7 +78,8 @@ export async function applyUnits(app: App, db: Db, tenantId: string, actor: stri
     // Someone who already has a role in this tenant is left alone rather than silently changed.
     const known = (await db.query('select m.roles from membership m join app_user a on a.id = m.user_id where a.email = $1', [r.email])).rows[0];
     if (known) { result.residents.skipped.push({ email: r.email, reason: `already ${known.roles.join(' + ')} here` }); continue; }
-    const added = await addPerson(app, db, tenantId, actor, { email: r.email, name: r.name, roles: ['resident'], unitId });
+    // Residents added through a units import are placed by an admin, who thereby vouches for the unit grant (verified).
+    const added = await addPerson(app, db, tenantId, actor, { email: r.email, name: r.name, roles: ['resident'], unitId, unitVerified: true });
     if (added.temporaryPassword) result.residents.created.push({ email: r.email, temporaryPassword: added.temporaryPassword });
     else if (added.invited) result.residents.invited++;
     result.residents.added++;

@@ -25,6 +25,8 @@ export interface Ctx {
   siteId: string | null;
   /** Residents belong to a unit. */
   unitId: string | null;
+  /** Whether the resident's unit-access grant is verified (only verified residents may issue passes). False for API keys and super admins. */
+  unitVerified: boolean;
   /** Platform super admin acting inside a tenant they are not a member of. */
   superadmin: boolean;
 }

@@ -5,7 +5,7 @@ import { pickLabel, useApp } from '../app-context.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { useI18n, useT } from '../i18n.js';
 
-interface Slot { code: string; zone: string; type: string; status: string; note: string | null; plate: string | null }
+interface Slot { code: string; zone: string; level: number | null; type: string; status: string; note: string | null; plate: string | null }
 
 export function Slots() {
   const t = useT();
@@ -19,7 +19,7 @@ export function Slots() {
   const list = useApi<Slot[]>(site ? `/v1/slots?site=${site.code}${zone ? `&zone=${zone}` : ''}` : null, [site?.code, zone]);
   useLiveEvents(() => { void list.reload(); });
 
-  async function set(status: 'available' | 'out_of_service') {
+  async function set(status: 'available' | 'out_of_service' | 'reserved') {
     if (!sel || !site) return;
     try { await patch(`/v1/slots/${sel.code}?site=${site.code}`, { status, note: note || undefined }); setSel(null); setNote(''); setErr(''); await list.reload(); }
     catch (e) { setErr(e instanceof ApiError ? e.message : String(e)); }
@@ -36,22 +36,26 @@ export function Slots() {
       </div>
       <div className="slotgrid">{list.data?.map((s) => (
         <button key={s.code} className="slot" data-status={s.status} data-selected={sel?.code === s.code} onClick={() => setSel(s)} title={s.plate ?? s.note ?? s.status}>
-          {s.code}<small>{s.plate ?? typeLabel(s.type)}</small>
+          {s.code}<small>{s.level != null ? `${t('parking.level')} ${s.level} · ` : ''}{s.plate ?? typeLabel(s.type)}</small>
         </button>
       ))}</div>
       {sel && (
         <section className="card stack">
-          <div className="row between"><h2>{sel.code} · {typeLabel(sel.type)}</h2><span className="pill">{t(`slots.${sel.status}`)}</span></div>
+          <div className="row between"><h2>{sel.code} · {typeLabel(sel.type)}{sel.level != null ? ` · ${t('parking.level')} ${sel.level}` : ''}</h2><span className="pill">{t(`slots.${sel.status}`)}</span></div>
           {sel.plate && <PlateChip plate={sel.plate} />}
-          {sel.status !== 'occupied' && (
+          {/* Occupied is set by check-out, never by hand: its status shows as a read-only label, not a selectable option. */}
+          {sel.status === 'occupied' ? (
+            <div className="banner" role="status">{t('slots.occupiedReadonly')}</div>
+          ) : (
             <>
+              <label className="field">{t('common.status')}
+                <select value={sel.status} onChange={(e) => set(e.target.value as 'available' | 'out_of_service' | 'reserved')}>
+                  <option value="available">{t('slots.operational')}</option>
+                  <option value="out_of_service">{t('slots.out_of_service')}</option>
+                  <option value="reserved">{t('slots.reserved')}</option>
+                </select></label>
               <label className="field">{t('slots.note')}<input value={note} onChange={(e) => setNote(e.target.value)} /></label>
-              <div className="row">
-                {sel.status === 'out_of_service'
-                  ? <button className="btn primary" onClick={() => set('available')}>{t('slots.markAvailable')}</button>
-                  : <button className="btn danger" onClick={() => set('out_of_service')}>{t('slots.markOut')}</button>}
-                <button className="btn" onClick={() => setSel(null)}>{t('common.cancel')}</button>
-              </div>
+              <div className="row"><button className="btn" onClick={() => setSel(null)}>{t('common.cancel')}</button></div>
             </>
           )}
           {err && <div className="banner bad">{err}</div>}

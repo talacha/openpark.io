@@ -7,6 +7,7 @@ import { HttpError, created, definePlatformRoute, definePublicRoute, defineRoute
 import { addPerson } from '../services/people.js';
 import { cancelUnusedPassesOfHost } from '../services/passes.js';
 import { applyUnits, exportUnits, parseUnitsDoc, previewUnits } from '../services/units.js';
+import { applyUsers, exportUsers, parseUsersDoc, previewUsers } from '../services/usersimport.js';
 import { locateJsonError } from '../jsonpos.js';
 import { provisionTenant, type Owner } from '../services/tenants.js';
 import type { App } from '../server.js';
@@ -213,7 +214,7 @@ export function registerPeopleRoutes(app: App) {
     method: 'GET', path: '/v1/users', summary: 'Members and pending invitations', perm: 'users.edit',
     async handler({ db }) {
       const members = (await db.query(
-        `select a.id, a.email, a.name, a.phone, m.roles, a.is_superadmin as superadmin, un.code as unit from membership m join app_user a on a.id = m.user_id
+        `select a.id, a.email, a.name, a.phone, m.roles, m.unit_verified, a.is_superadmin as superadmin, un.code as unit from membership m join app_user a on a.id = m.user_id
          left join unit un on un.id = m.unit_id order by a.is_superadmin desc, cardinality(m.roles) desc, a.email`)).rows;
       const invites = (await db.query(
         `select i.email, i.roles, i.superadmin, un.code as unit, i.created_at from membership_invite i left join unit un on un.id = i.unit_id order by i.email`)).rows;
@@ -232,7 +233,8 @@ export function registerPeopleRoutes(app: App) {
         unitId = (await db.query('select id from unit where code = $1', [body.unit ?? ''])).rows[0]?.id ?? null;
         if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
       }
-      const r = await addPerson(app, db, ctx.tenantId, ctx.userId, { email, name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin });
+      // An admin adding a resident vouches for the unit grant, so it is verified at creation (they can issue passes at once).
+      const r = await addPerson(app, db, ctx.tenantId, ctx.userId, { email, name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin, unitVerified: true });
       await audit(db, ctx.tenantId, ctx.userId, r.invited ? 'user.invite' : 'user.add', r.invited ? 'membership_invite' : 'membership', null, { email, roles: body.roles, unit: body.unit });
       if (body.superadmin && !r.invited) await db.query('update app_user set is_superadmin = true where id = $1', [r.userId]);
       // An invited person has no account yet: the flag waits on the invitation and is applied when they sign in.
@@ -276,6 +278,71 @@ export function registerPeopleRoutes(app: App) {
       await cancelUnusedPassesOfHost(db, params.id!);
       await audit(db, ctx.tenantId, ctx.userId, 'user.remove', `user:${params.id}`, cur, null);
       return { ok: true };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'PATCH', path: '/v1/users/:id/verify', summary: "Verify a resident's unit access so they can issue guest passes", perm: 'users.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const cur = (await db.query('select roles, unit_verified from membership where user_id = $1', [params.id])).rows[0];
+      if (!cur) throw new HttpError(404, 'member_not_found', 'No such member');
+      if (!cur.roles.includes('resident')) throw new HttpError(409, 'not_resident', 'Only a resident holds a unit grant to verify');
+      await db.query('update membership set unit_verified = true where user_id = $1', [params.id]);
+      await audit(db, ctx.tenantId, ctx.userId, 'user.verify_unit', `user:${params.id}`, { unit_verified: cur.unit_verified }, { unit_verified: true });
+      return { ok: true };
+    },
+  });
+
+  // ---- bulk users: validate -> diff -> preview -> apply. Export/diff carry NO secrets; created rows take the invite path.
+  defineRoute(app, {
+    method: 'GET', path: '/v1/users/export', summary: 'Members and invitations (email, name, roles, unit, unitVerified) as JSON — no secrets', perm: 'users.edit',
+    handler: async ({ ctx, db }) => exportUsers(db, ctx.tenantSlug, app.now()),
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/users/import', summary: 'Validate a users file and preview the changes; returns a job', perm: 'users.edit',
+    query: z.object({ dryRun: boolQuery() }),
+    body: z.record(z.unknown()),
+    async handler({ ctx, db, query, body }) {
+      const doc = parseUsersDoc(body, locateJsonError);
+      const diff = await previewUsers(db, doc);
+      const job = (await db.query(
+        "insert into inventory_import (tenant_id, kind, mode, doc, diff, created_by) values ($1,'users','merge',$2,$3,$4) returning id",
+        [ctx.tenantId, JSON.stringify(doc), JSON.stringify({ ...diff, dryRun: query.dryRun }), ctx.userId])).rows[0];
+      const summary = { added: diff.added.length, changed: diff.changed.length, skipped: diff.skipped.length, conflicts: diff.conflicts.length, errors: diff.errors.length };
+      return created({ job: job.id, dryRun: query.dryRun, summary, diff });
+    },
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/users/import/:job/apply', summary: 'Apply a previewed users import (invite path only — no plaintext OTP)', perm: 'users.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'users' for update", [params.job])).rows[0];
+      if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
+      if (job.diff.dryRun) throw new HttpError(409, 'dry_run', 'This job was a dry run; submit the import again without dryRun');
+      if (job.status !== 'previewed') throw new HttpError(409, 'not_previewed', `Job is ${job.status}`);
+      const applied = await applyUsers(app, db, ctx.tenantId, ctx.userId, parseUsersDoc(job.doc, locateJsonError));
+      await db.query("update inventory_import set status = 'applied', applied_at = now() where id = $1", [job.id]);
+      return { job: job.id, applied };
+    },
+  });
+
+  defineRoute(app, {
+    method: 'POST', path: '/v1/users/import/:job/rollback', summary: 'Withdraw the invitations a users import created', perm: 'users.edit', idempotent: true,
+    async handler({ ctx, db, params }) {
+      const job = (await db.query("select * from inventory_import where id = $1 and kind = 'users' for update", [params.job])).rows[0];
+      if (!job) throw new HttpError(404, 'job_not_found', 'No such import job');
+      if (job.status !== 'applied') throw new HttpError(409, 'not_applied', `Job is ${job.status}`);
+      // A users import only ever creates pending invitations (invite path); rollback withdraws those still pending.
+      const doc = parseUsersDoc(job.doc, locateJsonError);
+      let removed = 0;
+      for (const u of doc.users) {
+        const r = await db.query('delete from membership_invite where email = $1', [u.email.toLowerCase()]);
+        removed += r.rowCount ?? 0;
+      }
+      await db.query("update inventory_import set status = 'rolled_back' where id = $1", [job.id]);
+      await audit(db, ctx.tenantId, ctx.userId, 'users.rollback', 'membership_invite', null, { removed });
+      return { job: job.id, rolledBack: { removed } };
     },
   });
 
@@ -341,7 +408,7 @@ export function registerPeopleRoutes(app: App) {
           unitId = (await db.query('select id from unit where code = $1', [body.unit ?? ''])).rows[0]?.id ?? null;
           if (!unitId) throw new HttpError(400, 'unit_required', 'A resident must be assigned to an existing unit');
         }
-        const r = await addPerson(app, db, t.id, userId, { email: body.email.toLowerCase(), name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin, direct: true });
+        const r = await addPerson(app, db, t.id, userId, { email: body.email.toLowerCase(), name: body.name, roles: body.roles, unitId, superadmin: !!body.superadmin, direct: true, unitVerified: true });
         if (body.superadmin && r.userId) await db.query('update app_user set is_superadmin = true where id = $1', [r.userId]);
         await audit(db, t.id, userId, r.invited ? 'user.invite' : 'user.add', r.invited ? 'membership_invite' : 'membership', null, { email: body.email, roles: body.roles, unit: body.unit, by: 'platform' });
         return r.invited ? { invited: true, email: body.email } : { userId: r.userId, ...(r.temporaryPassword ? { temporaryPassword: r.temporaryPassword } : {}) };

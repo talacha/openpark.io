@@ -70,15 +70,18 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
   }
 
   if (isAdmin(roles, superadmin)) {
+    // Net admin surface per the reshaped terminology: the primary entities (Communities & parking, Units, Users) and
+    // one Bulk import/export screen, then an Advanced group (Rates, Integrations, AI). Localization is removed — the
+    // product surfaces es-MX + en in code (see i18n.ts SELECTABLE_LOCALES).
     const items: MenuItem[] = slug ? [
-      { id: 'rates', labelKey: 'nav.rates', to: `${base}/rates` },
       { id: 'parking', labelKey: 'nav.parking', to: `${base}/parking` },
-      { id: 'inventory', labelKey: 'nav.inventory', to: `${base}/inventory` },
       { id: 'units', labelKey: 'nav.units', to: `${base}/units` },
       { id: 'users', labelKey: 'nav.users', to: `${base}/users` },
+      { id: 'bulkio', labelKey: 'nav.bulkio', to: `${base}/bulk` },
+      // Advanced: operational settings kept but demoted (flagged design decisions, not primary entities).
+      { id: 'rates', labelKey: 'nav.rates', to: `${base}/rates` },
       { id: 'integrations', labelKey: 'nav.integrations', to: `${base}/integrations` },
       { id: 'ai', labelKey: 'nav.ai', to: `${base}/ai` },
-      { id: 'locale', labelKey: 'nav.locale', to: `${base}/locale` },
     ] : [];
     if (superadmin) items.push({ id: 'organisations', labelKey: 'platform.tenants', to: '/platform' });
     if (items.length) groups.push({ id: 'admin', labelKey: 'nav.adminGroup', to: items[0]!.to, icon: 'admin', items });

@@ -17,7 +17,7 @@ export interface Me {
   /** Whether the caller's unit grant is verified. FEAT-005 finalizes this; read defensively (missing => verified). */
   unitVerified?: boolean;
   superadmin: boolean;
-  tenant: { slug: string; name: string; country: string; default_locale: string; locales: string[]; currency: string; plate_regions: string[]; ai_mode: 'off' | 'assist' | 'auto'; terminology: Terminology; slot_types: { code: string; label: string | Record<string, string> }[]; retention_days: number; training_export: boolean };
+  tenant: { slug: string; name: string; country: string; default_locale: string; locales: string[]; currency: string; plate_regions: string[]; ai_mode: 'off' | 'assist' | 'auto'; terminology: Terminology; slot_types: { code: string; label: string | Record<string, string> }[]; retention_days: number; training_export: boolean; address: string | null; notes: string | null };
 }
 export interface SiteInfo { code: string; name: string; timezone: string; settings: { aiThreshold?: number }; zones: { code: string; name: string; labels: Record<string, string>; level: number | null }[] }
 export interface Membership { slug: string; name: string; roles: Role[]; unitId: string | null; suspended: boolean }

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useApp, type PlatformTenant } from '../app-context.js';
 import { useApi } from './hooks.js';
-import { LOCALES, NAMES, useI18n, useT } from '../i18n.js';
+import { NAMES, SELECTABLE_LOCALES, useI18n, useT } from '../i18n.js';
 import { buildMenu, type MenuGroup, type MenuIcon } from '../menu.js';
 import { SyncBadge } from './SyncBadge.js';
 
@@ -96,8 +96,8 @@ export function AppMenu({ onNavigate, collapsed = false, onToggleCollapsed }: { 
 
       <div className="menu-foot">
         <SyncBadge />
-        <select className="menu-label" aria-label={t('auth.language')} value={locale} onChange={(e) => setLocale(e.target.value)}>
-          {[...LOCALES, 'en-XA' as const].map((l) => <option key={l} value={l}>{NAMES[l]}</option>)}
+        <select className="menu-label" aria-label={t('auth.language')} value={SELECTABLE_LOCALES.includes(locale as never) ? locale : 'es-MX'} onChange={(e) => setLocale(e.target.value)}>
+          {SELECTABLE_LOCALES.map((l) => <option key={l} value={l}>{NAMES[l]}</option>)}
         </select>
         <button className="btn menu-label" onClick={async () => { await signOut(); onNavigate?.(); nav('/login'); }}>{t('nav.signout')}</button>
         {onToggleCollapsed && (

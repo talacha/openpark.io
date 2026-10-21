@@ -3,7 +3,8 @@ import { homeFor, useApp, type Role } from './app-context.js';
 import { AppShell, AttendantLayout } from './components/Shell.js';
 import { hasResidentView, isAdmin, isOperator, isOps, isStaff } from './menu.js';
 import { Auth, Onboarding } from './screens/Auth.js';
-import { AiSettings, LocaleSettings } from './screens/Settings.js';
+import { AiSettings } from './screens/Settings.js';
+import { Bulk } from './screens/Bulk.js';
 import { AttendantHome, CheckInCapture, CheckInConfirm, CheckInReview, CheckOut, Flow } from './screens/Attendant.js';
 import { Dashboard } from './screens/Dashboard.js';
 import { GuestPass } from './screens/GuestPass.js';
@@ -75,9 +76,9 @@ export function App() {
           </Route>
           <Route element={<Area area="admin" />}>
             <Route path="inventory" element={<Inventory />} />
+            <Route path="bulk" element={<Bulk />} />
             <Route path="rates" element={<Rates />} />
             <Route path="ai" element={<AiSettings />} />
-            <Route path="locale" element={<LocaleSettings />} />
             <Route path="parking" element={<Parking />} />
             <Route path="integrations" element={<Integrations />} />
             <Route path="units" element={<Units />} />

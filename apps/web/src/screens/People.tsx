@@ -8,7 +8,7 @@ import { errText } from '../errors.js';
 
 
 interface UnitRow { code: string; name: string; site: string | null; floor: number | null; note: string | null; residents: { id: string; email: string; name: string | null }[]; pass_status: string | null }
-interface Member { id: string; email: string; name: string | null; roles: Role[]; superadmin: boolean; unit: string | null }
+interface Member { id: string; email: string; name: string | null; roles: Role[]; superadmin: boolean; unit: string | null; unit_verified: boolean }
 interface Invite { email: string; roles: Role[]; superadmin: boolean; unit: string | null }
 
 interface UDiff {
@@ -255,6 +255,7 @@ export function People() {
     finally { setBusy(false); }
   }
   async function remove(id: string) { try { await del(`/v1/users/${id}`); setErr(''); await users.reload(); } catch (x) { setErr(errText(x)); } }
+  async function verify(id: string) { try { await request('PATCH', `/v1/users/${id}/verify`, undefined, { 'idempotency-key': `verify-${id}` }); setErr(''); await users.reload(); } catch (x) { setErr(errText(x)); } }
   async function removeInvite(email: string) { try { await del(`/v1/invites/${encodeURIComponent(email)}`); setErr(''); await users.reload(); } catch (x) { setErr(errText(x)); } }
   async function save() {
     if (!editing) return;
@@ -319,12 +320,18 @@ export function People() {
         <div className="tablewrap"><table>
           <thead><tr><th>{t('auth.email')}</th><th>{t('users.roles')}</th><th>{t('users.unit')}</th><th /></tr></thead>
           <tbody>{users.data?.members.map((m) => (
-            <tr key={m.id}>
+            <tr key={m.id} data-unverified={m.roles.includes('resident') && !m.unit_verified}>
               <td>{m.name ? `${m.name} · ` : ''}{m.email}</td>
               <td>{roleLabel(t, m.roles, m.superadmin)}</td>
-              <td>{m.unit ? <Link to="../units" dir="ltr">{m.unit}</Link> : '–'}</td>
+              <td>
+                {m.unit ? <Link to="../units" dir="ltr">{m.unit}</Link> : '–'}
+                {m.roles.includes('resident') && (m.unit_verified
+                  ? <span className="pill ok">{t('users.verified')}</span>
+                  : <span className="pill warn">{t('users.unverified')}</span>)}
+              </td>
               <td>{canEdit && (
                 <div className="row">
+                  {m.roles.includes('resident') && !m.unit_verified && <button className="btn primary" onClick={() => verify(m.id)}>{t('users.verifyUnit')}</button>}
                   <button className="btn" onClick={() => setEditing({ kind: 'member', id: m.id, who: m.email, roles: m.roles, superadmin: m.superadmin, unit: m.unit ?? '' })}>{t('users.edit')}</button>
                   <button className="btn danger" onClick={() => remove(m.id)} disabled={m.email === me?.user?.email}>{t('common.remove')}</button>
                 </div>

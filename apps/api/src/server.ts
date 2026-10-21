@@ -121,7 +121,7 @@ export async function buildApp({ cfg, now = () => new Date(), storage, notifier,
       if (!row) throw new HttpError(401, 'invalid_api_key', 'Unknown or revoked API key');
       const t = await app.db.withTenant(row.tenant_id, async (db) => (await db.query('select slug, suspended_at from tenant')).rows[0]);
       if (t.suspended_at) throw new HttpError(403, 'tenant_suspended', 'This tenant is suspended');
-      return { tenantId: row.tenant_id, tenantSlug: t.slug, roles: [(row.site_id && row.role === 'admin' ? 'supervisor' : row.role) as Role], userId: null, siteId: row.site_id, unitId: null, superadmin: false };
+      return { tenantId: row.tenant_id, tenantSlug: t.slug, roles: [(row.site_id && row.role === 'admin' ? 'supervisor' : row.role) as Role], userId: null, siteId: row.site_id, unitId: null, unitVerified: false, superadmin: false };
     }
 
     const who = await app.identify(req);
@@ -130,13 +130,13 @@ export async function buildApp({ cfg, now = () => new Date(), storage, notifier,
     const m = wanted ? rows.find((x) => x.slug === wanted) : rows.length === 1 ? rows[0] : undefined;
     if (m) {
       if (m.suspended && !who.superadmin) throw new HttpError(403, 'tenant_suspended', 'This tenant is suspended');
-      return { tenantId: m.tenant_id, tenantSlug: m.slug, roles: m.roles as Role[], userId: who.userId, siteId: null, unitId: m.unit_id, superadmin: who.superadmin };
+      return { tenantId: m.tenant_id, tenantSlug: m.slug, roles: m.roles as Role[], userId: who.userId, siteId: null, unitId: m.unit_id, unitVerified: !!m.unit_verified, superadmin: who.superadmin };
     }
     // Platform super admins may enter any tenant, with owner powers; writes are audited (see http.ts).
     if (who.superadmin && wanted) {
       const t = (await app.db.raw((db) => db.query('select * from tenant_by_slug($1)', [wanted]))).rows[0];
       if (!t) throw new HttpError(404, 'tenant_not_found', `No tenant ${wanted}`);
-      return { tenantId: t.id, tenantSlug: t.slug, roles: [], userId: who.userId, siteId: null, unitId: null, superadmin: true };
+      return { tenantId: t.id, tenantSlug: t.slug, roles: [], userId: who.userId, siteId: null, unitId: null, unitVerified: false, superadmin: true };
     }
     throw new HttpError(wanted ? 403 : 400, wanted ? 'not_a_member' : 'tenant_required', wanted ? 'You are not a member of that tenant' : 'Send X-Tenant: <slug>');
   });
