@@ -1,4 +1,4 @@
-import { useEffect, useState, forwardRef, useRef } from 'react';
+import { useEffect, useState, forwardRef } from 'react';
 import { useT } from '../i18n.js';
 import type { InputHTMLAttributes, ChangeEvent } from 'react';
 
@@ -16,9 +16,10 @@ const PlateInputBase = (
   ref: React.ForwardedRef<HTMLInputElement>
 ) => {
   const t = useT();
+  // Use the prop value as the source of truth, not internal state
   const [display, setDisplay] = useState(value ?? '');
 
-  // Sync display when the external value changes (e.g., after save or reset)
+  // Sync display when the external value changes (e.g., when a pass with plate hint is accepted)
   useEffect(() => {
     setDisplay(value ?? '');
   }, [value]);
@@ -31,12 +32,13 @@ const PlateInputBase = (
     onChange?.(normalized);
   }
 
+  // The input should use the prop value directly for controlled behavior
   return (
     <input
       ref={ref}
       {...props}
       type="text"
-      value={display}
+      value={value ?? display}
       onChange={handleChange}
       placeholder={placeholder}
       required={required}
