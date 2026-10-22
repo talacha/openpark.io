@@ -257,6 +257,56 @@ export function ResidentHome() {
   );
 }
 
+/** Resize an image file to 256×256 WebP with the given quality (0-100). */
+async function resizeToWebP(file: File, quality: number = 80): Promise<{ data: string; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const size = 256;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('canvas_unavailable'));
+          return;
+        }
+        // Draw the image centered and cropped to fill the 256×256 square
+        const scale = Math.max(size / img.width, size / img.height);
+        const x = (size / 2) - (img.width / 2) * scale;
+        const y = (size / 2) - (img.height / 2) * scale;
+        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+        // Export as WebP with the specified quality
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('webp_export_failed'));
+            return;
+          }
+          const reader2 = new FileReader();
+          reader2.onload = () => {
+            const data = reader2.result as string;
+            // Remove the data:image/webp;base64, prefix
+            const base64 = data.split(',', 2)[1];
+            if (base64) {
+              resolve({ data: base64, width: size, height: size });
+            } else {
+              reject(new Error('webp_encode_failed'));
+            }
+          };
+          reader2.onerror = () => reject(reader2.error);
+          reader2.readAsDataURL(blob);
+        }, 'image/webp', quality / 100);
+      };
+      img.onerror = () => reject(new Error('image_load_failed'));
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Pencil edit form: Name + Phone (existing contract) + the guest-alert opt-in, and an optional avatar upload. */
 function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>['me']>; onDone: () => Promise<void> }) {
   const t = useT();
@@ -286,11 +336,9 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
       await patch('/v1/me/profile', { name: name || undefined, phone: phone || null, notifyGuestEvents: notify });
       if (file instanceof File && file.size > 0) {
         if (file.size > 2_097_152) throw new Error('too_big');
-        const buf = await file.arrayBuffer();
-        let binary = '';
-        const bytes = new Uint8Array(buf);
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-        await post('/v1/me/avatar', { contentType: file.type, dataBase64: btoa(binary) }, avatarKey.key(`${file.name}:${file.size}:${file.lastModified}`));
+        // Resize image to 256×256 WebP at quality 80 (aiming for ~10-20KB)
+        const resized = await resizeToWebP(file, 80);
+        await post('/v1/me/avatar', { contentType: 'image/webp', dataBase64: resized.data }, avatarKey.key(`${file.name}:${file.size}:${file.lastModified}`));
       }
       await onDone();
     } catch (x) {

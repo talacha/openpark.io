@@ -76,17 +76,17 @@ export function registerPeopleRoutes(app: App) {
 
   // A resident's profile picture: base64 JSON upload (same transport as plate crops), stored via app.storage and
   // served only through short-lived signed URLs (GET /v1/me returns the URL, never the key).
+  // Images are resized to 256×256 WebP at ~10-20KB before upload (client-side processing).
   defineRoute(app, {
-    method: 'POST', path: '/v1/me/avatar', summary: 'Upload my profile picture (PNG, JPEG or WebP, up to 2 MB)', perm: 'me', replaySafe: true,
-    body: z.object({ contentType: z.enum(['image/png', 'image/jpeg', 'image/webp']), dataBase64: z.string().min(1) }),
+    method: 'POST', path: '/v1/me/avatar', summary: 'Upload my profile picture (WebP only, up to 100 KB)', perm: 'me', replaySafe: true,
+    body: z.object({ contentType: z.enum(['image/webp']), dataBase64: z.string().min(1) }),
     async handler({ ctx, db, body }) {
       if (!ctx.userId) throw new HttpError(400, 'user_required', 'API keys have no profile');
       let buf: Buffer;
       try { buf = Buffer.from(body.dataBase64, 'base64'); } catch { throw new HttpError(400, 'avatar_invalid', 'The image could not be decoded'); }
-      if (buf.length === 0 || buf.length > 2_097_152) throw new HttpError(400, 'avatar_invalid', 'The image must be a valid file no larger than 2 MB');
+      if (buf.length === 0 || buf.length > 102_400) throw new HttpError(400, 'avatar_invalid', 'The image must be a valid WebP file no larger than 100 KB');
       if (!signatureMatches(body.contentType, buf)) throw new HttpError(400, 'avatar_invalid', 'The image data does not match its declared type');
-      const ext = body.contentType === 'image/png' ? 'png' : body.contentType === 'image/webp' ? 'webp' : 'jpg';
-      const key = `${ctx.tenantId}/avatars/${ctx.userId}.${ext}`;
+      const key = `${ctx.tenantId}/avatars/${ctx.userId}.webp`;
       const priorKey = (await db.query('select avatar_key from app_user where id = $1', [ctx.userId])).rows[0]?.avatar_key as string | null;
       try {
         await app.storage.put(key, buf);
@@ -95,8 +95,7 @@ export function registerPeopleRoutes(app: App) {
         throw new HttpError(503, 'storage_unavailable', 'The image store is unavailable; try again later');
       }
       await db.query('update app_user set avatar_key = $2 where id = $1', [ctx.userId, key]);
-      // One object per user: a format switch changes the key extension, so the superseded object must be deleted —
-      // but only AFTER the new object is stored and the reference committed, so a failed delete never loses the avatar.
+      // One object per user: always WebP now, so priorKey should match key on success.
       if (priorKey && priorKey !== key) {
         try { await app.storage.delete(priorKey); } catch (e) { app.log.warn({ err: (e as Error).message, key: priorKey }, 'orphaned avatar delete failed'); }
       }
