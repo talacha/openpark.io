@@ -13,9 +13,9 @@ type Status = 'starting' | 'loading' | 'ready' | 'unavailable';
  * format is passed to `onPlate`. Reading runs on-device (WebAssembly), so it works in a garage with no signal.
  * If the models are not installed the camera still reads QR codes and `onSnap` offers a still frame for server reading.
  */
-export function LiveCamera({ regions, qr = true, plate = true, onQr, onPlate, onSnap, busy }: {
-  regions: string[]; qr?: boolean; plate?: boolean; busy?: boolean;
-  onQr?: (text: string) => void; onPlate: (p: LivePlate & { manual?: boolean }) => void; onSnap?: (jpegBase64: string) => void;
+export function LiveCamera({ qr = true, plate = true, regions = [], onQr, onPlate, onSnap, busy }: {
+  qr?: boolean; plate?: boolean; regions?: string[]; busy?: boolean;
+  onQr?: (text: string) => void; onPlate: (p: LivePlate) => void; onSnap?: (jpegBase64: string) => void;
 }) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
@@ -44,7 +44,7 @@ export function LiveCamera({ regions, qr = true, plate = true, onQr, onPlate, on
       }
 
       stop = startLiveReading({
-        video: v, regions, intervalMs: 200,
+        video: v, intervalMs: 200, regions,
         read: async (frame) => {
           if (qr) {
             const text = decodeQr(frame);
@@ -71,7 +71,7 @@ export function LiveCamera({ regions, qr = true, plate = true, onQr, onPlate, on
     if (readerRef.current) {
       const reads = await readerRef.current.read(ctx.getImageData(0, 0, c.width, c.height));
       const top = reads.sort((a, b) => b.confidence - a.confidence)[0];
-      if (top) { onPlate({ text: top.text, confidence: top.confidence, votes: 1, manual: true }); return; }
+      if (top) { onPlate({ text: top.text, confidence: top.confidence, votes: 1 }); return; }
     }
     onSnap?.(c.toDataURL('image/jpeg', 0.85).split(',')[1]!);
   }

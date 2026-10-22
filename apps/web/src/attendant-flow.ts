@@ -1,14 +1,16 @@
 import { passAcceptPatch, passRemovePatch, type PassQr } from './pass.js';
 
-/** One on-device plate read, with the region it was read in and whether it matched a known plate format. */
-export interface Candidate { text: string; norm: string; confidence: number; region?: string; formatValid: boolean | null }
+/** One on-device plate read, with whether it matched a known plate format. */
+export interface Candidate { text: string; norm: string; confidence: number; region: string; formatValid: boolean | null }
 
-/** The check-in flow's working state: the plate being entered, where it came from, and any scanned guest pass. */
+/** The check-in flow's working state: the plate being entered and any scanned guest pass. */
 export interface FlowState {
-  plate: string; region: string; source: 'manual' | 'ai_assist' | 'ai_auto';
+  plate: string; source: 'manual' | 'ai_assist' | 'ai_auto';
   candidates: Candidate[]; confidence?: number; textRaw?: string; cropKey?: string;
   /** True while `plate` was filled from a scanned pass hint, so it clears when the pass is removed or replaced. */
   plateFromPass: boolean;
+  /** The plate region being validated against (e.g. 'MX', 'US', 'BR') */
+  region: string;
   /**
    * True while a scanned/typed pass is being verified by the server. Confirm stays disabled until it settles, so the
    * attendant can never submit the ordinary walk-in branch (leaving a valid pass unredeemed) mid-lookup.
@@ -26,7 +28,7 @@ export interface FlowState {
   pass: { token: string; guest: string; unit: string; plateHint?: string; verifyCode?: string } | null;
 }
 
-export const emptyFlow = (region: string): FlowState => ({ plate: '', region, source: 'manual', candidates: [], vehicle: {}, pass: null, plateFromPass: false, passPending: false, passError: null });
+export const emptyFlow = (region: string = 'US'): FlowState => ({ plate: '', source: 'manual', candidates: [], region, vehicle: {}, pass: null, plateFromPass: false, passPending: false, passError: null });
 
 /** The patch that marks a pass lookup as in flight. Apply it the instant a QR/code is accepted, before the round trip; it also clears any prior rejection, since a new scan supersedes it. */
 export const beginPassLookup = (): Partial<FlowState> => ({ passPending: true, passError: null });
@@ -71,7 +73,7 @@ export function hostValid(host: HostValue, hasPass: boolean): boolean {
 /** Clear read metadata alongside a pass-derived plate, so a stale candidate/confidence never rides on the next pass. */
 const clearedRead = { candidates: [] as Candidate[], confidence: undefined, textRaw: undefined, cropKey: undefined };
 
-/** A looked-up pass ready to apply: its token, guest/unit, the parsed QR (for the plate hint and verify code), and the tenant's plate regions. */
+/** A looked-up pass ready to apply: its token, guest/unit, and the parsed QR (for the plate hint and verify code). */
 export interface PassAccept { token: string; guest: string; unit: string; q: PassQr | null; regions: string[] }
 
 /**
@@ -85,7 +87,7 @@ export function applyPassAccept(s: FlowState, a: PassAccept): Partial<FlowState>
   return {
     pass: { token: a.token, guest: a.guest, unit: a.unit, plateHint: a.q?.plate || undefined, verifyCode: a.q?.code },
     plate: patch.plate, plateFromPass: patch.plateFromPass, passPending: false, passError: null,
-    ...(patch.plate ? { region: a.regions[0] ?? s.region, source: 'manual' as const } : {}),
+    region: a.regions[0] ?? s.region,
     ...(patch.clearRead ? clearedRead : {}),
   };
 }

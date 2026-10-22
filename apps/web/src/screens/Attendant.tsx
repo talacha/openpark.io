@@ -312,7 +312,7 @@ export function CheckInCapture() {
   }
 
   /** A plate read on-device. Seen in several frames it goes straight to confirm; a single "Capture" read below the site threshold goes to review. */
-  function onPlate(p: { text: string; confidence: number; votes: number; manual?: boolean }) {
+  function onPlate(p: { text: string; confidence: number; votes: number }) {
     const norm = normalizePlate(p.text);
     const region = me!.tenant.plate_regions[0] ?? flow.region;
     const valid = matchesRegistry(p.text, me!.tenant.plate_regions);

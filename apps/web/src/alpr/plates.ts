@@ -6,12 +6,12 @@ const REGISTRY: Region[] = Object.values(files);
 
 export const normalizePlate = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-/** Does `text` match a known format for any of the tenant's regions (all regions when none are configured)? */
-export function matchesRegistry(text: string, regions: string[] = []): boolean {
+/** Does `text` match a known format for the given regions? */
+export function matchesRegistry(text: string, regions: string[] = REGISTRY.map((r) => r.region)): boolean {
   const norm = normalizePlate(text);
   if (norm.length < 4) return false;
-  const pool = regions.length ? REGISTRY.filter((r) => regions.includes(r.region)) : REGISTRY;
-  return (pool.length ? pool : REGISTRY).some((r) => r.patterns.some((p) => new RegExp(`^(?:${p.regex})$`).test(norm)));
+  const allowedRegions = new Set(regions);
+  return REGISTRY.some((r) => allowedRegions.has(r.region) && r.patterns.some((p) => new RegExp(`^(?:${p.regex})$`).test(norm)));
 }
 
 /**
@@ -20,7 +20,7 @@ export function matchesRegistry(text: string, regions: string[] = []): boolean {
  */
 export class PlateStabilizer {
   private seen: { text: string; confidence: number }[][] = [];
-  constructor(private regions: string[] = [], private need = 2, private window = 5, private minConfidence = 0.6) {}
+  constructor(private regions: string[] = REGISTRY.map((r) => r.region), private need = 2, private window = 5, private minConfidence = 0.6) {}
 
   push(reads: { text: string; confidence: number }[]): { text: string; confidence: number; votes: number } | null {
     this.seen.push(reads.filter((r) => r.confidence >= this.minConfidence && matchesRegistry(r.text, this.regions)).map((r) => ({ text: normalizePlate(r.text), confidence: r.confidence })));
