@@ -60,7 +60,7 @@ export function AppMenu({ onNavigate, collapsed = false, onToggleCollapsed }: { 
 
   return (
     <aside className="side menu" id="app-menu" aria-label={t('nav.menu')}>
-      <div className="brand"><img src="/icon.svg" alt="" width="24" height="24" /><span className="menu-label">{t('app.name')}</span></div>
+      <div className="brand"><img src="/icon.svg" alt="" width="24" height="24" /><span className="menu-label">{t('app.name')}</span>{onToggleCollapsed && <button type="button" className="btn menu-collapse" aria-expanded={!collapsed} aria-controls="app-menu" aria-label={collapsed ? t('nav.expand') : t('nav.collapse')} title={collapsed ? t('nav.expand') : t('nav.collapse')} onClick={onToggleCollapsed}><Chevron /></button>}</div>
       {me && <div className="menu-org menu-label">{me.tenant.name}</div>}
       {me && (who?.superadmin || (who?.memberships.length ?? 0) > 1) && (
         <select className="menu-label" aria-label={who?.superadmin ? t('nav.property') : t('nav.tenant')} value={me.tenant.slug} onChange={async (e) => { await switchTenant(e.target.value); onNavigate?.(); nav('/'); }}>
@@ -100,14 +100,6 @@ export function AppMenu({ onNavigate, collapsed = false, onToggleCollapsed }: { 
           {SELECTABLE_LOCALES.map((l) => <option key={l} value={l}>{NAMES[l]}</option>)}
         </select>
         <button className="btn menu-label" onClick={async () => { await signOut(); onNavigate?.(); nav('/login'); }}>{t('nav.signout')}</button>
-        {onToggleCollapsed && (
-          <button type="button" className="btn menu-collapse" aria-expanded={!collapsed} aria-controls="app-menu" aria-label={collapsed ? t('nav.expand') : t('nav.collapse')} title={collapsed ? t('nav.expand') : t('nav.collapse')} onClick={onToggleCollapsed}>
-            <svg className="mirror" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {collapsed ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
-            </svg>
-            <span className="menu-label">{collapsed ? t('nav.expand') : t('nav.collapse')}</span>
-          </button>
-        )}
       </div>
     </aside>
   );
