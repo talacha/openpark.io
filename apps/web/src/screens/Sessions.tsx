@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useApp } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
+import { PlateInput } from '../components/PlateInput.js';
 import { eventLabel } from '../labels.js';
 
 interface Row { id: string; status: 'open' | 'closed' | 'void'; plate: string; slot: string | null; zone: string | null; in_at: string; out_at: string | null; minutes: number; fee: number | null; in_by: string | null; out_by: string | null }
@@ -23,7 +24,7 @@ export function Sessions() {
     <div className="stack">
       <h1>{t('sessions.title')}</h1>
       <div className="row">
-        <input placeholder={t('sessions.plate')} value={plate} onChange={(e) => setPlate(e.target.value)} aria-label={t('sessions.plate')} />
+        <label className="field grow" aria-label={t('sessions.plate')}><PlateInput placeholder={t('sessions.plate')} value={plate} onChange={setPlate} /></label>
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t('common.status')}>
           <option value="">{t('sessions.all')}</option>
           <option value="open">{t('sessions.open')}</option><option value="closed">{t('sessions.closed')}</option><option value="void">{t('sessions.void')}</option>

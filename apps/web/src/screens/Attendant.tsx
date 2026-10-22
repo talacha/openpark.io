@@ -5,6 +5,7 @@ import { ApiError, get, isNetworkError, post, request, write } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
 import { LiveCamera } from '../components/LiveCamera.js';
+import { PlateInput } from '../components/PlateInput.js';
 import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
 import { parsePassQr, spaceCode } from '../pass.js';
 import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, capacityBar, clearPassError, emptyFlow, hostValid, isStalePassLookup, type Candidate, type FlowState, type HostValue } from '../attendant-flow.js';
@@ -568,8 +569,8 @@ export function CheckInConfirm() {
       {/* The required Plate stays editable here, so a no-hint pass (or an attendant correcting an OCR read) can type it
           on the confirmation form itself rather than returning to the capture screen. */}
       <label className="field">{t('att.plate')}
-        <input ref={plateRef} value={flow.plate} dir="ltr" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-          aria-required="true" onChange={(e) => set({ plate: e.target.value.toUpperCase(), plateFromPass: false })} /></label>
+        <PlateInput ref={plateRef} value={flow.plate} onChange={(v) => set({ plate: v, plateFromPass: false })} autoFocus={!flow.plate} aria-required="true" />
+      </label>
       {flow.confidence != null && <div className="muted">{t('att.confidence', { pct: Math.round(flow.confidence * 100) + '%' })}</div>}
       <h2>{t('att.hostHeading')}</h2>
       <HostControl fixedUnit={flow.pass?.unit} onChange={setHost} />
@@ -654,7 +655,8 @@ function PlateAutocomplete({ open, busy, onSelect }: { open: OpenRow[]; busy: bo
   const [active, setActive] = useState(-1);
   const [sheet, setSheet] = useState(false);
   const listId = useId();
-  const norm = query.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // Normalize for matching: uppercase, remove non-alphanumeric chars
+  const norm = query.replace(/[^A-Z0-9]/g, '');
   const matches = open.filter((o) => o.plate.toUpperCase().replace(/[^A-Z0-9]/g, '').includes(norm));
   const dur = (inAt: string) => { const min = Math.max(0, Math.round((Date.now() - new Date(inAt).getTime()) / 60000)); return t('att.duration', { hours: Math.floor(min / 60), minutes: min % 60 }); };
   const choose = (o: OpenRow) => { setQuery(o.plate); setActive(-1); setSheet(false); onSelect(o.ticket_code); };
@@ -667,10 +669,8 @@ function PlateAutocomplete({ open, busy, onSelect }: { open: OpenRow[]; busy: bo
   return (
     <div className="stack">
       <label className="field">{t('att.plate')}
-        <input role="combobox" aria-autocomplete="list" aria-expanded={matches.length > 0} aria-controls={listId}
-          aria-activedescendant={active >= 0 ? optId(active) : undefined}
-          value={query} dir="ltr" autoCapitalize="characters" onFocus={() => setSheet(true)} onKeyDown={onKeyDown}
-          onChange={(e) => { setQuery(e.target.value.toUpperCase()); setActive(-1); }} />
+        <PlateInput value={query} onChange={setQuery} autoFocus aria-autocomplete="list" aria-expanded={matches.length > 0} aria-controls={listId}
+          aria-activedescendant={active >= 0 ? optId(active) : undefined} onFocus={() => setSheet(true)} onKeyDown={onKeyDown} />
       </label>
       {open.length === 0 ? <div className="muted">{t('att.noneParked')}</div> : (
         <ul id={listId} role="listbox" className="stack autolist" aria-label={t('att.plate')}>
@@ -794,7 +794,7 @@ export function CheckOut() {
           ) : <button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanQr')}</button>}
           <label className="field">{t('att.scanTicket')}<input value={ticket} onChange={(e) => setTicket(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
           <div className="muted" style={{ textAlign: 'center' }}>{t('att.orPlate')}</div>
-          <label className="field">{t('att.plate')}<input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
+          <label className="field">{t('att.plate')}<PlateInput value={plate} onChange={setPlate} autoFocus /></label>
           <button className="btn primary big" disabled={busy || (!plate && !ticket)} onClick={() => find()}>{t('att.find')}</button>
         </>
       ) : (

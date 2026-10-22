@@ -3,6 +3,8 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { patch, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { QrCode } from '../components/QrCode.js';
+import { PhoneInput } from '../components/PhoneInput.js';
+import { PlateInput } from '../components/PlateInput.js';
 import { dataUrlToBlob, passShareMessage, passShareUrl, planPassShare, qrGifDataUrl, spaceCode } from '../pass.js';
 import { useApi, useSubmitKey } from '../components/hooks.js';
 import { useFormat, useT } from '../i18n.js';
@@ -111,6 +113,12 @@ export function ResidentHome() {
     else if (wantNew) setNewOpen(true);
   }, [wantEdit, wantNew, loc.key]); // loc.key changes on every navigation, even to the same path with the same hash
 
+  // Strip spaces and dashes, keep + sign for guest phone input
+  const [guestPhone, setGuestPhone] = useState('');
+  function formatGuestPhone(raw: string): string {
+    return raw.replace(/[\s()-]/g, '');
+  }
+
   // Residents cannot subscribe to live events, so poll while a pass is open: this is how check-in shows up.
   useEffect(() => {
     const i = setInterval(() => { if (!document.hidden) { void active.reload(); void history.reload(); } }, 10_000);
@@ -139,8 +147,10 @@ export function ResidentHome() {
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
     const form = e.currentTarget;
     await run(async () => {
-      await post('/v1/passes', { guestName: f.guestName, guestPhone: f.guestPhone || undefined, guestEmail: f.guestEmail || undefined, plateHint: f.plateHint || undefined });
+      const rawPhone = String(f.guestPhone ?? '');
+      await post('/v1/passes', { guestName: f.guestName, guestPhone: formatGuestPhone(rawPhone) || undefined, guestEmail: f.guestEmail || undefined, plateHint: f.plateHint || undefined });
       form.reset();
+      setGuestPhone('');
     });
   }
 
@@ -179,9 +189,19 @@ export function ResidentHome() {
         ) : !pass ? (
           <form className="card stack" onSubmit={create}>
             <label className="field">{t('res.guestName')}<input ref={guestNameRef} name="guestName" required maxLength={80} /></label>
-            <label className="field">{t('res.guestPhone')}<input name="guestPhone" type="tel" inputMode="tel" placeholder="+52 55 1234 5678" pattern="\+[1-9][0-9]{7,14}" dir="ltr" /></label>
+            <label className="field">{t('res.guestPhone')}
+              <input 
+                name="guestPhone" 
+                type="tel" 
+                inputMode="tel" 
+                placeholder="+52 55 1234 5678" 
+                pattern="\+[1-9][0-9]{7,14}" 
+                dir="ltr"
+                onChange={(e) => setGuestPhone(formatGuestPhone(e.currentTarget.value))}
+              />
+            </label>
             <label className="field">{t('res.guestEmail')}<input name="guestEmail" type="email" dir="ltr" /></label>
-            <label className="field">{t('res.plateHint')}<input name="plateHint" maxLength={20} dir="ltr" autoCapitalize="characters" /></label>
+            <label className="field">{t('res.plateHint')}<PlateInput name="plateHint" maxLength={20} /></label>
             {policy && <p className="muted">{t('res.rules', { hours: policy.maxStayHours, amount: fmt.money(policy.overstayCharge) })}</p>}
             <p className="muted">{t('res.onlyOne')}</p>
             <button className="btn primary big" disabled={busy}>{t('res.create')}</button>
@@ -248,6 +268,11 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
   // A payload-scoped idempotency key so a lost-response retry of the avatar upload replays the stored write rather than
   // storing the image twice (the route is replaySafe). It rotates automatically when a different file is chosen.
   const avatarKey = useSubmitKey();
+  // Strip spaces and dashes, keep + sign as the number is being entered
+  function formatPhone(raw: string): string {
+    return raw.replace(/[\s()-]/g, '');
+  }
+  const [phone, setPhone] = useState(me.user?.phone ?? '');
 
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -255,7 +280,7 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
     const form = e.currentTarget;
     const data = new FormData(form);
     const name = String(data.get('name') ?? '').trim();
-    const phone = String(data.get('phone') ?? '').replace(/[\s()-]/g, '');
+    const phone = String(data.get('phone') ?? '');
     const file = data.get('avatar');
     try {
       await patch('/v1/me/profile', { name: name || undefined, phone: phone || null, notifyGuestEvents: notify });
@@ -277,7 +302,9 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
     <form className="card stack" onSubmit={save}>
       <h2>{t('res.editProfile')}</h2>
       <label className="field">{t('auth.name')}<input name="name" maxLength={100} defaultValue={me.user?.name ?? ''} /></label>
-      <label className="field">{t('res.phone')}<input name="phone" type="tel" inputMode="tel" defaultValue={me.user?.phone ?? ''} placeholder="+52 55 1234 5678" dir="ltr" /></label>
+      <label className="field">{t('res.phone')}
+        <PhoneInput value={phone} onChange={setPhone} placeholder="+52 55 1234 5678" />
+      </label>
       <label className="field">{t('res.avatarLabel')}<input name="avatar" type="file" accept="image/png,image/jpeg,image/webp" /></label>
       <label className="row gap"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.currentTarget.checked)} />{t('res.notifyGuests')}</label>
       <p className="muted">{t('res.notifyHelp')}</p>
