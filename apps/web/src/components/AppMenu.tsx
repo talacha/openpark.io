@@ -60,8 +60,7 @@ export function AppMenu({ onNavigate, collapsed = false, onToggleCollapsed }: { 
 
   return (
     <aside className="side menu" id="app-menu" aria-label={t('nav.menu')}>
-      {onToggleCollapsed && <button type="button" className="menu-collapse" aria-expanded={!collapsed} aria-controls="app-menu" aria-label={collapsed ? t('nav.expand') : t('nav.collapse')} title={collapsed ? t('nav.expand') : t('nav.collapse')} onClick={onToggleCollapsed}><Chevron /></button>}
-      <div className="brand"><img src="/icon.svg" alt="" width="24" height="24" /><span className="menu-label">{t('app.name')}</span></div>
+      <div className="brand"><img src="/icon.svg" alt="" width="24" height="24" /><span className="menu-label">{t('app.name')}</span>{onToggleCollapsed && <button type="button" className="menu-collapse" aria-expanded={!collapsed} aria-controls="app-menu" aria-label={collapsed ? t('nav.expand') : t('nav.collapse')} title={collapsed ? t('nav.expand') : t('nav.collapse')} onClick={onToggleCollapsed}><Chevron /></button>}</div>
       {me && <div className="menu-org menu-label">{me.tenant.name}</div>}
       {me && (who?.superadmin || (who?.memberships.length ?? 0) > 1) && (
         <select className="menu-label" aria-label={who?.superadmin ? t('nav.property') : t('nav.tenant')} value={me.tenant.slug} onChange={async (e) => { await switchTenant(e.target.value); onNavigate?.(); nav('/'); }}>
