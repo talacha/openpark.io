@@ -24,8 +24,8 @@ a { color: var(--accent); }
 .side .brand .menu-collapse:hover { background: var(--surface-2); }
 .side .brand .menu-collapse:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .side .brand .menu-collapse .chev { transition: transform 0.15s ease; }
-.side .brand .menu-collapse[aria-expanded='true'] .chev { transform: rotate(0deg); }
-.side .brand .menu-collapse[aria-expanded='false'] .chev { transform: rotate(-90deg); }
+.side .brand .menu-collapse[aria-expanded='true'] .chev { transform: rotate(180deg); } /* expanded: chevron points left (9 o'clock) */
+.side .brand .menu-collapse[aria-expanded='false'] .chev { transform: rotate(0deg); }   /* closed: chevron points right (3 o'clock) */
 [dir='rtl'] .side .brand .menu-collapse { margin-inline-start: 0; margin-inline-end: auto; }
 .side .brand img { flex: none; }
 .menu-org { color: var(--ink-2); font-size: 0.85rem; padding-block-end: var(--space-1); }
