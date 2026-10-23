@@ -20,7 +20,7 @@ a { color: var(--accent); }
 .content { min-inline-size: 0; }
 .side { background: var(--surface); border-inline-end: 1px solid var(--line); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); position: sticky; inset-block-start: 0; block-size: 100dvh; overflow-y: auto; }
 .side .brand { font-weight: 800; font-size: 1.15rem; padding-block-end: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }
-.side .brand .menu-collapse { margin-inline-start: auto; flex: none; display: grid; place-items: center; inline-size: var(--tap); block-size: var(--tap); border-radius: 50%; color: var(--ink-2); cursor: pointer; border: 0; background: transparent; transition: transform 0.2s ease, background 0.15s ease; }
+.side .brand .menu-collapse { position: relative; z-index: 2; margin-inline-start: auto; flex: none; display: grid; place-items: center; inline-size: var(--tap); block-size: var(--tap); border-radius: 50%; color: var(--ink-2); cursor: pointer; border: 0; background: transparent; transition: transform 0.2s ease, background 0.15s ease; }
 .side .brand .menu-collapse:hover { background: var(--surface-2); }
 .side .brand .menu-collapse:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .side .brand .menu-collapse .chev { transition: transform 0.15s ease; }
@@ -56,7 +56,7 @@ a { color: var(--accent); }
    sidebar (the collapse toggle keeps its icon) to reach them. Label SPANs stay clipped so icon buttons keep their name. */
 .shell[data-collapsed='true'] select.menu-label, .shell[data-collapsed='true'] button.menu-label { display: none; }
 .shell[data-collapsed='true'] .menu-icon { display: inline-block; }
-.shell[data-collapsed='true'] .side { padding-inline: var(--space-2); overflow-x: hidden; }
+.shell[data-collapsed='true'] .side { padding-inline: var(--space-2); overflow-x: visible; }
 .shell[data-collapsed='true'] .menu-top, .shell[data-collapsed='true'] .menu-head { justify-content: center; padding-inline: 0; }
 .shell[data-collapsed='true'] .menu-head .chev { display: none; }
 .shell[data-collapsed='true'] .menu-org { padding: 0; }
