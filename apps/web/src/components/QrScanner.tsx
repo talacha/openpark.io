@@ -1,12 +1,7 @@
-import jsQR from 'jsqr';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n.js';
+import { decodeQr } from '../qr.js';
 import { Button } from './ui/button.js';
-
-/** Decode a QR code from camera pixels. Pure, so it can be tested without a camera. */
-export function decodeQr(data: { data: Uint8ClampedArray | Uint8Array; width: number; height: number }): string | null {
-  return jsQR(data.data as Uint8ClampedArray, data.width, data.height, { inversionAttempts: 'attemptBoth' })?.data ?? null;
-}
 
 interface Detector { detect(src: CanvasImageSource): Promise<{ rawValue: string }[]> }
 declare global { interface Window { BarcodeDetector?: new (o: { formats: string[] }) => Detector } }

@@ -1,6 +1,6 @@
 import qrcode from 'qrcode-generator';
 import { describe, expect, it } from 'vitest';
-import { decodeQr } from '../src/components/QrScanner.js';
+import { decodeQr } from '../src/qr.js';
 
 /** Render a QR to RGBA pixels the way a camera frame would present it. */
 function pixels(text: string, scale = 6, margin = 4, invert = false) {

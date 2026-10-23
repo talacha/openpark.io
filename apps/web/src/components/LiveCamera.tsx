@@ -3,7 +3,7 @@ import { startLiveReading, type LivePlate } from '../alpr/live.js';
 import type { Frame } from '../alpr/image.js';
 import type { PlateRead } from '../alpr/reader.js';
 import { useT } from '../i18n.js';
-import { decodeQr } from './QrScanner.js';
+import { decodeQr } from '../qr.js';
 import { Button } from './ui/button.js';
 
 type Status = 'starting' | 'loading' | 'ready' | 'unavailable';

@@ -55,7 +55,7 @@ function Tabs({ tab, onTab, labels, label }: { tab: 'camera' | 'manual'; onTab: 
   );
 }
 
-// The QR decoder is only needed once someone taps Scan, so it stays out of the main bundle.
+// Load the standalone camera view on demand; LiveCamera shares the decoder from the QR chunk.
 const QrScanner = lazy(() => import('../components/QrScanner.js').then((m) => ({ default: m.QrScanner })));
 const Scanner = (props: { onResult: (text: string) => void; onClose: () => void }) => <Suspense fallback={<div className="muted">…</div>}><QrScanner {...props} /></Suspense>;
 

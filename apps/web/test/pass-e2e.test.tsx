@@ -18,12 +18,11 @@ import type { Me, SiteInfo } from '../src/app-context.js';
 const h = vi.hoisted(() => ({ scanToken: '' }));
 
 // Keep decodeQr REAL (so we decode the artifact the guest page actually rendered); swap only the camera UI for a button.
-vi.mock('../src/components/QrScanner.js', async (io) => {
-  const actual = (await io()) as Record<string, unknown>;
-  return { ...actual, QrScanner: ({ onResult }: { onResult: (t: string) => void; onClose: () => void }) => (
+vi.mock('../src/components/QrScanner.js', () => ({
+  QrScanner: ({ onResult }: { onResult: (t: string) => void; onClose: () => void }) => (
     <button type="button" onClick={() => onResult(h.scanToken)}>__scan__</button>
-  ) };
-});
+  ),
+}));
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), write: vi.fn() }));
 vi.mock('../src/api.js', async (io) => ({ ...(await io()), get: api.get, post: api.post, write: api.write }));
@@ -39,7 +38,7 @@ vi.mock('../src/app-context.js', async (io) => ({ ...(await io()), useApp: ctx.u
 // Import AFTER the mocks are registered.
 const { CheckInCapture, CheckInConfirm, CheckInReview, Flow } = await import('../src/screens/Attendant.js');
 const { GuestPass } = await import('../src/screens/GuestPass.js');
-const { decodeQr } = await import('../src/components/QrScanner.js');
+const { decodeQr } = await import('../src/qr.js');
 const { passShareUrl } = await import('../src/pass.js');
 
 const SITE: SiteInfo = { code: 'DEMO-01', name: 'Demo', timezone: 'America/Mexico_City', settings: {}, zones: [] };
