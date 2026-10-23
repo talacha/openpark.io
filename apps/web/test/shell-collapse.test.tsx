@@ -37,14 +37,7 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 const useApi = vi.fn(() => ({ data: null, loading: false, error: '', reload: vi.fn(() => Promise.resolve()) }));
-vi.mock('../src/components/hooks.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/components/hooks.js')>();
-  return {
-    ...actual,
-    useApi,
-    useLiveEvents: vi.fn(() => false),
-  };
-});
+vi.mock('../src/components/hooks.js', async (io) => ({ ...(await io()), useApi, useLiveEvents: vi.fn(() => false) }));
 
 const useApp = vi.fn();
 vi.mock('../src/app-context.js', async (io) => ({ ...(await io()), useApp }));
