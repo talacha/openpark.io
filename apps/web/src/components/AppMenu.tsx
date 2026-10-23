@@ -23,6 +23,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from './ui/sidebar.js';
 
 const KEY = 'op.menu.open';
@@ -44,7 +45,7 @@ function MenuIconGlyph({ icon }: { icon?: MenuIcon }) {
   return <Glyph className="menu-icon" aria-hidden="true" />;
 }
 
-export function AppMenu({ onNavigate, collapsed = false, onToggleCollapsed }: {
+export function AppMenu({ onNavigate, collapsed: desktopPreference = false, onToggleCollapsed }: {
   onNavigate?: () => void;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
@@ -53,11 +54,13 @@ export function AppMenu({ onNavigate, collapsed = false, onToggleCollapsed }: {
   const nav = useNavigate();
   const { pathname } = useLocation();
   const { me, who, sites, site, setSiteCode, signOut, switchTenant } = useApp();
-  const { locale, setLocale } = useI18n();
+  const { dir, locale, setLocale } = useI18n();
+  const { isMobile } = useSidebar();
+  const collapsed = desktopPreference && !isMobile;
   const groups = buildMenu({ slug: me?.tenant.slug ?? null, roles: me?.roles ?? [], superadmin: !!who?.superadmin });
   const allTenants = useApi<PlatformTenant[]>(who?.superadmin ? '/v1/platform/tenants' : null);
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
-  const side = document.documentElement.dir === 'rtl' ? 'right' : 'left';
+  const side = dir === 'rtl' ? 'right' : 'left';
 
   const active = (group: MenuGroup) => group.items.some((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
 
@@ -87,7 +90,7 @@ export function AppMenu({ onNavigate, collapsed = false, onToggleCollapsed }: {
         <div className="brand">
           <img src="/icon.svg" alt="" width="24" height="24" />
           <span className="menu-label">{t('app.name')}</span>
-          {onToggleCollapsed && (
+          {onToggleCollapsed && !isMobile && (
             <Button
               type="button"
               variant="outline"

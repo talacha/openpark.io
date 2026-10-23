@@ -90,9 +90,8 @@ a { color: var(--accent); }
 .menu-org { color: var(--ink-2); font-size: 0.85rem; }
 .menu-nav { margin-block: var(--space-2); }
 .menu-link, .menu-head { color: var(--ink); text-decoration: none; }
-.menu-link[data-active], .menu-link[aria-current='page'] { background: var(--accent-soft); color: var(--accent); }
-.menu-top, .menu-head { font-weight: 650; }
-.menu-head[data-active='true'] { color: var(--accent); }
+.menu-link[data-active], .menu-link[aria-current='page'] { background: var(--surface-2); color: var(--ink); }
+.menu-head[data-active='true'] { color: var(--ink); }
 .menu-chevron { transition: transform 0.15s; color: var(--ink-2); }
 .menu-head[aria-expanded='true'] .menu-chevron { transform: rotate(90deg); }
 [dir='rtl'] .menu-head[aria-expanded='false'] .menu-chevron { transform: scaleX(-1); }

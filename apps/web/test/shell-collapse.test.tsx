@@ -107,4 +107,24 @@ describe('collapsible sidebar (AC-2.1, AC-2.2)', () => {
     const head = container.querySelector('.menu-group[data-group="resident"] .menu-head') as HTMLButtonElement;
     expect(head.getAttribute('aria-expanded')).toBe('true'); // the group is now open
   });
+
+  it('keeps mobile drawer groups independent of the stored desktop collapse preference', async () => {
+    const width = window.innerWidth;
+    try {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+      localStorage.setItem('op.menu.collapsed', '1');
+      const { container } = mount(['admin']);
+      await act(async () => { fireEvent.click(container.querySelector('[data-sidebar="trigger"]') as HTMLButtonElement); });
+      const drawer = document.querySelector('[data-mobile="true"]') as HTMLElement;
+      expect(drawer).toBeTruthy();
+      expect(drawer.id).toBe('app-menu');
+      expect(drawer.querySelector('.menu-collapse')).toBeNull();
+      const head = drawer.querySelector('.menu-group[data-group="admin"] .menu-head') as HTMLButtonElement;
+      await act(async () => { fireEvent.click(head); });
+      expect(head.getAttribute('aria-expanded')).toBe('true');
+      expect((container.querySelector('.shell') as HTMLElement).getAttribute('data-collapsed')).toBe('true');
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    }
+  });
 });
