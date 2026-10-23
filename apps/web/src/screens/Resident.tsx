@@ -7,8 +7,17 @@ import { PhoneInput } from '../components/PhoneInput.js';
 import { PlateInput } from '../components/PlateInput.js';
 import { dataUrlToBlob, passShareMessage, passShareUrl, planPassShare, qrGifDataUrl, spaceCode } from '../pass.js';
 import { useApi, useSubmitKey } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
+import { Alert } from '@/components/ui/alert';
+import { Avatar as AvatarRoot, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Collapsible as CollapsibleRoot, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
 
 export interface PassView {
   id: string; status: 'active' | 'checked_in' | 'completed' | 'cancelled'; displayStatus: string;
@@ -48,14 +57,14 @@ function Collapsible({ title, open, onToggle, headingRef, children }:
   { title: string; open: boolean; onToggle: (next: boolean) => void; headingRef?: React.Ref<HTMLButtonElement>; children: ReactNode }) {
   const rid = useId();
   return (
-    <section className="collapsible">
+    <CollapsibleRoot open={open} onOpenChange={onToggle} className="collapsible">
       <h2>
-        <button type="button" ref={headingRef} className="collapsible-head" aria-expanded={open} aria-controls={rid} onClick={() => onToggle(!open)}>
+        <CollapsibleTrigger render={<Button type="button" ref={headingRef} variant="ghost" className="collapsible-head" aria-controls={rid} />}>
           <span className={`collapsible-caret${open ? ' open' : ''}`} aria-hidden="true">▸</span>{title}
-        </button>
+        </CollapsibleTrigger>
       </h2>
-      <div id={rid} hidden={!open}>{open && children}</div>
-    </section>
+      <CollapsibleContent id={rid}>{children}</CollapsibleContent>
+    </CollapsibleRoot>
   );
 }
 
@@ -64,12 +73,12 @@ function Avatar({ url, name, email, unit }: { url: string | null | undefined; na
   const [failed, setFailed] = useState(false);
   const showImg = !!url && !failed;
   return (
-    <div className="avatar">
+    <AvatarRoot className="avatar">
       {showImg
-        ? <img className="avatar-img" src={url!} alt={t('res.avatarAlt')} onError={() => setFailed(true)} />
-        : <span className="avatar-initials" aria-hidden="true">{initialsOf(name, email)}</span>}
-      <span className="avatar-pill" aria-label={t('res.unit', { unit })}>{unit}</span>
-    </div>
+        ? <AvatarImage className="avatar-img" src={url!} alt={t('res.avatarAlt')} onError={() => setFailed(true)} />
+        : <AvatarFallback className="avatar-initials" aria-hidden="true">{initialsOf(name, email)}</AvatarFallback>}
+      <Badge className="avatar-pill" aria-label={t('res.unit', { unit })}>{unit}</Badge>
+    </AvatarRoot>
   );
 }
 
@@ -156,7 +165,7 @@ export function ResidentHome() {
 
   if (!me?.unit) {
     const staff = me?.superadmin || me?.roles.includes('admin');
-    return <div className="att"><div className="banner warn">{t(staff ? 'res.noUnitAdmin' : 'res.noUnit')}{staff && <> <Link to="../users">{t('res.assignSelf')}</Link></>}</div></div>;
+    return <div className="att"><Alert className="banner warn">{t(staff ? 'res.noUnitAdmin' : 'res.noUnit')}{staff && <> <Link to="../users">{t('res.assignSelf')}</Link></>}</Alert></div>;
   }
 
   // Banner-vs-form precedence: unit==null handled above; here, a resident with an UNVERIFIED unit sees a pending
@@ -174,41 +183,43 @@ export function ResidentHome() {
           <h1>{t(me.user?.name ? 'res.welcomeName' : 'res.title', { name: me.user?.name ?? '' })}</h1>
           <div className="muted">{t('res.unit', { unit: me.unit.name })}</div>
         </div>
-        <button type="button" ref={profileHeadRef} className="btn icon" aria-label={t('res.editProfile')} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>
+        <Button type="button" ref={profileHeadRef} className="btn icon" aria-label={t('res.editProfile')} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>
           <svg className="menu-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-        </button>
+        </Button>
       </header>
 
       {editing && <EditProfile me={me} onDone={async () => { setEditing(false); await reload(); }} />}
 
-      {err && <div className="banner bad" role="alert">{err}</div>}
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
 
       <Collapsible title={t('res.sectionNew')} open={newOpen} onToggle={setNewOpen} headingRef={newHeadRef}>
-        {pending ? (
-          <div className="banner warn">{t('res.pendingVerify')}</div>
+        {active.loading || active.error ? (
+          <QueryState loading={active.loading} error={active.error} empty={false} />
+        ) : pending ? (
+          <Alert className="banner warn">{t('res.pendingVerify')}</Alert>
         ) : !pass ? (
-          <form className="card stack" onSubmit={create}>
-            <label className="field">{t('res.guestName')}<input ref={guestNameRef} name="guestName" required maxLength={80} /></label>
+          <Card render={<form className="card stack" onSubmit={create} />}>
+            <label className="field">{t('res.guestName')}<Input ref={guestNameRef} name="guestName" required maxLength={80} /></label>
             <label className="field">{t('res.guestPhone')}
-              <input 
-                name="guestPhone" 
-                type="tel" 
-                inputMode="tel" 
-                placeholder="+52 55 1234 5678" 
-                pattern="\+[1-9][0-9]{7,14}" 
+              <Input
+                name="guestPhone"
+                type="tel"
+                inputMode="tel"
+                placeholder="+52 55 1234 5678"
+                pattern="\+[1-9][0-9]{7,14}"
                 dir="ltr"
                 onChange={(e) => setGuestPhone(formatGuestPhone(e.currentTarget.value))}
               />
             </label>
-            <label className="field">{t('res.guestEmail')}<input name="guestEmail" type="email" dir="ltr" /></label>
+            <label className="field">{t('res.guestEmail')}<Input name="guestEmail" type="email" dir="ltr" /></label>
             <label className="field">{t('res.plateHint')}<PlateInput name="plateHint" maxLength={20} /></label>
             {policy && <p className="muted">{t('res.rules', { hours: policy.maxStayHours, amount: fmt.money(policy.overstayCharge) })}</p>}
             <p className="muted">{t('res.onlyOne')}</p>
-            <button className="btn primary big" disabled={busy}>{t('res.create')}</button>
-          </form>
+            <Button type="submit" className="btn primary big" disabled={busy}>{t('res.create')}</Button>
+          </Card>
         ) : (
-          <section className="card stack">
-            <div className="row between"><h3>{pass.guestName}</h3><span className={`pill ${expired ? 'warn' : pass.status === 'checked_in' ? 'info' : 'ok'}`}>{t(`res.status_${expired ? 'expired' : pass.status}`)}</span></div>
+          <Card render={<section className="card stack" />}>
+            <div className="row between"><h3>{pass.guestName}</h3><Badge className={`pill ${expired ? 'warn' : pass.status === 'checked_in' ? 'info' : 'ok'}`}>{t(`res.status_${expired ? 'expired' : pass.status}`)}</Badge></div>
 
             {pass.status === 'active' && !expired && pass.qr && (
               <>
@@ -220,10 +231,10 @@ export function ResidentHome() {
                   expiresMinutes={Math.max(0, Math.round((new Date(pass.expiresAt).getTime() - Date.now()) / 60000))} />
               </>
             )}
-            {expired && <div className="banner warn">{t('res.expired')}</div>}
+            {expired && <Alert className="banner warn">{t('res.expired')}</Alert>}
             {pass.status === 'checked_in' && pass.checkedInAt && (
               <>
-                <div className="banner">{t('res.inside', { time: fmt.time(pass.checkedInAt) })}</div>
+                <Alert className="banner">{t('res.inside', { time: fmt.time(pass.checkedInAt) })}</Alert>
                 {stayEnds && policy && <p className="muted">{t('res.mustLeave', { time: fmt.time(stayEnds), amount: fmt.money(policy.overstayCharge) })}</p>}
               </>
             )}
@@ -231,27 +242,28 @@ export function ResidentHome() {
 
             {pass.status === 'active' && (
               <div className="row">
-                <button className={`btn grow ${expired ? 'primary' : ''}`} disabled={busy} onClick={() => run(() => post(`/v1/passes/${pass.id}/regenerate`))}>{t('res.regenerate')}</button>
-                <button className="btn danger grow" disabled={busy} onClick={() => { if (confirm(t('res.cancelConfirm'))) void run(() => post(`/v1/passes/${pass.id}/cancel`)); }}>{t('res.cancel')}</button>
+                <Button type="button" className={`btn grow ${expired ? 'primary' : ''}`} disabled={busy} onClick={() => run(() => post(`/v1/passes/${pass.id}/regenerate`))}>{t('res.regenerate')}</Button>
+                <Button type="button" className="btn danger grow" disabled={busy} onClick={() => { if (confirm(t('res.cancelConfirm'))) void run(() => post(`/v1/passes/${pass.id}/cancel`)); }}>{t('res.cancel')}</Button>
               </div>
             )}
-          </section>
+          </Card>
         )}
       </Collapsible>
 
       <Collapsible title={t('res.sectionPrevious')} open={prevOpen} onToggle={setPrevOpen}>
-        {history.data?.length ? (
+        <QueryState loading={history.loading} error={history.error} empty={!history.data?.length} emptyLabel={t('res.noHistory')} />
+        {!history.loading && !history.error && !!history.data?.length && (
           <div className="stack">{history.data.map((p) => (
-            <div key={p.id} className="card row between">
+            <Card key={p.id} className="card row between">
               <span>
                 <strong>{p.guestName}</strong><br />
                 <span className="muted">{fmt.dateTime(p.createdAt)}</span>
                 <span className="muted"> · {t(`res.issuedBy_${p.issuedByRole ?? 'unknown'}`)}</span>
               </span>
-              <span className="pill">{t(`res.status_${p.displayStatus}`)}</span>
-            </div>
+              <Badge className="pill">{t(`res.status_${p.displayStatus}`)}</Badge>
+            </Card>
           ))}</div>
-        ) : <p className="muted">{t('res.noHistory')}</p>}
+        )}
       </Collapsible>
     </div>
   );
@@ -347,18 +359,18 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
   }
 
   return (
-    <form className="card stack" onSubmit={save}>
+    <Card render={<form className="card stack" onSubmit={save} />}>
       <h2>{t('res.editProfile')}</h2>
-      <label className="field">{t('auth.name')}<input name="name" maxLength={100} defaultValue={me.user?.name ?? ''} /></label>
+      <label className="field">{t('auth.name')}<Input name="name" maxLength={100} defaultValue={me.user?.name ?? ''} /></label>
       <label className="field">{t('res.phone')}
         <PhoneInput value={phone} onChange={setPhone} placeholder="+52 55 1234 5678" />
       </label>
-      <label className="field">{t('res.avatarLabel')}<input name="avatar" type="file" accept="image/png,image/jpeg,image/webp" /></label>
-      <label className="row gap"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.currentTarget.checked)} />{t('res.notifyGuests')}</label>
+      <label className="field">{t('res.avatarLabel')}<Input name="avatar" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+      <label className="row gap"><Checkbox checked={notify} onCheckedChange={(checked) => setNotify(checked === true)} />{t('res.notifyGuests')}</label>
       <p className="muted">{t('res.notifyHelp')}</p>
-      {err && <div className="banner bad" role="alert">{err}</div>}
-      <div className="row"><button className="btn primary" disabled={busy}>{t('common.save')}</button><button type="button" className="btn" disabled={busy} onClick={() => void onDone()}>{t('common.cancel')}</button></div>
-    </form>
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
+      <div className="row"><Button type="submit" className="btn primary" disabled={busy}>{t('common.save')}</Button><Button type="button" className="btn" disabled={busy} onClick={() => void onDone()}>{t('common.cancel')}</Button></div>
+    </Card>
   );
 }
 
@@ -406,7 +418,7 @@ export function SharePass({ qr, guest, property, unit, code, expiresMinutes, sha
 
   return (
     <div className="stack">
-      <button type="button" ref={shareRef} className="btn primary grow" disabled={busy} onClick={() => void share()}>{t('res.share')}</button>
+      <Button type="button" ref={shareRef} className="btn primary grow" disabled={busy} onClick={() => void share()}>{t('res.share')}</Button>
       <p className="muted" role="status" aria-live="polite">{status}</p>
     </div>
   );

@@ -5,49 +5,64 @@ import { useT } from '../i18n.js';
 import { AppMenu } from './AppMenu.js';
 import { Invitations } from './Invitations.js';
 import { SyncBadge } from './SyncBadge.js';
+import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from './ui/sidebar.js';
 
 const COLLAPSED_KEY = 'op.menu.collapsed';
-const readCollapsed = (): boolean => { try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; } };
+const readCollapsed = (): boolean => {
+  try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; }
+};
 
-/** One shell for every role and every screen: the shared menu plus the page. Wide screens get a sidebar, phones a drawer. */
-export function AppShell() {
-  const { who, me } = useApp();
+function ShellContent({ collapsed, onToggleCollapsed }: { collapsed: boolean; onToggleCollapsed: () => void }) {
+  const { me } = useApp();
   const t = useT();
   const { pathname } = useLocation();
-  const [open, setOpen] = useState(false);
-  // Wide-screen collapse (icons only). Lazy-init from localStorage, falling back to expanded in private mode.
-  const [collapsed, setCollapsed] = useState(readCollapsed);
-  useEffect(() => { setOpen(false); }, [pathname]);
-  useEffect(() => {
-    if (!open) return;
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    addEventListener('keydown', esc);
-    return () => removeEventListener('keydown', esc);
-  }, [open]);
-  const toggleCollapsed = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem(COLLAPSED_KEY, n ? '1' : '0'); } catch { /* private mode */ } return n; });
-  if (!who) return <Navigate to="/login" replace />;
+  const { open, openMobile, isMobile, setOpenMobile } = useSidebar();
+
+  useEffect(() => { setOpenMobile(false); }, [pathname, setOpenMobile]);
 
   return (
-    <div className="shell" data-open={open} data-collapsed={collapsed}>
-      <AppMenu onNavigate={() => setOpen(false)} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-      {open && <button type="button" className="scrim" aria-label={t('nav.closeMenu')} onClick={() => setOpen(false)} />}
-      <div className="content">
+    <>
+      <AppMenu collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} onNavigate={() => setOpenMobile(false)} />
+      <SidebarInset className="content">
         <header className="topbar">
-          <button type="button" className="btn" aria-label={open ? t('nav.closeMenu') : t('nav.menu')} aria-expanded={open} aria-controls="app-menu" onClick={() => setOpen(!open)}>
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
-            </svg>
-          </button>
+          <SidebarTrigger
+            aria-label={openMobile ? t('nav.closeMenu') : t('nav.menu')}
+            aria-expanded={isMobile ? openMobile : open}
+            aria-controls="app-menu"
+          />
           <strong className="grow">{me?.tenant.name ?? t('app.name')}</strong>
           <SyncBadge />
         </header>
-        <main className="main"><Invitations /><Outlet /></main>
-      </div>
-    </div>
+        <div className="main"><Invitations /><Outlet /></div>
+      </SidebarInset>
+    </>
   );
 }
 
-/** Operator view: the pages plus a bottom tab bar for one-handed use on phones. */
+export function AppShell() {
+  const { who } = useApp();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+
+  if (!who) return <Navigate to="/login" replace />;
+
+  const onOpenChange = (open: boolean) => {
+    setCollapsed(!open);
+    try { localStorage.setItem(COLLAPSED_KEY, open ? '0' : '1'); } catch { /* Storage can be unavailable in private mode. */ }
+  };
+
+  return (
+    <SidebarProvider
+      className="shell"
+      data-collapsed={collapsed}
+      open={!collapsed}
+      onOpenChange={onOpenChange}
+      style={{ '--sidebar-width': '252px', '--sidebar-width-icon': '64px' } as React.CSSProperties}
+    >
+      <ShellContent collapsed={collapsed} onToggleCollapsed={() => onOpenChange(collapsed)} />
+    </SidebarProvider>
+  );
+}
+
 export function AttendantLayout() {
   const { me } = useApp();
   const t = useT();

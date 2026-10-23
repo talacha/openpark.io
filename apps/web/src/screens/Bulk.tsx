@@ -2,6 +2,14 @@ import { useRef, useState } from 'react';
 import { ApiError, get, request } from '../api.js';
 import { useApp } from '../app-context.js';
 import { useSubmitKey } from '../components/hooks.js';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { useT } from '../i18n.js';
 
 /** The four bulk entities, each mapping to its export + import pipeline. Every tab reuses the same validate -> preview
@@ -35,7 +43,7 @@ export function Bulk() {
           tab-stop, so there is no roving-focus / Left-Right contract to half-implement. */}
       <div className="row" role="group" aria-label={t('bulk.title')}>
         {ENTITIES.map((e) => (
-          <button key={e} type="button" aria-pressed={entity === e} className={`btn${entity === e ? ' primary' : ''}`} onClick={() => setEntity(e)}>{t(SPECS[e].tab)}</button>
+          <Button key={e} type="button" variant={entity === e ? 'default' : 'outline'} aria-pressed={entity === e} className={`btn${entity === e ? ' primary' : ''}`} onClick={() => setEntity(e)}>{t(SPECS[e].tab)}</Button>
         ))}
       </div>
       <ImportExport key={entity} spec={spec} />
@@ -91,43 +99,43 @@ export function ImportExport({ spec }: { spec: Spec }) {
   const empty = s && Object.values(s).every((n) => !n);
   const rows = preview ? Object.entries(preview.diff).filter(([, v]) => Array.isArray(v)) : [];
   return (
-    <section className="card stack">
-      <div className="row"><button className="btn" onClick={download}>{t('inv.export')}</button></div>
-      <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} dir="ltr" aria-label={t('inv.paste')} placeholder={t('inv.paste')} />
+    <Card className="card stack">
+      <div className="row"><Button variant="outline" className="btn" onClick={download}>{t('inv.export')}</Button></div>
+      <Textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} dir="ltr" aria-label={t('inv.paste')} placeholder={t('inv.paste')} />
       <div className="row">
-        <input ref={file} type="file" accept="application/json,.json" aria-label={t('common.chooseFile')} hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
-        <button className="btn" onClick={() => file.current?.click()}>{t('inv.upload')}</button>
+        <Input ref={file} type="file" accept="application/json,.json" aria-label={t('common.chooseFile')} hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
+        <Button variant="outline" className="btn" onClick={() => file.current?.click()}>{t('inv.upload')}</Button>
         {spec.modes && (
           <label className="row"><span>{t('inv.mode')}</span>
-            <select value={mode} onChange={(e) => setMode(e.target.value as 'merge' | 'replace')}><option value="merge">{t('inv.merge')}</option><option value="replace">{t('inv.replace')}</option></select></label>
+            <NativeSelect value={mode} onChange={(e) => setMode(e.target.value as 'merge' | 'replace')}><option value="merge">{t('inv.merge')}</option><option value="replace">{t('inv.replace')}</option></NativeSelect></label>
         )}
-        <label className="row"><input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />{t('inv.dryRun')}</label>
-        <button className="btn primary" disabled={!text.trim()} onClick={validate}>{t('inv.validate')}</button>
+        <label className="row"><Checkbox checked={dryRun} onCheckedChange={(checked) => setDryRun(checked === true)} />{t('inv.dryRun')}</label>
+        <Button className="btn primary" disabled={!text.trim()} onClick={validate}>{t('inv.validate')}</Button>
       </div>
       {err && (
-        <div className="banner bad" role="alert">
+        <Alert variant="destructive" className="banner bad" role="alert">
           {err.message}
           {Array.isArray(err.details) && <ul>{(err.details as { path?: string; message?: string }[]).map((d, i) => <li key={i}><code>{d.path}</code> {d.message}</li>)}</ul>}
           {!!err.details && !Array.isArray(err.details) && 'line' in (err.details as object) && <div>{t('inv.line', err.details as Record<string, unknown>)}</div>}
-        </div>
+        </Alert>
       )}
-      {status && <div className="banner" role="status">{status}</div>}
+      {status && <Alert className="banner" role="status">{status}</Alert>}
       {preview && s && (
         <section className="stack">
           <div className="row">{Object.entries(s).map(([k, n]) => <span key={k} className="muted">{k}: {n}</span>)}</div>
-          {empty && <div className="banner">{t('inv.empty')}</div>}
-          <div className="tablewrap" style={{ maxBlockSize: 320, overflow: 'auto' }}><table><tbody>
+          {empty && <Alert className="banner">{t('inv.empty')}</Alert>}
+          <div className="tablewrap" style={{ maxBlockSize: 320, overflow: 'auto' }}><Table><TableBody>
             {rows.flatMap(([k, list]) => (list).slice(0, 200).map((item, i) => (
-              <tr key={`${k}${i}`}><td className="muted">{k}</td><td dir="ltr"><code>{JSON.stringify(item)}</code></td></tr>
+              <TableRow key={`${k}${i}`}><TableCell className="muted">{k}</TableCell><TableCell dir="ltr"><code>{JSON.stringify(item)}</code></TableCell></TableRow>
             )))}
-          </tbody></table></div>
+          </TableBody></Table></div>
           <div className="row">
-            <button className="btn primary" disabled={preview.dryRun || !!s.conflicts || !!s.errors || !!empty} onClick={() => act('apply', preview.job)}>{t('common.apply')}</button>
-            <button className="btn" onClick={() => setPreview(null)}>{t('common.cancel')}</button>
+            <Button className="btn primary" disabled={preview.dryRun || !!s.conflicts || !!s.errors || !!empty} onClick={() => act('apply', preview.job)}>{t('common.apply')}</Button>
+            <Button variant="outline" className="btn" onClick={() => setPreview(null)}>{t('common.cancel')}</Button>
           </div>
         </section>
       )}
-      {lastApplied && <div className="row"><span className="muted">{t('inv.lastJob')}</span><button className="btn danger" onClick={() => { if (confirm(t('inv.rollbackConfirm'))) void act('rollback', lastApplied); }}>{t('common.rollback')}</button></div>}
-    </section>
+      {lastApplied && <div className="row"><span className="muted">{t('inv.lastJob')}</span><Button variant="destructive" className="btn danger" onClick={() => { if (confirm(t('inv.rollbackConfirm'))) void act('rollback', lastApplied); }}>{t('common.rollback')}</Button></div>}
+    </Card>
   );
 }

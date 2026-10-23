@@ -2,6 +2,15 @@ import { useState, type FormEvent } from 'react';
 import { del, patch, post } from '../api.js';
 import { ROLES, useApp, type Role } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { errText } from '../errors.js';
 import { useT } from '../i18n.js';
 
@@ -35,53 +44,59 @@ export function Integrations() {
   return (
     <div className="stack">
       <h1>{t('integ.title')}</h1>
-      {err && <div className="banner bad" role="alert">{err}</div>}
-      {secret && <div className="banner" role="status"><strong>{secret.label}</strong><div dir="ltr"><code>{secret.value}</code></div></div>}
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
+      {secret && <Alert className="banner" role="status"><strong>{secret.label}</strong><div dir="ltr"><code>{secret.value}</code></div></Alert>}
 
       <section className="stack"><h2>{t('integ.keys')}</h2>
-        <form className="card row" onSubmit={addKey}>
-          <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
-          <label className="field">{t('users.role')}<select name="role" defaultValue="attendant">{ROLES.filter((r) => r !== 'resident').map((r) => <option key={r} value={r}>{t(`role.${r}`)}</option>)}</select></label>
-          <label className="field">{t('units.site')}<select name="site"><option value="">{t('integ.allSites')}</option>{sites.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</select></label>
-          <button className="btn primary" disabled={busy}>{t('integ.createKey')}</button>
-        </form>
-        <div className="tablewrap"><table>
-          <thead><tr><th>{t('units.name')}</th><th>{t('integ.prefix')}</th><th>{t('users.role')}</th><th>{t('units.site')}</th><th>{t('common.status')}</th><th /></tr></thead>
-          <tbody>{keys.data?.map((k) => (
-            <tr key={k.id}><td>{k.name}</td><td dir="ltr"><code>{k.prefix}…</code></td><td>{t(`role.${k.role}`)}</td><td>{k.site ?? t('integ.allSites')}</td>
-              <td>{k.revoked_at ? <span className="pill warn">{t('integ.revoked')}</span> : <span className="pill ok">{t('integ.active')}</span>}</td>
-              <td>{!k.revoked_at && <button className="btn danger" onClick={() => void run(async () => { await del(`/v1/api-keys/${k.id}`); await keys.reload(); })}>{t('integ.revoke')}</button>}</td></tr>
-          ))}</tbody>
-        </table></div>
+        <Card render={<form className="card row" onSubmit={addKey} />}>
+          <label className="field grow">{t('units.name')}<Input name="name" required maxLength={100} /></label>
+          <label className="field">{t('users.role')}<NativeSelect name="role" defaultValue="attendant">{ROLES.filter((r) => r !== 'resident').map((r) => <option key={r} value={r}>{t(`role.${r}`)}</option>)}</NativeSelect></label>
+          <label className="field">{t('units.site')}<NativeSelect name="site"><option value="">{t('integ.allSites')}</option>{sites.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</NativeSelect></label>
+          <Button type="submit" className="btn primary" disabled={busy}>{t('integ.createKey')}</Button>
+        </Card>
+        <div className="tablewrap"><Table>
+          <TableHeader><TableRow><TableHead>{t('units.name')}</TableHead><TableHead>{t('integ.prefix')}</TableHead><TableHead>{t('users.role')}</TableHead><TableHead>{t('units.site')}</TableHead><TableHead>{t('common.status')}</TableHead><TableHead /></TableRow></TableHeader>
+          <TableBody>
+            <QueryState loading={keys.loading} error={keys.error} empty={!keys.data?.length} table colSpan={6} />
+            {!keys.loading && !keys.error && keys.data?.map((k) => (
+              <TableRow key={k.id}><TableCell>{k.name}</TableCell><TableCell dir="ltr"><code>{k.prefix}…</code></TableCell><TableCell>{t(`role.${k.role}`)}</TableCell><TableCell>{k.site ?? t('integ.allSites')}</TableCell>
+                <TableCell>{k.revoked_at ? <Badge className="pill warn">{t('integ.revoked')}</Badge> : <Badge className="pill ok">{t('integ.active')}</Badge>}</TableCell>
+                <TableCell>{!k.revoked_at && <Button variant="destructive" className="btn danger" onClick={() => void run(async () => { await del(`/v1/api-keys/${k.id}`); await keys.reload(); })}>{t('integ.revoke')}</Button>}</TableCell></TableRow>
+            ))}
+          </TableBody>
+        </Table></div>
       </section>
 
       <section className="stack"><h2>{t('integ.hooks')}</h2>
-        <form className="card stack" onSubmit={addHook}>
-          <label className="field">{t('integ.url')}<input name="url" type="url" required placeholder="https://" dir="ltr" /></label>
+        <Card render={<form className="card stack" onSubmit={addHook} />}>
+          <label className="field">{t('integ.url')}<Input name="url" type="url" required placeholder="https://" dir="ltr" /></label>
           <fieldset className="roles"><legend>{t('integ.events')}</legend>
-            {EVENTS.map((ev) => <div key={ev} className="rolebox"><input id={`ev-${ev}`} type="checkbox" checked={events.includes(ev)} onChange={() => setEvents(toggle(events, ev))} /><label htmlFor={`ev-${ev}`}><strong dir="ltr">{ev}</strong><small>{t(`integ.ev_${ev.replace('.', '_')}`)}</small></label></div>)}
+            {EVENTS.map((ev) => <div key={ev} className="rolebox"><Checkbox id={`ev-${ev}`} checked={events.includes(ev)} onCheckedChange={() => setEvents(toggle(events, ev))} /><label htmlFor={`ev-${ev}`}><strong dir="ltr">{ev}</strong><small>{t(`integ.ev_${ev.replace('.', '_')}`)}</small></label></div>)}
           </fieldset>
-          <div><button className="btn primary" disabled={busy}>{t('integ.createHook')}</button></div>
-        </form>
+          <div><Button type="submit" className="btn primary" disabled={busy}>{t('integ.createHook')}</Button></div>
+        </Card>
         {editing && (
-          <form key={editing.id} className="card stack" onSubmit={saveHook} aria-label={t('users.editing', { who: editing.url })}>
-            <label className="field">{t('integ.url')}<input name="url" type="url" required defaultValue={editing.url} dir="ltr" /></label>
+          <Card key={editing.id} render={<form className="card stack" onSubmit={saveHook} aria-label={t('users.editing', { who: editing.url })} />}>
+            <label className="field">{t('integ.url')}<Input name="url" type="url" required defaultValue={editing.url} dir="ltr" /></label>
             <fieldset className="roles"><legend>{t('integ.events')}</legend>
-              {EVENTS.map((ev) => <div key={ev} className="rolebox"><input id={`ee-${ev}`} type="checkbox" checked={editing.events.includes(ev)} onChange={() => setEditing({ ...editing, events: toggle(editing.events, ev) })} /><label htmlFor={`ee-${ev}`}><strong dir="ltr">{ev}</strong></label></div>)}
+              {EVENTS.map((ev) => <div key={ev} className="rolebox"><Checkbox id={`ee-${ev}`} checked={editing.events.includes(ev)} onCheckedChange={() => setEditing({ ...editing, events: toggle(editing.events, ev) })} /><label htmlFor={`ee-${ev}`}><strong dir="ltr">{ev}</strong></label></div>)}
             </fieldset>
-            <label className="row"><input type="checkbox" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} />{t('integ.active')}</label>
-            <div className="row"><button className="btn primary" disabled={!editing.events.length}>{t('common.save')}</button><button type="button" className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</button></div>
-          </form>
+            <label className="row"><Checkbox checked={editing.active} onCheckedChange={(checked) => setEditing({ ...editing, active: checked === true })} />{t('integ.active')}</label>
+            <div className="row"><Button type="submit" className="btn primary" disabled={!editing.events.length}>{t('common.save')}</Button><Button type="button" variant="outline" className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</Button></div>
+          </Card>
         )}
-        <div className="tablewrap"><table>
-          <thead><tr><th>{t('integ.url')}</th><th>{t('integ.events')}</th><th>{t('common.status')}</th><th /></tr></thead>
-          <tbody>{hooks.data?.map((h) => (
-            <tr key={h.id}><td dir="ltr">{h.url}</td><td dir="ltr">{h.events.join(', ')}</td>
-              <td>{h.active ? <span className="pill ok">{t('integ.active')}</span> : <span className="pill warn">{t('integ.paused')}</span>}</td>
-              <td><div className="row"><button className="btn" onClick={() => setEditing(h)}>{t('users.edit')}</button>
-                <button className="btn danger" onClick={() => void run(async () => { await del(`/v1/webhooks/${h.id}`); await hooks.reload(); })}>{t('common.remove')}</button></div></td></tr>
-          ))}</tbody>
-        </table></div>
+        <div className="tablewrap"><Table>
+          <TableHeader><TableRow><TableHead>{t('integ.url')}</TableHead><TableHead>{t('integ.events')}</TableHead><TableHead>{t('common.status')}</TableHead><TableHead /></TableRow></TableHeader>
+          <TableBody>
+            <QueryState loading={hooks.loading} error={hooks.error} empty={!hooks.data?.length} table colSpan={4} />
+            {!hooks.loading && !hooks.error && hooks.data?.map((h) => (
+              <TableRow key={h.id}><TableCell dir="ltr">{h.url}</TableCell><TableCell dir="ltr">{h.events.join(', ')}</TableCell>
+                <TableCell>{h.active ? <Badge className="pill ok">{t('integ.active')}</Badge> : <Badge className="pill warn">{t('integ.paused')}</Badge>}</TableCell>
+                <TableCell><div className="row"><Button variant="outline" className="btn" onClick={() => setEditing(h)}>{t('users.edit')}</Button>
+                  <Button variant="destructive" className="btn danger" onClick={() => void run(async () => { await del(`/v1/webhooks/${h.id}`); await hooks.reload(); })}>{t('common.remove')}</Button></div></TableCell></TableRow>
+            ))}
+          </TableBody>
+        </Table></div>
       </section>
     </div>
   );

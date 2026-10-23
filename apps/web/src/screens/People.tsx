@@ -3,8 +3,18 @@ import { Link } from 'react-router-dom';
 import { ApiError, del, patch, post, request } from '../api.js';
 import { ROLES, useApp, type Role } from '../app-context.js';
 import { useApi, useSubmitKey } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
 import { useT } from '../i18n.js';
 import { errText } from '../errors.js';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 
 
 interface UnitRow { code: string; name: string; site: string | null; floor: number | null; note: string | null; residents: { id: string; email: string; name: string | null }[]; pass_status: string | null }
@@ -61,7 +71,7 @@ export function Units() {
   async function removeUnit(code: string) { try { await del(`/v1/units/${encodeURIComponent(code)}`); setErr(''); await units.reload(); } catch (x) { setErr(errText(x)); } }
   const siteSelect = (value: string) => sites.length > 0 && (
     <label className="field">{t('units.site')}
-      <select name="site" defaultValue={value}><option value="">–</option>{sites.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</select></label>
+      <NativeSelect name="site" defaultValue={value}><option value="">–</option>{sites.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</NativeSelect></label>
   );
 
   async function download() {
@@ -88,97 +98,97 @@ export function Units() {
   const nothing = s && !s.added && !s.changed && !s.removed && !s.conflicts && !s.residents;
   return (
     <div className="stack">
-      <div className="row between"><h1>{t('units.title')}</h1><button className="btn" onClick={download}>{t('inv.export')}</button></div>
+      <div className="row between"><h1>{t('units.title')}</h1><Button className="btn" onClick={download}>{t('inv.export')}</Button></div>
       {canEdit && (
-        <form className="card stack" onSubmit={add}>
+        <Card render={<form className="card stack" onSubmit={add} />}>
           <div className="row">
-            <label className="field">{t('units.code')}<input name="code" required maxLength={30} dir="ltr" /></label>
-            <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
+            <label className="field">{t('units.code')}<Input name="code" required maxLength={30} dir="ltr" /></label>
+            <label className="field grow">{t('units.name')}<Input name="name" required maxLength={100} /></label>
             {siteSelect('')}
-            <label className="field">{t('units.floor')}<input name="floor" type="number" step={1} min={-20} max={300} dir="ltr" /></label>
+            <label className="field">{t('units.floor')}<Input name="floor" type="number" step={1} min={-20} max={300} dir="ltr" /></label>
           </div>
-          <label className="field">{t('units.note')}<input name="note" maxLength={500} /></label>
-          <div><button className="btn primary" disabled={busy}>{t('units.add')}</button></div>
-        </form>
+          <label className="field">{t('units.note')}<Input name="note" maxLength={500} /></label>
+          <div><Button type="submit" className="btn primary" disabled={busy}>{t('units.add')}</Button></div>
+        </Card>
       )}
-      {err && <div className="banner bad" role="alert">{err}</div>}
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
       {editing && (
-        <form key={editing.code} className="card stack" onSubmit={saveUnit} aria-label={t('users.editing', { who: editing.code })}>
+        <Card key={editing.code} render={<form className="card stack" onSubmit={saveUnit} aria-label={t('users.editing', { who: editing.code })} />}>
           <h2>{t('users.editing', { who: editing.code })}</h2>
           <div className="row">
-            <label className="field grow">{t('units.name')}<input name="name" required defaultValue={editing.name} maxLength={100} /></label>
+            <label className="field grow">{t('units.name')}<Input name="name" required defaultValue={editing.name} maxLength={100} /></label>
             {siteSelect(editing.site ?? '')}
-            <label className="field">{t('units.floor')}<input name="floor" type="number" step={1} min={-20} max={300} defaultValue={editing.floor ?? ''} dir="ltr" /></label>
+            <label className="field">{t('units.floor')}<Input name="floor" type="number" step={1} min={-20} max={300} defaultValue={editing.floor ?? ''} dir="ltr" /></label>
           </div>
-          <label className="field">{t('units.note')}<input name="note" defaultValue={editing.note ?? ''} maxLength={500} /></label>
-          <div className="row"><button className="btn primary">{t('common.save')}</button><button type="button" className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</button></div>
-        </form>
+          <label className="field">{t('units.note')}<Input name="note" defaultValue={editing.note ?? ''} maxLength={500} /></label>
+          <div className="row"><Button type="submit" className="btn primary">{t('common.save')}</Button><Button type="button" className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</Button></div>
+        </Card>
       )}
-      <div className="tablewrap"><table>
-        <thead><tr><th>{t('units.code')}</th><th>{t('units.name')}</th><th>{t('units.site')}</th><th className="num">{t('units.floor')}</th><th>{t('units.residents')}</th><th>{t('units.pass')}</th><th /></tr></thead>
-        <tbody>{units.data?.map((u) => (
-          <tr key={u.code}>
-            <td dir="ltr">{u.code}</td><td>{u.name}{u.note ? <div className="muted">{u.note}</div> : null}</td><td>{u.site ?? '–'}</td><td className="num">{u.floor ?? '–'}</td>
-            <td>{u.residents.length ? u.residents.map((r, i) => <span key={r.id}>{i > 0 && ', '}<Link to="../users">{r.name || r.email}</Link></span>) : '–'}</td>
-            <td>{u.pass_status ? <span className={`pill ${u.pass_status === 'checked_in' ? 'info' : 'ok'}`}>{t(`res.status_${u.pass_status}`)}</span> : '–'}</td>
-            <td>{canEdit && <div className="row">
-              <button className="btn" onClick={() => setEditing(u)}>{t('users.edit')}</button>
-              <button className="btn danger" disabled={u.residents.length > 0 || !!u.pass_status} title={u.residents.length || u.pass_status ? t('units.inUse') : undefined} onClick={() => void removeUnit(u.code)}>{t('common.remove')}</button>
-            </div>}</td>
-          </tr>
-        ))}</tbody>
-      </table></div>
+      <div className="tablewrap"><Table>
+        <TableHeader><TableRow><TableHead>{t('units.code')}</TableHead><TableHead>{t('units.name')}</TableHead><TableHead>{t('units.site')}</TableHead><TableHead className="num">{t('units.floor')}</TableHead><TableHead>{t('units.residents')}</TableHead><TableHead>{t('units.pass')}</TableHead><TableHead /></TableRow></TableHeader>
+        <TableBody>{units.data?.map((u) => (
+          <TableRow key={u.code}>
+            <TableCell dir="ltr">{u.code}</TableCell><TableCell>{u.name}{u.note ? <div className="muted">{u.note}</div> : null}</TableCell><TableCell>{u.site ?? '–'}</TableCell><TableCell className="num">{u.floor ?? '–'}</TableCell>
+            <TableCell>{u.residents.length ? u.residents.map((r, i) => <span key={r.id}>{i > 0 && ', '}<Link to="../users">{r.name || r.email}</Link></span>) : '–'}</TableCell>
+            <TableCell>{u.pass_status ? <Badge className={`pill ${u.pass_status === 'checked_in' ? 'info' : 'ok'}`}>{t(`res.status_${u.pass_status}`)}</Badge> : '–'}</TableCell>
+            <TableCell>{canEdit && <div className="row">
+              <Button type="button" className="btn" onClick={() => setEditing(u)}>{t('users.edit')}</Button>
+              <Button type="button" className="btn danger" disabled={u.residents.length > 0 || !!u.pass_status} title={u.residents.length || u.pass_status ? t('units.inUse') : undefined} onClick={() => void removeUnit(u.code)}>{t('common.remove')}</Button>
+            </div>}</TableCell>
+          </TableRow>
+        ))}</TableBody>
+      </Table></div>
 
-      <section className="card stack">
+      <Card className="card stack">
         <h2>{t('units.importTitle')}</h2>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} dir="ltr" aria-label={t('inv.paste')} placeholder={t('inv.paste')} />
+        <Textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} dir="ltr" aria-label={t('inv.paste')} placeholder={t('inv.paste')} />
         <div className="row">
-          <input ref={file} type="file" accept="application/json,.json" aria-label={t('common.chooseFile')} hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
-          <button className="btn" onClick={() => file.current?.click()}>{t('inv.upload')}</button>
+          <Input ref={file} type="file" accept="application/json,.json" aria-label={t('common.chooseFile')} hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
+          <Button type="button" className="btn" onClick={() => file.current?.click()}>{t('inv.upload')}</Button>
           <label className="row"><span>{t('inv.mode')}</span>
-            <select value={mode} onChange={(e) => setMode(e.target.value as 'merge' | 'replace')}><option value="merge">{t('inv.merge')}</option><option value="replace">{t('inv.replace')}</option></select></label>
-          <label className="row"><input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />{t('inv.dryRun')}</label>
-          <button className="btn primary" disabled={!text.trim()} onClick={validate}>{t('inv.validate')}</button>
+            <NativeSelect value={mode} onChange={(e) => setMode(e.target.value as 'merge' | 'replace')}><option value="merge">{t('inv.merge')}</option><option value="replace">{t('inv.replace')}</option></NativeSelect></label>
+          <label className="row"><Checkbox checked={dryRun} onCheckedChange={(checked) => setDryRun(checked === true)} />{t('inv.dryRun')}</label>
+          <Button type="button" className="btn primary" disabled={!text.trim()} onClick={validate}>{t('inv.validate')}</Button>
         </div>
         {ierr && (
-          <div className="banner bad" role="alert">
+          <Alert variant="destructive" className="banner bad" role="alert">
             {ierr.message}
             {Array.isArray(ierr.details) && <ul>{(ierr.details as { path?: string; message?: string; reason?: string; unit?: { code: string } }[]).map((d, i) => <li key={i}><code>{d.path ?? d.unit?.code}</code> {d.message ?? d.reason}</li>)}</ul>}
             {!!ierr.details && !Array.isArray(ierr.details) && 'line' in (ierr.details as object) && <div>{t('inv.line', ierr.details as Record<string, unknown>)}</div>}
-          </div>
+          </Alert>
         )}
-      </section>
+      </Card>
 
       {preview && s && (
-        <section className="card stack">
+        <Card className="card stack">
           <div className="row">
             <span className="diff-added">+{s.added} {t('units.added')}</span><span className="diff-changed">~{s.changed} {t('units.changed')}</span>
             <span className="diff-retired">−{s.removed} {t('units.removed')}</span><span className="diff-conflicts">!{s.conflicts} {t('inv.conflicts')}</span>
             <span className="diff-added">+{s.residents} {t('units.residentsAdd')}</span>
           </div>
-          {nothing && <div className="banner">{t('inv.empty')}</div>}
-          {preview.diff.errors.length > 0 && <div className="banner bad">{preview.diff.errors.map((e) => e.message).join(', ')}</div>}
-          <div className="tablewrap" style={{ maxBlockSize: 280, overflow: 'auto' }}><table><tbody>
-            {preview.diff.added.map((u) => <tr key={`a${u.code}`}><td className="diff-added">+</td><td>{u.code}</td><td>{u.name}</td></tr>)}
-            {preview.diff.changed.map((c) => <tr key={`c${c.after.code}`}><td className="diff-changed">~</td><td>{c.after.code}</td><td>{c.before.name} → {c.after.name}</td></tr>)}
-            {preview.diff.removed.map((u) => <tr key={`r${u.code}`}><td className="diff-retired">−</td><td>{u.code}</td><td>{u.name}</td></tr>)}
-            {preview.diff.conflicts.map((c) => <tr key={`x${c.unit.code}`}><td className="diff-conflicts">!</td><td>{c.unit.code}</td><td>{c.reason}</td></tr>)}
-            {preview.diff.residentsToAdd.map((r) => <tr key={`u${r.unit}${r.email}`}><td className="diff-added">+</td><td>{r.unit}</td><td>{r.email}</td></tr>)}
-          </tbody></table></div>
+          {nothing && <Alert className="banner">{t('inv.empty')}</Alert>}
+          {preview.diff.errors.length > 0 && <Alert variant="destructive" className="banner bad">{preview.diff.errors.map((e) => e.message).join(', ')}</Alert>}
+          <div className="tablewrap" style={{ maxBlockSize: 280, overflow: 'auto' }}><Table><TableBody>
+            {preview.diff.added.map((u) => <TableRow key={`a${u.code}`}><TableCell className="diff-added">+</TableCell><TableCell>{u.code}</TableCell><TableCell>{u.name}</TableCell></TableRow>)}
+            {preview.diff.changed.map((c) => <TableRow key={`c${c.after.code}`}><TableCell className="diff-changed">~</TableCell><TableCell>{c.after.code}</TableCell><TableCell>{c.before.name} → {c.after.name}</TableCell></TableRow>)}
+            {preview.diff.removed.map((u) => <TableRow key={`r${u.code}`}><TableCell className="diff-retired">−</TableCell><TableCell>{u.code}</TableCell><TableCell>{u.name}</TableCell></TableRow>)}
+            {preview.diff.conflicts.map((c) => <TableRow key={`x${c.unit.code}`}><TableCell className="diff-conflicts">!</TableCell><TableCell>{c.unit.code}</TableCell><TableCell>{c.reason}</TableCell></TableRow>)}
+            {preview.diff.residentsToAdd.map((r) => <TableRow key={`u${r.unit}${r.email}`}><TableCell className="diff-added">+</TableCell><TableCell>{r.unit}</TableCell><TableCell>{r.email}</TableCell></TableRow>)}
+          </TableBody></Table></div>
           <div className="row">
-            <button className="btn primary" disabled={preview.dryRun || !!s.conflicts || !!s.errors || !!nothing} onClick={applyImport}>{t('common.apply')}</button>
-            <button className="btn" onClick={() => setPreview(null)}>{t('common.cancel')}</button>
+            <Button type="button" className="btn primary" disabled={preview.dryRun || !!s.conflicts || !!s.errors || !!nothing} onClick={applyImport}>{t('common.apply')}</Button>
+            <Button type="button" className="btn" onClick={() => setPreview(null)}>{t('common.cancel')}</Button>
           </div>
-        </section>
+        </Card>
       )}
 
       {applied && (
-        <section className="banner stack" role="status">
+        <Alert className="banner stack" role="status">
           <strong>{t('units.importDone')}</strong>
           <div>+{applied.added} {t('units.added')} · ~{applied.changed} {t('units.changed')} · −{applied.removed} {t('units.removed')} · +{applied.residents.added} {t('units.residents')}</div>
           {applied.residents.created.map((c) => <div key={c.email} dir="ltr">{c.email}: {c.temporaryPassword ? t('users.tempPassword', { password: c.temporaryPassword }) : t('users.tempPasswordLost')}</div>)}
           {applied.residents.skipped.map((c) => <div key={c.email}>{t('units.skipped')}: {c.email} ({c.reason})</div>)}
-        </section>
+        </Alert>
       )}
     </div>
   );
@@ -196,13 +206,13 @@ function RoleBoxes({ roles, superadmin, canSuper, onChange, idPrefix }: {
       <legend>{t('users.roles')}</legend>
       {ROLES.map((r) => (
         <div key={r} className="rolebox">
-          <input id={`${idPrefix}-${r}`} type="checkbox" checked={roles.includes(r)} onChange={() => toggle(r)} />
+          <Checkbox id={`${idPrefix}-${r}`} checked={roles.includes(r)} onCheckedChange={() => toggle(r)} />
           <label htmlFor={`${idPrefix}-${r}`}><strong>{t(`role.${r}`)}</strong><small>{t(`roledesc.${r}`)}</small></label>
         </div>
       ))}
       {canSuper && (
         <div className="rolebox">
-          <input id={`${idPrefix}-superadmin`} type="checkbox" checked={superadmin} onChange={(e) => onChange({ roles, superadmin: e.target.checked })} />
+          <Checkbox id={`${idPrefix}-superadmin`} checked={superadmin} onCheckedChange={(checked) => onChange({ roles, superadmin: checked === true })} />
           <label htmlFor={`${idPrefix}-superadmin`}><strong>{t('role.superadmin')}</strong><small>{t('roledesc.superadmin')}</small></label>
         </div>
       )}
@@ -274,13 +284,13 @@ export function People() {
   /** The unit picker for a property. With no units it says so and links to where they are made, instead of asking for one that cannot exist. */
   const unitSelect = (value: string, onChange: (v: string) => void, list: UnitRow[] | null | undefined, slug: string, name?: string) => (
     list && list.length === 0 ? (
-      <div className="banner warn" role="status">{t('users.noUnits')} <Link to={`/t/${slug}/units`}>{t('users.addUnits')}</Link></div>
+      <Alert className="banner warn" role="status">{t('users.noUnits')} <Link to={`/t/${slug}/units`}>{t('users.addUnits')}</Link></Alert>
     ) : (
       <label className="field">{t('users.unit')}
-        <select name={name} required value={value} onChange={(e) => onChange(e.target.value)}>
+        <NativeSelect name={name} required value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="" disabled>–</option>
           {list?.map((u) => <option key={u.code} value={u.code}>{u.name}</option>)}
-        </select></label>
+        </NativeSelect></label>
     )
   );
 
@@ -288,76 +298,79 @@ export function People() {
     <div className="stack">
       <h1>{t('users.title')}</h1>
       {canEdit && (
-        <form className="card stack" onSubmit={invite}>
+        <Card render={<form className="card stack" onSubmit={invite} />}>
           <h2>{t('users.invite')}</h2>
           <div className="row">
-            <label className="field grow">{t('auth.email')}<input name="email" type="email" required dir="ltr" /></label>
-            <label className="field">{t('auth.name')}<input name="name" /></label>
+            <label className="field grow">{t('auth.email')}<Input name="email" type="email" required dir="ltr" /></label>
+            <label className="field">{t('auth.name')}<Input name="name" /></label>
             {me?.superadmin && !!allProps.data?.length && (
               <label className="field">{t('nav.property')}
-                <select value={prop} onChange={(e) => { setProp(e.target.value); setNewUnit(''); }}>
-                  {allProps.data.map((x) => <option key={x.slug} value={x.slug}>{x.name}</option>)}</select></label>
+                <NativeSelect value={prop} onChange={(e) => { setProp(e.target.value); setNewUnit(''); }}>
+                  {allProps.data.map((x) => <option key={x.slug} value={x.slug}>{x.name}</option>)}</NativeSelect></label>
             )}
           </div>
           <RoleBoxes idPrefix="new" roles={roles} superadmin={newSuper} canSuper={canSuper} onChange={(n) => { setRoles(n.roles); setNewSuper(n.superadmin); }} />
           {roles.includes('resident') && unitSelect(newUnit, setNewUnit, propUnits, prop, 'unit')}
-          <div><button className="btn primary" disabled={busy}>{t('users.invite')}</button></div>
-        </form>
+          <div><Button type="submit" className="btn primary" disabled={busy}>{t('users.invite')}</Button></div>
+        </Card>
       )}
-      {msg && <div className="banner" role="status">{msg}</div>}
-      {err && <div className="banner bad" role="alert">{err}</div>}
+      {msg && <Alert className="banner" role="status">{msg}</Alert>}
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
 
       {editing && (
-        <section className="card stack" aria-label={t(editing.kind === 'member' ? 'users.editing' : 'users.editInvite', { who: editing.who })}>
+        <Card render={<section className="card stack" aria-label={t(editing.kind === 'member' ? 'users.editing' : 'users.editInvite', { who: editing.who })} />}>
           <h2>{t(editing.kind === 'member' ? 'users.editing' : 'users.editInvite', { who: editing.who })}</h2>
           <RoleBoxes idPrefix="edit" roles={editing.roles} superadmin={editing.superadmin} canSuper={canSuper}
             onChange={(n) => setEditing({ ...editing, ...n })} />
           {editing.roles.includes('resident') && unitSelect(editing.unit, (v) => setEditing({ ...editing, unit: v }), units.data, me!.tenant.slug)}
           <div className="row">
-            <button className="btn primary" onClick={save}>{t('common.save')}</button>
-            <button className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</button>
+            <Button type="button" className="btn primary" onClick={save}>{t('common.save')}</Button>
+            <Button type="button" className="btn" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
           </div>
-        </section>
+        </Card>
       )}
 
       <section><h2>{t('users.members')}</h2>
-        <div className="tablewrap"><table>
-          <thead><tr><th>{t('auth.email')}</th><th>{t('users.roles')}</th><th>{t('users.unit')}</th><th /></tr></thead>
-          <tbody>{users.data?.members.map((m) => (
-            <tr key={m.id} data-unverified={m.roles.includes('resident') && !m.unit_verified}>
-              <td>{m.name ? `${m.name} · ` : ''}{m.email}</td>
-              <td>{roleLabel(t, m.roles, m.superadmin)}</td>
-              <td>
-                {m.unit ? <Link to="../units" dir="ltr">{m.unit}</Link> : '–'}
-                {m.roles.includes('resident') && (m.unit_verified
-                  ? <span className="pill ok">{t('users.verified')}</span>
-                  : <span className="pill warn">{t('users.unverified')}</span>)}
-              </td>
-              <td>{canEdit && (
-                <div className="row">
-                  {m.roles.includes('resident') && !m.unit_verified && <button className="btn primary" onClick={() => verify(m.id)}>{t('users.verifyUnit')}</button>}
-                  <button className="btn" onClick={() => setEditing({ kind: 'member', id: m.id, who: m.email, roles: m.roles, superadmin: m.superadmin, unit: m.unit ?? '' })}>{t('users.edit')}</button>
-                  <button className="btn danger" onClick={() => remove(m.id)} disabled={m.email === me?.user?.email}>{t('common.remove')}</button>
-                </div>
-              )}</td>
-            </tr>
-          ))}</tbody>
-        </table></div>
+        <div className="tablewrap"><Table>
+          <TableHeader><TableRow><TableHead>{t('auth.email')}</TableHead><TableHead>{t('users.roles')}</TableHead><TableHead>{t('users.unit')}</TableHead><TableHead /></TableRow></TableHeader>
+          <TableBody>
+            <QueryState loading={users.loading} error={users.error} empty={!users.data?.members.length} table colSpan={4} />
+            {!users.loading && !users.error && users.data?.members.map((m) => (
+              <TableRow key={m.id} data-unverified={m.roles.includes('resident') && !m.unit_verified}>
+                <TableCell>{m.name ? `${m.name} · ` : ''}{m.email}</TableCell>
+                <TableCell>{roleLabel(t, m.roles, m.superadmin)}</TableCell>
+                <TableCell>
+                  {m.unit ? <Link to="../units" dir="ltr">{m.unit}</Link> : '–'}
+                  {m.roles.includes('resident') && (m.unit_verified
+                    ? <Badge className="pill ok">{t('users.verified')}</Badge>
+                    : <Badge className="pill warn">{t('users.unverified')}</Badge>)}
+                </TableCell>
+                <TableCell>{canEdit && (
+                  <div className="row">
+                    {m.roles.includes('resident') && !m.unit_verified && <Button type="button" className="btn primary" onClick={() => verify(m.id)}>{t('users.verifyUnit')}</Button>}
+                    <Button type="button" className="btn" onClick={() => setEditing({ kind: 'member', id: m.id, who: m.email, roles: m.roles, superadmin: m.superadmin, unit: m.unit ?? '' })}>{t('users.edit')}</Button>
+                    <Button type="button" className="btn danger" onClick={() => remove(m.id)} disabled={m.email === me?.user?.email}>{t('common.remove')}</Button>
+                  </div>
+                )}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table></div>
       </section>
 
       {!!users.data?.invites.length && (
         <section><h2>{t('users.pending')}</h2>
-          <div className="tablewrap"><table><tbody>{users.data.invites.map((i) => (
-            <tr key={i.email}>
-              <td>{i.email}</td><td>{roleLabel(t, i.roles, i.superadmin)}</td><td>{i.unit ?? '–'}</td>
-              <td>{canEdit && (
+          <div className="tablewrap"><Table><TableBody>{users.data.invites.map((i) => (
+            <TableRow key={i.email}>
+              <TableCell>{i.email}</TableCell><TableCell>{roleLabel(t, i.roles, i.superadmin)}</TableCell><TableCell>{i.unit ?? '–'}</TableCell>
+              <TableCell>{canEdit && (
                 <div className="row">
-                  <button className="btn" onClick={() => setEditing({ kind: 'invite', id: i.email, who: i.email, roles: i.roles, superadmin: i.superadmin, unit: i.unit ?? '' })}>{t('users.edit')}</button>
-                  <button className="btn danger" onClick={() => removeInvite(i.email)}>{t('common.remove')}</button>
+                  <Button type="button" className="btn" onClick={() => setEditing({ kind: 'invite', id: i.email, who: i.email, roles: i.roles, superadmin: i.superadmin, unit: i.unit ?? '' })}>{t('users.edit')}</Button>
+                  <Button type="button" className="btn danger" onClick={() => removeInvite(i.email)}>{t('common.remove')}</Button>
                 </div>
-              )}</td>
-            </tr>
-          ))}</tbody></table></div>
+              )}</TableCell>
+            </TableRow>
+          ))}</TableBody></Table></div>
         </section>
       )}
     </div>

@@ -7,6 +7,11 @@ import { PasswordInput } from '../components/PasswordInput.js';
 import { LOCALES, NAMES, useI18n, useT } from '../i18n.js';
 import { errText } from '../errors.js';
 import { Invitations } from '../components/Invitations.js';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 
 const COUNTRIES = ['MX', 'US', 'BR', 'ES', 'FR', 'DE', 'CO', 'AR', 'CL', 'PE', 'CA', 'GB', 'SA', 'AE'];
 
@@ -14,9 +19,9 @@ function LangPick() {
   const t = useT();
   const { locale, setLocale } = useI18n();
   return (
-    <select className="langpick" aria-label={t('auth.language')} value={locale} onChange={(e) => setLocale(e.target.value)}>
+    <NativeSelect className="langpick" aria-label={t('auth.language')} value={locale} onChange={(e) => setLocale(e.target.value)}>
       {[...LOCALES].map((l) => <option key={l} value={l}>{NAMES[l]}</option>)}
-    </select>
+    </NativeSelect>
   );
 }
 
@@ -76,10 +81,10 @@ export function Auth({ mode }: { mode: 'login' | 'signup' | 'forgot' | 'reset' }
 
   if (mode === 'signup' && !open && !externalAuth) {
     return (
-      <div className="auth"><div className="card stack">
+      <div className="auth"><Card className="card stack">
         <LangPick /><h1>{t('auth.closedTitle')}</h1><p className="muted">{t('auth.closedBody')}</p>
-        <Link className="btn primary" to="/login" style={{ textAlign: 'center', textDecoration: 'none', display: 'grid', placeItems: 'center' }}>{t('auth.signin')}</Link>
-      </div></div>
+        <Button render={<Link to="/login" />} className="btn primary" style={{ textAlign: 'center', textDecoration: 'none', display: 'grid', placeItems: 'center' }}>{t('auth.signin')}</Button>
+      </Card></div>
     );
   }
 
@@ -88,18 +93,18 @@ export function Auth({ mode }: { mode: 'login' | 'signup' | 'forgot' | 'reset' }
 
   return (
     <div className="auth">
-      <form className="card stack" onSubmit={submit}>
+      <Card render={<form className="card stack" onSubmit={submit} />}>
         <LangPick />
         <h1>{title}</h1>
         {mode === 'signup' && <p className="muted">{inviteOnly ? t('auth.inviteOnly') : t('auth.trial')}</p>}
-        {mode === 'signup' && <label className="field">{t('auth.name')}<input name="name" autoComplete="name" /></label>}
-        {mode === 'signup' && open && <label className="field">{t('auth.org')}<input name="org" required minLength={2} defaultValue={pending!.organisation} /></label>}
+        {mode === 'signup' && <label className="field">{t('auth.name')}<Input name="name" autoComplete="name" /></label>}
+        {mode === 'signup' && open && <label className="field">{t('auth.org')}<Input name="org" required minLength={2} defaultValue={pending!.organisation} /></label>}
         {mode === 'signup' && open && (
           <label className="field">{t('auth.country')}
-            <select name="country" defaultValue={pending!.country}>{COUNTRIES.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}</select>
+            <NativeSelect name="country" defaultValue={pending!.country}>{COUNTRIES.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}</NativeSelect>
           </label>
         )}
-        {mode !== 'reset' && <label className="field">{t('auth.email')}<input name="email" type="email" required autoComplete="email" defaultValue={pending?.email} /></label>}
+        {mode !== 'reset' && <label className="field">{t('auth.email')}<Input name="email" type="email" required autoComplete="email" defaultValue={pending?.email} /></label>}
         {mode !== 'forgot' && (
           <div className="field">
             <label htmlFor="pw">{mode === 'reset' ? t('auth.newPassword') : t('auth.password')}</label>
@@ -107,12 +112,12 @@ export function Auth({ mode }: { mode: 'login' | 'signup' | 'forgot' | 'reset' }
             {mode !== 'login' && <small>{t('auth.passwordHint')}</small>}
           </div>
         )}
-        {err && <div className="banner bad" role="alert">{err}</div>}
-        {notice && <div className="banner" role="status">{notice}</div>}
-        <button className="btn primary" disabled={busy}>{mode === 'forgot' ? t('auth.sendReset') : mode === 'reset' ? t('auth.setPassword') : title}</button>
+        {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
+        {notice && <Alert className="banner" role="status">{notice}</Alert>}
+        <Button type="submit" className="btn primary" disabled={busy}>{mode === 'forgot' ? t('auth.sendReset') : mode === 'reset' ? t('auth.setPassword') : title}</Button>
         {mode === 'login' && externalAuth && <Link to="/forgot">{t('auth.forgot')}</Link>}
         {(mode === 'signup' || (mode === 'login' && (open || externalAuth))) && <Link to={mode === 'signup' ? '/login' : '/signup'}>{mode === 'signup' ? t('auth.signin') : inviteOnly || !open ? t('auth.createAccount') : t('auth.signup')}</Link>}
-      </form>
+      </Card>
     </div>
   );
 }
@@ -151,27 +156,27 @@ export function Onboarding() {
   const p = peekPending();
   if (!config.trialSignup) {
     return (
-      <div className="auth"><div className="card stack">
+      <div className="auth"><Card className="card stack">
         <LangPick /><h1>{t('auth.closedTitle')}</h1><p className="muted">{who?.user?.email}</p><Invitations /><p className="muted">{t('auth.closedBody')}</p>
-        <button type="button" className="btn" onClick={async () => { await signOut(); nav('/login'); }}>{t('nav.signout')}</button>
-      </div></div>
+        <Button type="button" variant="outline" className="btn" onClick={async () => { await signOut(); nav('/login'); }}>{t('nav.signout')}</Button>
+      </Card></div>
     );
   }
   return (
     <div className="auth">
-      <form className="card stack" onSubmit={submit}>
+      <Card render={<form className="card stack" onSubmit={submit} />}>
         <LangPick />
         <h1>{t('auth.onboardTitle')}</h1>
         <p className="muted">{who?.user?.email}</p>
         <Invitations />
-        <label className="field">{t('auth.org')}<input name="org" required minLength={2} defaultValue={p?.organisation} /></label>
+        <label className="field">{t('auth.org')}<Input name="org" required minLength={2} defaultValue={p?.organisation} /></label>
         <label className="field">{t('auth.country')}
-          <select name="country" defaultValue={p?.country ?? 'MX'}>{COUNTRIES.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}</select>
+          <NativeSelect name="country" defaultValue={p?.country ?? 'MX'}>{COUNTRIES.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}</NativeSelect>
         </label>
-        {err && <div className="banner bad" role="alert">{err}</div>}
-        <button className="btn primary" disabled={busy}>{t('auth.onboardCreate')}</button>
-        <button type="button" className="btn" onClick={async () => { await signOut(); nav('/login'); }}>{t('nav.signout')}</button>
-      </form>
+        {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
+        <Button type="submit" className="btn primary" disabled={busy}>{t('auth.onboardCreate')}</Button>
+        <Button type="button" variant="outline" className="btn" onClick={async () => { await signOut(); nav('/login'); }}>{t('nav.signout')}</Button>
+      </Card>
     </div>
   );
 }

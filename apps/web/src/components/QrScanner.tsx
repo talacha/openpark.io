@@ -1,6 +1,7 @@
 import jsQR from 'jsqr';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n.js';
+import { Button } from './ui/button.js';
 
 /** Decode a QR code from camera pixels. Pure, so it can be tested without a camera. */
 export function decodeQr(data: { data: Uint8ClampedArray | Uint8Array; width: number; height: number }): string | null {
@@ -57,7 +58,7 @@ export function QrScanner({ onResult, onClose }: { onResult: (text: string) => v
     <div className="stack">
       <video ref={video} className="video" playsInline muted aria-label={t('att.scanning')} />
       <div className="muted" style={{ textAlign: 'center' }}>{error || t('att.scanning')}</div>
-      <button type="button" className="btn" onClick={onClose}>{t('att.stopScan')}</button>
+      <Button type="button" className="btn" onClick={onClose}>{t('att.stopScan')}</Button>
     </div>
   );
 }

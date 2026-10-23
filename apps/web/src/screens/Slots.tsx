@@ -3,6 +3,13 @@ import { useState } from 'react';
 import { ApiError, patch } from '../api.js';
 import { pickLabel, useApp } from '../app-context.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import { useI18n, useT } from '../i18n.js';
 
 interface Slot { code: string; zone: string; level: number | null; type: string; status: string; note: string | null; plate: string | null }
@@ -29,37 +36,38 @@ export function Slots() {
     <div className="stack">
       <div className="row between">
         <h1>{t('slots.title')}</h1>
-        <select value={zone} onChange={(e) => setZone(e.target.value)} aria-label={t('common.zone')}>
+        <NativeSelect value={zone} onChange={(e) => setZone(e.target.value)} aria-label={t('common.zone')}>
           <option value="">{t('sessions.all')}</option>
           {site?.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}
-        </select>
+        </NativeSelect>
       </div>
-      <div className="slotgrid">{list.data?.map((s) => (
-        <button key={s.code} className="slot" data-status={s.status} data-selected={sel?.code === s.code} onClick={() => setSel(s)} title={s.plate ?? s.note ?? s.status}>
+      <QueryState loading={list.loading} error={list.error} empty={!list.data?.length} />
+      {!list.loading && !list.error && <div className="slotgrid">{list.data?.map((s) => (
+        <Button key={s.code} variant="outline" className="slot h-auto flex-col" data-status={s.status} data-selected={sel?.code === s.code} onClick={() => setSel(s)} title={s.plate ?? s.note ?? s.status}>
           {s.code}<small>{s.level != null ? `${t('parking.level')} ${s.level} · ` : ''}{s.plate ?? typeLabel(s.type)}</small>
-        </button>
-      ))}</div>
+        </Button>
+      ))}</div>}
       {sel && (
-        <section className="card stack">
-          <div className="row between"><h2>{sel.code} · {typeLabel(sel.type)}{sel.level != null ? ` · ${t('parking.level')} ${sel.level}` : ''}</h2><span className="pill">{t(`slots.${sel.status}`)}</span></div>
+        <Card className="card stack">
+          <div className="row between"><h2>{sel.code} · {typeLabel(sel.type)}{sel.level != null ? ` · ${t('parking.level')} ${sel.level}` : ''}</h2><Badge className="pill">{t(`slots.${sel.status}`)}</Badge></div>
           {sel.plate && <PlateChip plate={sel.plate} />}
           {/* Occupied is set by check-out, never by hand: its status shows as a read-only label, not a selectable option. */}
           {sel.status === 'occupied' ? (
-            <div className="banner" role="status">{t('slots.occupiedReadonly')}</div>
+            <Alert className="banner" role="status">{t('slots.occupiedReadonly')}</Alert>
           ) : (
             <>
               <label className="field">{t('common.status')}
-                <select value={sel.status} onChange={(e) => set(e.target.value as 'available' | 'out_of_service' | 'reserved')}>
+                <NativeSelect value={sel.status} onChange={(e) => set(e.target.value as 'available' | 'out_of_service' | 'reserved')}>
                   <option value="available">{t('slots.operational')}</option>
                   <option value="out_of_service">{t('slots.out_of_service')}</option>
                   <option value="reserved">{t('slots.reserved')}</option>
-                </select></label>
-              <label className="field">{t('slots.note')}<input value={note} onChange={(e) => setNote(e.target.value)} /></label>
-              <div className="row"><button className="btn" onClick={() => setSel(null)}>{t('common.cancel')}</button></div>
+                </NativeSelect></label>
+              <label className="field">{t('slots.note')}<Input value={note} onChange={(e) => setNote(e.target.value)} /></label>
+              <div className="row"><Button variant="outline" className="btn" onClick={() => setSel(null)}>{t('common.cancel')}</Button></div>
             </>
           )}
-          {err && <div className="banner bad">{err}</div>}
-        </section>
+          {err && <Alert variant="destructive" className="banner bad">{err}</Alert>}
+        </Card>
       )}
     </div>
   );

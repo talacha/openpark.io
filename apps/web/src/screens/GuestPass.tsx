@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { QrCode } from '../components/QrCode.js';
+import { Alert } from '@/components/ui/alert';
+import { Card } from '@/components/ui/card';
 import { isPassExpired, parseGuestPassToken, parsePassQr, spaceCode } from '../pass.js';
 import { useT } from '../i18n.js';
 
@@ -26,7 +28,7 @@ export function GuestPass() {
   const expired = pass ? isPassExpired(pass, now) : false;
 
   if (!token || !pass) return (
-    <div className="att"><h1>{t('guest.heading')}</h1><div className="banner warn" role="alert">{t('guest.invalid')}</div></div>
+    <div className="att"><h1>{t('guest.heading')}</h1><Alert variant="destructive" className="banner warn" role="alert">{t('guest.invalid')}</Alert></div>
   );
 
   return (
@@ -34,14 +36,14 @@ export function GuestPass() {
       <h1>{t('guest.heading')}</h1>
       <div className="muted">{t('guest.for', { guest: pass.guest, unit: pass.unit })}</div>
       {expired ? (
-        <div className="banner warn" role="alert">{t('res.expired')}</div>
+        <Alert variant="destructive" className="banner warn" role="alert">{t('res.expired')}</Alert>
       ) : (
-        <section className="card stack">
+        <Card className="card stack">
           <QrCode value={token} size={280} label={pass.guest} />
           {pass.code && <div className="verify"><span className="muted">{t('res.verifyCode')}</span><strong className="num" dir="ltr">{spaceCode(pass.code)}</strong></div>}
           <p className="muted">{t('res.qrHelp')}</p>
           <div className="feetotal num" aria-live="off">{t('res.expiresIn', { time: countdown(pass.expires * (pass.expires < 1e12 ? 1000 : 1), now) })}</div>
-        </section>
+        </Card>
       )}
     </div>
   );

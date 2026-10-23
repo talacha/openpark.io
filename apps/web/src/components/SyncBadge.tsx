@@ -4,6 +4,7 @@ import { accessToken, isNetworkError, request } from '../api.js';
 import { useApp } from '../app-context.js';
 import { useT } from '../i18n.js';
 import { changes, flush, listConflicts, pendingCount, type QueuedWrite, type SendResult } from '../offline.js';
+import { Badge } from './ui/badge.js';
 
 const BASE: string = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 
@@ -50,8 +51,13 @@ export function SyncBadge() {
 
   if (online && !pending && !conflicts && !note) return null;
   return (
-    <Link to={`/t/${me?.tenant.slug}/queue`} className={`pill ${!online ? 'warn' : conflicts ? 'bad' : 'info'}`} style={{ textDecoration: 'none' }}>
+    <Badge
+      render={<Link to={`/t/${me?.tenant.slug}/queue`} />}
+      variant="secondary"
+      className={`pill ${!online ? 'warn' : conflicts ? 'bad' : 'info'}`}
+      style={{ textDecoration: 'none' }}
+    >
       {!online ? t('att.offline') : conflicts ? `${conflicts} ⚠` : pending ? `${pending} ↻` : note}
-    </Link>
+    </Badge>
   );
 }

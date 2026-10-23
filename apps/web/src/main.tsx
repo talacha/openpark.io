@@ -5,6 +5,7 @@ import { App } from './App.js';
 import { setSession } from './api.js';
 import { AppProvider } from './app-context.js';
 import './styles.css';
+import { TooltipProvider } from './components/ui/tooltip.js';
 
 // Hand-off from openpark.io: the signup form passes the new session in the URL fragment,
 // which browsers never send to servers. Take it and clean the address bar.
@@ -18,7 +19,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <AppProvider>
-        <App />
+        <TooltipProvider>
+          <App />
+        </TooltipProvider>
       </AppProvider>
     </BrowserRouter>
   </StrictMode>,

@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react';
 import { ApiError, request } from '../api.js';
 import { useApp } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { useFormat, useT } from '../i18n.js';
 import { feeLabel } from '../labels.js';
 
@@ -24,11 +30,11 @@ export function Rates() {
   const [quote, setQuote] = useState<Quote | null>(null);
   useEffect(() => { if (plan) setRules(plan.rules); }, [plan?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!plan || !rules) return <p>{t('common.loading')}</p>;
+  if (!plan || !rules) return <div className="stack"><h1>{t('rates.title')}</h1><QueryState loading={plans.loading || (!!plan && !rules)} error={plans.error} empty={!plan} /></div>;
   const set = <K extends keyof Rules>(k: K, v: Rules[K]) => setRules({ ...rules, [k]: v });
   // Money fields are shown in major units and stored as minor units.
   const money = (k: 'firstPeriodFee' | 'incrementFee' | 'lostTicketFee') => (
-    <input type="number" step="0.01" min="0" value={rules[k] / 100} onChange={(e) => set(k, Math.round(Number(e.target.value) * 100))} />
+    <Input type="number" step="0.01" min="0" value={rules[k] / 100} onChange={(e) => set(k, Math.round(Number(e.target.value) * 100))} />
   );
 
   async function save() {
@@ -42,26 +48,26 @@ export function Rates() {
 
   return (
     <div className="stack">
-      <div className="row between"><h1>{t('rates.title')}</h1><span className="pill ok">{plan.name} · {t('rates.version', { version: plan.version })}</span></div>
-      {plan.in_use && <div className="banner">{t('rates.inUse')}</div>}
-      <section className="card stack">
+      <div className="row between"><h1>{t('rates.title')}</h1><Badge className="pill ok">{plan.name} · {t('rates.version', { version: plan.version })}</Badge></div>
+      {plan.in_use && <Alert className="banner">{t('rates.inUse')}</Alert>}
+      <Card className="card stack">
         <div className="tiles">
-          <label className="field">{t('rates.grace')}<input type="number" min="0" value={rules.graceMin} onChange={(e) => set('graceMin', Number(e.target.value))} /></label>
-          <label className="field">{t('rates.first')}<input type="number" min="1" value={rules.firstPeriodMin} onChange={(e) => set('firstPeriodMin', Number(e.target.value))} /></label>
+          <label className="field">{t('rates.grace')}<Input type="number" min="0" value={rules.graceMin} onChange={(e) => set('graceMin', Number(e.target.value))} /></label>
+          <label className="field">{t('rates.first')}<Input type="number" min="1" value={rules.firstPeriodMin} onChange={(e) => set('firstPeriodMin', Number(e.target.value))} /></label>
           <label className="field">{t('rates.firstFee')}{money('firstPeriodFee')}</label>
-          <label className="field">{t('rates.increment')}<input type="number" min="1" value={rules.incrementMin} onChange={(e) => set('incrementMin', Number(e.target.value))} /></label>
+          <label className="field">{t('rates.increment')}<Input type="number" min="1" value={rules.incrementMin} onChange={(e) => set('incrementMin', Number(e.target.value))} /></label>
           <label className="field">{t('rates.incrementFee')}{money('incrementFee')}</label>
-          <label className="field">{t('rates.cap')}<input type="number" step="0.01" min="0" value={(rules.dailyCap ?? 0) / 100} onChange={(e) => set('dailyCap', e.target.value ? Math.round(Number(e.target.value) * 100) : null)} /></label>
+          <label className="field">{t('rates.cap')}<Input type="number" step="0.01" min="0" value={(rules.dailyCap ?? 0) / 100} onChange={(e) => set('dailyCap', e.target.value ? Math.round(Number(e.target.value) * 100) : null)} /></label>
           <label className="field">{t('rates.lost')}{money('lostTicketFee')}</label>
         </div>
-        <div className="row"><button className="btn primary" onClick={save}>{t('rates.newVersion')}</button>{msg && <span className="muted">{msg}</span>}</div>
-      </section>
-      <section className="card stack">
+        <div className="row"><Button className="btn primary" onClick={save}>{t('rates.newVersion')}</Button>{msg && <span className="muted">{msg}</span>}</div>
+      </Card>
+      <Card className="card stack">
         <h2>{t('rates.simulator')}</h2>
         <div className="row">
-          <label className="field">{t('rates.in')}<input type="datetime-local" value={inAt} onChange={(e) => setInAt(e.target.value)} /></label>
-          <label className="field">{t('rates.out')}<input type="datetime-local" value={outAt} onChange={(e) => setOutAt(e.target.value)} /></label>
-          <button className="btn" onClick={simulate}>{t('rates.quote')}</button>
+          <label className="field">{t('rates.in')}<Input type="datetime-local" value={inAt} onChange={(e) => setInAt(e.target.value)} /></label>
+          <label className="field">{t('rates.out')}<Input type="datetime-local" value={outAt} onChange={(e) => setOutAt(e.target.value)} /></label>
+          <Button variant="outline" className="btn" onClick={simulate}>{t('rates.quote')}</Button>
         </div>
         {quote && (
           <div>
@@ -71,7 +77,7 @@ export function Rates() {
             {quote.tax > 0 && <div className="muted">{t('rates.tax')}: {fmt.money(quote.tax)}</div>}
           </div>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

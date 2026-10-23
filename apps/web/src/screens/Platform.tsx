@@ -3,6 +3,14 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { ApiError, post } from '../api.js';
 import { useApp } from '../app-context.js';
 import { useApi, useSubmitKey } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useFormat, useT } from '../i18n.js';
 
 interface Tenant { slug: string; name: string; country: string; created_at: string; suspended_at: string | null; suspended_reason: string | null; members: number; sites: number; open_sessions: number }
@@ -51,30 +59,33 @@ export function Platform() {
     <div>
       <div className="stack">
         <h1>{t('platform.tenants')}</h1>
-        <form className="card row" onSubmit={create}>
-          <label className="field grow">{t('auth.org')}<input name="org" required minLength={2} /></label>
-          <label className="field">{t('auth.country')}<select name="country" defaultValue="MX">{['MX', 'US', 'BR', 'ES', 'FR', 'DE'].map((c) => <option key={c}>{c}</option>)}</select></label>
-          <label className="field grow">{t('platform.ownerEmail')}<input name="owner" type="email" required dir="ltr" /></label>
-          <button className="btn primary" disabled={busy}>{t('platform.create')}</button>
-        </form>
-        {note && <div className="banner" role="status">{note}</div>}
-        {err && <div className="banner bad" role="alert">{err}</div>}
-        <div className="tablewrap"><table>
-          <thead><tr><th>{t('auth.org')}</th><th>{t('auth.country')}</th><th className="num">{t('platform.members')}</th><th className="num">{t('platform.sites')}</th><th className="num">{t('platform.open')}</th><th /></tr></thead>
-          <tbody>{tenants.data?.map((x) => (
-            <tr key={x.slug}>
-              <td><strong>{x.name}</strong><br /><span className="muted">{x.slug} · {fmt.dateTime(x.created_at)}</span></td>
-              <td>{x.country}</td><td className="num">{x.members}</td><td className="num">{x.sites}</td><td className="num">{x.open_sessions}</td>
-              <td>
-                <span className="row">
-                  {x.suspended_at ? <><span className="pill bad" title={x.suspended_reason ?? ''}>{t('platform.suspended')}</span><button className="btn" onClick={() => resume(x.slug)}>{t('platform.resume')}</button></>
-                    : <button className="btn danger" onClick={() => suspend(x.slug)}>{t('platform.suspend')}</button>}
-                  <button className="btn primary" onClick={() => enter(x.slug)}>{t('platform.enter')}</button>
-                </span>
-              </td>
-            </tr>
-          ))}</tbody>
-        </table></div>
+        <Card render={<form className="card row" onSubmit={create} />}>
+          <label className="field grow">{t('auth.org')}<Input name="org" required minLength={2} /></label>
+          <label className="field">{t('auth.country')}<NativeSelect name="country" defaultValue="MX">{['MX', 'US', 'BR', 'ES', 'FR', 'DE'].map((c) => <option key={c}>{c}</option>)}</NativeSelect></label>
+          <label className="field grow">{t('platform.ownerEmail')}<Input name="owner" type="email" required dir="ltr" /></label>
+          <Button className="btn primary" disabled={busy}>{t('platform.create')}</Button>
+        </Card>
+        {note && <Alert className="banner" role="status">{note}</Alert>}
+        {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
+        <div className="tablewrap"><Table>
+          <TableHeader><TableRow><TableHead>{t('auth.org')}</TableHead><TableHead>{t('auth.country')}</TableHead><TableHead className="num">{t('platform.members')}</TableHead><TableHead className="num">{t('platform.sites')}</TableHead><TableHead className="num">{t('platform.open')}</TableHead><TableHead /></TableRow></TableHeader>
+          <TableBody>
+            <QueryState loading={tenants.loading} error={tenants.error} empty={!tenants.data?.length} table colSpan={6} />
+            {!tenants.loading && !tenants.error && tenants.data?.map((x) => (
+              <TableRow key={x.slug}>
+                <TableCell><strong>{x.name}</strong><br /><span className="muted">{x.slug} · {fmt.dateTime(x.created_at)}</span></TableCell>
+                <TableCell>{x.country}</TableCell><TableCell className="num">{x.members}</TableCell><TableCell className="num">{x.sites}</TableCell><TableCell className="num">{x.open_sessions}</TableCell>
+                <TableCell>
+                  <span className="row">
+                    {x.suspended_at ? <><Badge className="pill bad" title={x.suspended_reason ?? ''}>{t('platform.suspended')}</Badge><Button variant="outline" className="btn" onClick={() => resume(x.slug)}>{t('platform.resume')}</Button></>
+                      : <Button variant="destructive" className="btn danger" onClick={() => suspend(x.slug)}>{t('platform.suspend')}</Button>}
+                    <Button className="btn primary" onClick={() => enter(x.slug)}>{t('platform.enter')}</Button>
+                  </span>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table></div>
       </div>
     </div>
   );

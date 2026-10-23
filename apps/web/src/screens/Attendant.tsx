@@ -10,25 +10,33 @@ import { matchesRegistry, normalizePlate } from '../alpr/plates.js';
 import { parsePassQr, spaceCode } from '../pass.js';
 import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, capacityBar, clearPassError, emptyFlow, hostValid, isStalePassLookup, type Candidate, type FlowState, type HostValue } from '../attendant-flow.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
 import { feeLabel, passReason } from '../labels.js';
-
-/* ---------- small shared UI primitives ---------- */
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Collapsible as CollapsibleRoot, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 /** A button-driven disclosure region (not <details>, so open state can be driven from router/props). */
 function Collapsible({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   const id = useId();
   return (
-    <section className="collapsible">
+    <CollapsibleRoot open={open} onOpenChange={setOpen} className="collapsible">
       <h2>
-        <button type="button" className="disclosure" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+        <CollapsibleTrigger render={<Button type="button" variant="ghost" className="disclosure" aria-controls={id} />}>
           <span aria-hidden="true" className="chevron">{open ? '▾' : '▸'}</span> {title}
-        </button>
+        </CollapsibleTrigger>
       </h2>
-      <div id={id} hidden={!open}>{open && children}</div>
-    </section>
+      <CollapsibleContent id={id}>{children}</CollapsibleContent>
+    </CollapsibleRoot>
   );
 }
 
@@ -41,7 +49,7 @@ function Tabs({ tab, onTab, labels, label }: { tab: 'camera' | 'manual'; onTab: 
   return (
     <div className="tabs" role="group" aria-label={label}>
       {(['camera', 'manual'] as const).map((k) => (
-        <button key={k} type="button" aria-pressed={tab === k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => onTab(k)}>{labels[k]}</button>
+        <Button key={k} type="button" aria-pressed={tab === k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => onTab(k)}>{labels[k]}</Button>
       ))}
     </div>
   );
@@ -50,8 +58,6 @@ function Tabs({ tab, onTab, labels, label }: { tab: 'camera' | 'manual'; onTab: 
 // The QR decoder is only needed once someone taps Scan, so it stays out of the main bundle.
 const QrScanner = lazy(() => import('../components/QrScanner.js').then((m) => ({ default: m.QrScanner })));
 const Scanner = (props: { onResult: (text: string) => void; onClose: () => void }) => <Suspense fallback={<div className="muted">…</div>}><QrScanner {...props} /></Suspense>;
-
-/* ---------- shared check-in state ---------- */
 
 const FlowCtx = createContext<{
   flow: FlowState;
@@ -87,8 +93,6 @@ export function Flow({ children }: { children: ReactNode }) {
 }
 
 const base = (slug: string) => `/t/${slug}/a`;
-
-/* ---------- home ---------- */
 
 interface Occ {
   totals: { free: number; occupied: number; reserved: number; outOfService: number };
@@ -155,13 +159,13 @@ function ActivityRow({ r }: { r: Row }) {
   const fmt = useFormat(site?.timezone, me?.tenant.currency);
   const b = base(me!.tenant.slug);
   return (
-    <div className="card row between">
-      <div className="row"><PlateChip plate={r.plate} />{r.unit && <span className="pill">{r.unit}</span>}</div>
-      <span className="muted">{r.slot ?? '—'} · {fmt.time(r.out_at ?? r.in_at)}</span>
+    <Card className="card row between">
+      <div className="row"><PlateChip plate={r.plate} />{r.unit && <Badge className="pill">{r.unit}</Badge>}</div>
+      <span className="muted">{r.slot ?? t('common.none')} · {fmt.time(r.out_at ?? r.in_at)}</span>
       {r.status === 'open'
-        ? <button type="button" className="btn" onClick={() => nav(`${b}/checkout`, { state: { ticket: r.ticket_code } })}>{t('att.checkout')}</button>
-        : <span className="muted num">{r.fee != null ? fmt.money(r.fee) : '—'}</span>}
-    </div>
+        ? <Button type="button" className="btn" onClick={() => nav(`${b}/checkout`, { state: { ticket: r.ticket_code } })}>{t('att.checkout')}</Button>
+        : <span className="muted num">{r.fee != null ? fmt.money(r.fee) : t('common.none')}</span>}
+    </Card>
   );
 }
 
@@ -182,18 +186,18 @@ function RecentActivity() {
     <>
       <div className="row">
         <label className="field grow">{t('att.sortBy')}
-          <select value={sort} onChange={(e) => setSort(e.target.value as 'in_at_desc' | 'unit')}>
+          <NativeSelect value={sort} onChange={(e) => setSort(e.target.value as 'in_at_desc' | 'unit')}>
             <option value="in_at_desc">{t('att.sortInAt')}</option>
             <option value="unit">{t('att.sortUnit')}</option>
-          </select>
+          </NativeSelect>
         </label>
         <label className="field grow">{t('att.searchActivity')}
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('att.searchHint')} autoCapitalize="characters" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('att.searchHint')} autoCapitalize="characters" />
         </label>
       </div>
       <div className="stack">
-        {recent.data?.items.length === 0 && <div className="muted">{t('att.noActivity')}</div>}
-        {recent.data?.items.map((r) => <ActivityRow key={r.id} r={r} />)}
+        <QueryState loading={recent.loading} error={recent.error} empty={!recent.data?.items.length} emptyLabel={t('att.noActivity')} />
+        {!recent.loading && !recent.error && recent.data?.items.map((r) => <ActivityRow key={r.id} r={r} />)}
       </div>
     </>
   );
@@ -210,17 +214,16 @@ export function AttendantHome() {
   return (
     <div className="att">
       <div className="row">
-        <button className="btn primary big grow" onClick={() => nav(`${b}/checkin`)}>{t('att.checkin')}</button>
-        <button className="btn big grow" onClick={() => nav(`${b}/checkout`)}>{t('att.checkout')}</button>
+        <Button className="btn primary big grow" onClick={() => nav(`${b}/checkin`)}>{t('att.checkin')}</Button>
+        <Button className="btn big grow" onClick={() => nav(`${b}/checkout`)}>{t('att.checkout')}</Button>
       </div>
-      <div className="card tile"><div className="label">{t('att.freeNow')}</div><div className="value" style={{ fontSize: '3rem' }}>{occ.data ? fmt.number(occ.data.totals.free) : '–'}</div></div>
+      <QueryState loading={occ.loading} error={occ.error} empty={false} />
+      <Card className="card tile"><div className="label">{t('att.freeNow')}</div><div className="value" style={{ fontSize: '3rem' }}>{occ.data ? fmt.number(occ.data.totals.free) : '–'}</div></Card>
       {occ.data && <CapacityBar occ={occ.data} />}
       <Collapsible title={t('att.recent')} defaultOpen={false}><RecentActivity /></Collapsible>
     </div>
   );
 }
-
-/* ---------- plate entry: keypad and camera ---------- */
 
 const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKLÑ', 'ZXCVBNM'] as const;
 
@@ -230,14 +233,14 @@ const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKLÑ', 'ZXCVBNM'] as const
  */
 function Keypad({ value, onChange }: { region?: string; value: string; onChange: (v: string) => void }) {
   const t = useT();
-  const key = (c: string) => <button key={c} type="button" onClick={() => onChange(value + c)} aria-label={c}>{c}</button>;
+  const key = (c: string) => <Button key={c} type="button" onClick={() => onChange(value + c)} aria-label={c}>{c}</Button>;
   return (
     <div className="keypad" dir="ltr" role="group" aria-label={t('att.keypad')}>
       {KEY_ROWS.slice(0, 3).map((row) => <div className="keyrow" key={row}>{[...row].map(key)}</div>)}
       <div className="keyrow">
         {[...KEY_ROWS[3]].map(key)}
-        <button type="button" className="key-delete" onClick={() => onChange(value.slice(0, -1))} aria-label={t('att.keyDelete')}>⌫</button>
-        <button type="button" className="key-clear" onClick={() => onChange('')} aria-label={t('att.keyClear')}>✕</button>
+        <Button type="button" className="key-delete" onClick={() => onChange(value.slice(0, -1))} aria-label={t('att.keyDelete')}>⌫</Button>
+        <Button type="button" className="key-clear" onClick={() => onChange('')} aria-label={t('att.keyClear')}>✕</Button>
       </div>
     </div>
   );
@@ -341,43 +344,43 @@ export function CheckInCapture() {
     <div className="att">
       <h1>{t('att.capture')}</h1>
       {flow.pass ? (
-        <div className="banner" role="status" aria-live="polite" tabIndex={-1} ref={passBannerRef}>
+        <Alert className="banner" role="status" aria-live="polite" tabIndex={-1} ref={passBannerRef}>
           <strong>{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</strong>
           {flow.pass.verifyCode && <div className="num" dir="ltr">{t('att.passVerified', { code: spaceCode(flow.pass.verifyCode) })}</div>}
           {flow.pass.plateHint && <div className="muted">{t('att.passPlateHint', { plate: flow.pass.plateHint })}</div>}
-          <div><button type="button" className="btn" onClick={() => { passSeq.current++; update(applyPassRemove); }}>{t('att.passRemove')}</button></div>
-        </div>
+          <div><Button type="button" className="btn" onClick={() => { passSeq.current++; update(applyPassRemove); }}>{t('att.passRemove')}</Button></div>
+        </Alert>
       ) : scanning ? (
         <Scanner onClose={() => setScanning(false)} onResult={(text) => { void usePass(text); }} />
       ) : (
-        <section className="card stack">
-          <button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanPass')}</button>
+        <Card className="card stack">
+          <Button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanPass')}</Button>
           <div className="row">
-            <input className="grow" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('att.passCode')} aria-label={t('att.passCode')} dir="ltr" autoCapitalize="off" />
-            <button type="button" className="btn" disabled={!code.trim()} onClick={() => { void usePass(code); }}>{t('att.passUse')}</button>
+            <Input className="grow" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('att.passCode')} aria-label={t('att.passCode')} dir="ltr" autoCapitalize="off" />
+            <Button type="button" className="btn" disabled={!code.trim()} onClick={() => { void usePass(code); }}>{t('att.passUse')}</Button>
           </div>
-        </section>
+        </Card>
       )}
       {flow.passError && (
-        <div className="banner bad" role="alert" tabIndex={-1} ref={passErrRef}>
+        <Alert variant="destructive" className="banner bad" role="alert" tabIndex={-1} ref={passErrRef}>
           <div>{flow.passError}</div>
-          <div><button type="button" className="btn" onClick={() => update(clearPassError)}>{t('att.passDismiss')}</button></div>
-        </div>
+          <div><Button type="button" className="btn" onClick={() => update(clearPassError)}>{t('att.passDismiss')}</Button></div>
+        </Alert>
       )}
       <Tabs tab={tab} onTab={setTab} label={t('att.captureMethod')} labels={{ camera: t('att.camera'), manual: t('att.manualEntry') }} />
       {camera ? (
         <>
-          {!aiOn && <div className="banner">{t('att.cameraAiOff')}</div>}
+          {!aiOn && <Alert className="banner">{t('att.cameraAiOff')}</Alert>}
           <LiveCamera regions={me!.tenant.plate_regions} qr={!flow.pass} plate={aiOn} busy={busy} onQr={(text) => { void usePass(text); }} onPlate={onPlate} onSnap={(img) => { void capture(img); }} />
         </>
       ) : (
         <>
           <div className="platebox">{flow.plate ? <PlateChip plate={flow.plate} region={flow.region} size="xl" /> : <span className="muted">{t('att.plate')}</span>}</div>
           <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual', candidates: [], plateFromPass: false })} />
-          <button className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</button>
+          <Button type="button" className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</Button>
         </>
       )}
-      {err && <div className="banner bad" role="alert">{err}</div>}
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
     </div>
   );
 }
@@ -391,22 +394,20 @@ export function CheckInReview() {
   const b = base(me!.tenant.slug);
   return (
     <div className="att">
-      <div className="banner warn">{t('att.lowConf')}</div>
+      <Alert className="banner warn">{t('att.lowConf')}</Alert>
       <h2>{t('att.candidates')}</h2>
       <div className="stack">{flow.candidates.map((c) => (
-        <button key={c.norm} className="btn row between" onClick={() => { set({ plate: c.text, confidence: c.confidence, source: 'ai_assist', plateFromPass: false }); nav(`${b}/checkin/confirm`); }}>
+        <Button type="button" key={c.norm} className="btn row between" onClick={() => { set({ plate: c.text, confidence: c.confidence, source: 'ai_assist', plateFromPass: false }); nav(`${b}/checkin/confirm`); }}>
           <PlateChip plate={c.text} region={c.region} size="lg" /><span className="muted">{t('att.confidence', { pct: fmt.percent(c.confidence) })}{c.formatValid === false ? ' ⚠' : ''}</span>
-        </button>
+        </Button>
       ))}</div>
       <h2>{t('att.keypad')}</h2>
-      <div className="platebox"><PlateChip plate={flow.plate || '—'} region={flow.region} size="xl" /></div>
+      <div className="platebox">{flow.plate ? <PlateChip plate={flow.plate} region={flow.region} size="xl" /> : <span className="muted">{t('common.none')}</span>}</div>
       <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual', plateFromPass: false })} />
-      <button className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</button>
+      <Button type="button" className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</Button>
     </div>
   );
 }
-
-/* ---------- check-in confirm ---------- */
 
 interface Opened { session: { id: string; ticketCode: string }; slot: string; warnings: string[] }
 const BODY = ['sedan', 'suv', 'pickup', 'van', 'motorcycle'];
@@ -429,7 +430,7 @@ function HostControl({ fixedUnit, onChange }: { fixedUnit?: string; onChange: (v
   const listId = useId();
 
   // A pass redemption fixes the host to the pass's unit; the control is read-only.
-  if (fixedUnit) return <label className="field">{t('att.host')}<input value={fixedUnit} readOnly aria-readonly="true" /></label>;
+  if (fixedUnit) return <label className="field">{t('att.host')}<Input value={fixedUnit} readOnly aria-readonly="true" /></label>;
 
   const matches = (units.data ?? []).filter((u) => `${u.code} ${u.name}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8);
   const pickUnit = (code: string) => { setOther(false); setQuery(code); onChange({ unit: code }); };
@@ -447,25 +448,25 @@ function HostControl({ fixedUnit, onChange }: { fixedUnit?: string; onChange: (v
     <div className="stack">
       <div className="row between">
         <label className="field grow">{t('att.host')}
-          <input role="combobox" aria-expanded={!other && matches.length > 0} aria-controls={listId} aria-autocomplete="list"
+          <Input role="combobox" aria-expanded={!other && matches.length > 0} aria-controls={listId} aria-autocomplete="list"
             value={query} disabled={other} onChange={(e) => { setQuery(e.target.value); onChange(null); }} placeholder={t('att.hostSearch')} />
         </label>
-        <label className="row"><input type="checkbox" checked={other} onChange={toggleOther} /> {t('att.hostOther')}</label>
+        <label className="row"><Checkbox checked={other} onCheckedChange={toggleOther} /> {t('att.hostOther')}</label>
       </div>
       {!other && query.trim() && (
         <ul id={listId} role="listbox" className="stack autolist">
           {matches.length === 0 && <li className="muted">{t('att.hostNoMatch')}</li>}
           {matches.map((u) => (
             <li key={u.code} role="option" aria-selected={false}>
-              <button type="button" className="btn row between" onClick={() => pickUnit(u.code)}><span>{u.code}</span><span className="muted">{u.name}</span></button>
+              <Button type="button" className="btn row between" onClick={() => pickUnit(u.code)}><span>{u.code}</span><span className="muted">{u.name}</span></Button>
             </li>
           ))}
         </ul>
       )}
       {other && (
         <div className="stack">
-          <label className="field">{t('att.hostName')}<input value={name} onChange={(e) => setOtherField('name', e.target.value)} /></label>
-          <label className="field">{t('att.hostPhone')}<input value={phone} onChange={(e) => setOtherField('phone', e.target.value)} placeholder="+525512345678" dir="ltr" inputMode="tel" /></label>
+          <label className="field">{t('att.hostName')}<Input value={name} onChange={(e) => setOtherField('name', e.target.value)} /></label>
+          <label className="field">{t('att.hostPhone')}<Input value={phone} onChange={(e) => setOtherField('phone', e.target.value)} placeholder="+525512345678" dir="ltr" inputMode="tel" /></label>
         </div>
       )}
     </div>
@@ -483,15 +484,15 @@ function SlotPicker({ suggested, value, onPick }: { suggested: string | null; va
   const shown = value || suggested || t('att.nothingFree');
   return (
     <div className="stack">
-      <button type="button" className="btn row between" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <Button type="button" className="btn row between" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span>{t('att.slot')}: <strong>{shown}</strong></span><span aria-hidden="true">{open ? '▾' : '▸'}</span>
-      </button>
+      </Button>
       {open && (
         <ul role="listbox" className="stack autolist slotlist">
           {free.data?.length === 0 && <li className="muted">{t('att.nothingFree')}</li>}
           {free.data?.map((s) => (
             <li key={s.code} role="option" aria-selected={s.code === value}>
-              <button type="button" className="btn row between" onClick={() => { onPick(s.code); setOpen(false); }}><span>{s.code}</span><span className="muted">{s.zone}</span></button>
+              <Button type="button" className="btn row between" onClick={() => { onPick(s.code); setOpen(false); }}><span>{s.code}</span><span className="muted">{s.zone}</span></Button>
             </li>
           ))}
         </ul>
@@ -549,22 +550,22 @@ export function CheckInConfirm() {
   if (done) {
     return (
       <div className="att">
-        {done === 'queued' ? <div className="banner warn">{t('att.queued')}</div> : (
+        {done === 'queued' ? <Alert className="banner warn">{t('att.queued')}</Alert> : (
           <>
             <div className="platebox"><PlateChip plate={flow.plate} region={flow.region} size="xl" /></div>
             <dl className="kv"><dt>{t('att.slot')}</dt><dd>{done.slot}</dd><dt>{t('att.ticket')}</dt><dd className="num">{done.session.ticketCode}</dd></dl>
             <Ticket code={done.session.ticketCode} />
-            {done.warnings.length > 0 && <div className="banner warn">{done.warnings.join(', ')}</div>}
+            {done.warnings.length > 0 && <Alert className="banner warn">{done.warnings.join(', ')}</Alert>}
           </>
         )}
-        <button className="btn primary big" onClick={() => { reset(); nav(b); }}>{t('att.done')}</button>
+        <Button type="button" className="btn primary big" onClick={() => { reset(); nav(b); }}>{t('att.done')}</Button>
       </div>
     );
   }
 
   return (
     <div className="att">
-      {flow.pass && <div className="banner">{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</div>}
+      {flow.pass && <Alert className="banner">{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</Alert>}
       {flow.plate && <div className="platebox"><PlateChip plate={flow.plate} region={flow.region} size="xl" /></div>}
       {/* The required Plate stays editable here, so a no-hint pass (or an attendant correcting an OCR read) can type it
           on the confirmation form itself rather than returning to the capture screen. */}
@@ -576,45 +577,43 @@ export function CheckInConfirm() {
       <HostControl fixedUnit={flow.pass?.unit} onChange={setHost} />
       <h2>{t('att.vehicle')}</h2>
       <div className="row">
-        <label className="field grow">{t('att.make')}<input {...v('make')} /></label>
-        <label className="field grow">{t('att.model')}<input {...v('model')} /></label>
+        <label className="field grow">{t('att.make')}<Input {...v('make')} /></label>
+        <label className="field grow">{t('att.model')}<Input {...v('model')} /></label>
         <label className="field grow">{t('att.year')}
-          <input type="number" inputMode="numeric" min={1900} max={new Date().getFullYear() + 1} value={flow.vehicle.year ?? ''}
+          <Input type="number" inputMode="numeric" min={1900} max={new Date().getFullYear() + 1} value={flow.vehicle.year ?? ''}
             onChange={(e) => { const n = e.target.value ? Number(e.target.value) : undefined; set({ vehicle: { ...flow.vehicle, year: Number.isFinite(n) ? n : undefined } }); }} /></label>
       </div>
       <div className="row">
-        <label className="field grow">{t('att.color')}<input {...v('color')} /></label>
-        <label className="field grow">{t('att.body')}<select {...v('bodyType')}><option value="" />{BODY.map((x) => <option key={x} value={x}>{t(`body.${x}`)}</option>)}</select></label>
+        <label className="field grow">{t('att.color')}<Input {...v('color')} /></label>
+        <label className="field grow">{t('att.body')}<NativeSelect {...v('bodyType')}><option value="" />{BODY.map((x) => <option key={x} value={x}>{t(`body.${x}`)}</option>)}</NativeSelect></label>
       </div>
       <h2>{t('att.suggested')}</h2>
       <SlotPicker suggested={suggestion.data?.slot ?? null} value={slot} onPick={(code) => setSlot(code)} />
       {err && (
-        <div className="banner bad" role="alert">
-          {err.code === 'already_inside' ? t('att.inside', { time: new Date(String(err.details?.inAt)).toLocaleTimeString(), slot: String(err.details?.slot ?? '—') })
+        <Alert variant="destructive" className="banner bad" role="alert">
+          {err.code === 'already_inside' ? t('att.inside', { time: new Date(String(err.details?.inAt)).toLocaleTimeString(), slot: String(err.details?.slot ?? t('common.none')) })
             : err.code === 'assigned_slot_taken' ? t('att.takenBy', { plate: String(err.details?.offender ?? '?') })
             : err.code === 'site_full' ? t('att.full') : err.message}
-          {typeof err.details?.suggestion === 'string' && <div><button className="btn" onClick={() => confirm(err.details!.suggestion as string)}>{t('att.slot')} {String(err.details!.suggestion)}</button></div>}
-        </div>
+          {typeof err.details?.suggestion === 'string' && <div><Button type="button" className="btn" onClick={() => confirm(err.details!.suggestion as string)}>{t('att.slot')} {String(err.details!.suggestion)}</Button></div>}
+        </Alert>
       )}
-      {flow.passPending && <div className="banner" role="status" aria-live="polite">{t('att.passChecking')}</div>}
+      {flow.passPending && <Alert className="banner" role="status" aria-live="polite">{t('att.passChecking')}</Alert>}
       {/* A scan that rejected AFTER a camera plate read navigated here stays visible and blocks the walk-in: the
           attendant must acknowledge (return to scan) before an ordinary check-in can be submitted. */}
       {flow.passError && (
-        <div className="banner bad" role="alert" tabIndex={-1} ref={passErrRef}>
+        <Alert variant="destructive" className="banner bad" role="alert" tabIndex={-1} ref={passErrRef}>
           <div>{flow.passError}</div>
-          <div><button type="button" className="btn" onClick={() => { update(clearPassError); nav(`${b}/checkin`); }}>{t('att.passDismiss')}</button></div>
-        </div>
+          <div><Button type="button" className="btn" onClick={() => { update(clearPassError); nav(`${b}/checkin`); }}>{t('att.passDismiss')}</Button></div>
+        </Alert>
       )}
-      {!flow.passPending && !flow.passError && !flow.plate && <div className="banner warn" role="alert">{t('att.needPlate')}</div>}
+      {!flow.passPending && !flow.passError && !flow.plate && <Alert className="banner warn" role="alert">{t('att.needPlate')}</Alert>}
       {/* A walk-in must name who authorized it: a community unit, or a complete "Other" (name + E.164 phone). */}
-      {!flow.pass && !flow.passPending && !flow.passError && flow.plate && !hostValid(host, false) && <div className="banner warn" role="alert">{t('att.needHost')}</div>}
-      <button className="btn primary big" disabled={!canConfirm(flow, busy) || !hostValid(host, !!flow.pass)} onClick={() => confirm()}>{t('att.confirm')}</button>
-      <button type="button" className="btn" onClick={() => nav(`${b}/checkin`)}>{t('att.editPlate')}</button>
+      {!flow.pass && !flow.passPending && !flow.passError && flow.plate && !hostValid(host, false) && <Alert className="banner warn" role="alert">{t('att.needHost')}</Alert>}
+      <Button type="button" className="btn primary big" disabled={!canConfirm(flow, busy) || !hostValid(host, !!flow.pass)} onClick={() => confirm()}>{t('att.confirm')}</Button>
+      <Button type="button" className="btn" onClick={() => nav(`${b}/checkin`)}>{t('att.editPlate')}</Button>
     </div>
   );
 }
-
-/* ---------- check-out ---------- */
 
 interface Match {
   matched: boolean; method?: string;
@@ -639,7 +638,7 @@ function BottomSheetKeypad({ value, onChange, onClose }: { value: string; onChan
     <div className="sheet" role="dialog" aria-modal="false" aria-label={t('att.keyboard')}>
       <div className="sheet-head row between">
         <span className="muted">{t('att.keyboard')}</span>
-        <button type="button" className="btn" onClick={onClose} aria-label={t('att.keyboardClose')}>✕</button>
+        <Button type="button" className="btn" onClick={onClose} aria-label={t('att.keyboardClose')}>✕</Button>
       </div>
       <Keypad value={value} onChange={onChange} />
     </div>
@@ -647,7 +646,7 @@ function BottomSheetKeypad({ value, onChange, onClose }: { value: string; onChan
 }
 
 /** Check-out Manual Entry: a plate autocomplete over open sessions (longest stay first). The ticket is internal only. */
-function PlateAutocomplete({ open, busy, onSelect }: { open: OpenRow[]; busy: boolean; onSelect: (ticket: string) => void }) {
+function PlateAutocomplete({ open, busy, error, onSelect }: { open: OpenRow[]; busy: boolean; error: string; onSelect: (ticket: string) => void }) {
   const t = useT();
   const { me, site } = useApp();
   const fmt = useFormat(site?.timezone, me?.tenant.currency);
@@ -672,13 +671,14 @@ function PlateAutocomplete({ open, busy, onSelect }: { open: OpenRow[]; busy: bo
         <PlateInput value={query} onChange={setQuery} autoFocus aria-autocomplete="list" aria-expanded={matches.length > 0} aria-controls={listId}
           aria-activedescendant={active >= 0 ? optId(active) : undefined} onFocus={() => setSheet(true)} onKeyDown={onKeyDown} />
       </label>
-      {open.length === 0 ? <div className="muted">{t('att.noneParked')}</div> : (
+      <QueryState loading={false} error={error} empty={false} />
+      {open.length === 0 && !error ? <div className="muted">{t('att.noneParked')}</div> : !error && (
         <ul id={listId} role="listbox" className="stack autolist" aria-label={t('att.plate')}>
           {matches.map((o, i) => (
             <li key={o.id} id={optId(i)} role="option" aria-selected={i === active}>
-              <button type="button" className={`btn row between ${i === active ? 'primary' : ''}`} onClick={() => choose(o)}>
-                <PlateChip plate={o.plate} /><span className="muted">{o.slot ?? '—'} · {dur(o.in_at)}</span>
-              </button>
+              <Button type="button" className={`btn row between ${i === active ? 'primary' : ''}`} onClick={() => choose(o)}>
+                <PlateChip plate={o.plate} /><span className="muted">{o.slot ?? t('common.none')} · {dur(o.in_at)}</span>
+              </Button>
             </li>
           ))}
         </ul>
@@ -745,8 +745,8 @@ export function CheckOut() {
   if (receipt) {
     return (
       <div className="att">
-        {receipt === 'queued' ? <div className="banner warn">{t('att.queued')}</div> : <div className="banner">{t('att.receipt', { no: receipt })}</div>}
-        <button className="btn primary big" onClick={() => nav(b)}>{t('att.done')}</button>
+        {receipt === 'queued' ? <Alert className="banner warn">{t('att.queued')}</Alert> : <Alert className="banner">{t('att.receipt', { no: receipt })}</Alert>}
+        <Button type="button" className="btn primary big" onClick={() => nav(b)}>{t('att.done')}</Button>
       </div>
     );
   }
@@ -756,24 +756,24 @@ export function CheckOut() {
     return (
       <div className="att">
         <h1>{t('att.leavingTitle')}</h1>
-        {fuzzy && <div className="banner warn">{t('att.confirmFuzzy')}</div>}
+        {fuzzy && <Alert className="banner warn">{t('att.confirmFuzzy')}</Alert>}
         <div className="platebox"><PlateChip plate={m.vehicle!.plate} size="xl" /></div>
         <dl className="kv">
-          <dt>{t('att.slot')}</dt><dd>{m.slot ?? '—'}</dd>
+          <dt>{t('att.slot')}</dt><dd>{m.slot ?? t('common.none')}</dd>
           <dt>{t('att.entry')}</dt><dd>{fmt.dateTime(m.session.inAt)}</dd>
-          <dt>{t('att.vehicle')}</dt><dd>{[m.vehicle!.make, m.vehicle!.model, m.vehicle!.color].filter(Boolean).join(' ') || '—'}</dd>
+          <dt>{t('att.vehicle')}</dt><dd>{[m.vehicle!.make, m.vehicle!.model, m.vehicle!.color].filter(Boolean).join(' ') || t('common.none')}</dd>
         </dl>
-        <div className="muted">{t('att.checkedInBy', { name: m.session.inBy ?? '—', time: fmt.time(m.session.inAt) })}</div>
+        <div className="muted">{t('att.checkedInBy', { name: m.session.inBy ?? t('common.none'), time: fmt.time(m.session.inAt) })}</div>
         <div className="muted">{t('att.duration', { hours: h, minutes: min })}</div>
-        <section className="card">
+        <Card className="card">
           {m.fee.lines.map((l, i) => <div key={i} className="feeline"><span>{feeLabel(t, l.label)}</span><span className="num">{fmt.money(l.amount)}</span></div>)}
           <div className="feeline"><strong>{t('att.fee')}</strong><span className="feetotal num">{fmt.money(m.fee.total)}</span></div>
-        </section>
-        {can('override') && <label className="row"><input type="checkbox" checked={lost} onChange={(e) => { setLost(e.target.checked); void find({ ticket: m.session!.ticketCode }, e.target.checked); }} />{t('att.lost')}</label>}
-        <div className="row">{(['cash', 'card', 'account'] as const).map((p) => <button key={p} className={`btn grow ${pay === p ? 'primary' : ''}`} onClick={() => setPay(p)}>{t(`att.${p}`)}</button>)}</div>
-        {err && <div className="banner bad" role="alert">{err}</div>}
-        <button className="btn primary big" disabled={busy} onClick={confirm}>{t('att.confirmLeaving')} · {fmt.money(m.fee.total)}</button>
-        <button className="btn" onClick={() => { setM(null); setFuzzy(null); }}>{t('common.back')}</button>
+        </Card>
+        {can('override') && <label className="row"><Checkbox checked={lost} onCheckedChange={(checked) => { const next = checked === true; setLost(next); void find({ ticket: m.session!.ticketCode }, next); }} />{t('att.lost')}</label>}
+        <div className="row">{(['cash', 'card', 'account'] as const).map((p) => <Button type="button" key={p} className={`btn grow ${pay === p ? 'primary' : ''}`} onClick={() => setPay(p)}>{t(`att.${p}`)}</Button>)}</div>
+        {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
+        <Button type="button" className="btn primary big" disabled={busy} onClick={confirm}>{t('att.confirmLeaving')} · {fmt.money(m.fee.total)}</Button>
+        <Button type="button" className="btn" onClick={() => { setM(null); setFuzzy(null); }}>{t('common.back')}</Button>
       </div>
     );
   }
@@ -789,29 +789,29 @@ export function CheckOut() {
               <LiveCamera regions={me!.tenant.plate_regions} plate={me!.tenant.ai_mode !== 'off'} busy={busy}
                 onQr={(text) => { const tk = text.trim().toUpperCase(); setScanning(false); setTicket(tk); void find({ ticket: tk }); }}
                 onPlate={(p) => { setScanning(false); const txt = normalizePlate(p.text); setPlate(txt); void find({ plate: txt }); }} />
-              <button type="button" className="btn" onClick={() => setScanning(false)}>{t('att.stopScan')}</button>
+              <Button type="button" className="btn" onClick={() => setScanning(false)}>{t('att.stopScan')}</Button>
             </>
-          ) : <button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanQr')}</button>}
-          <label className="field">{t('att.scanTicket')}<input value={ticket} onChange={(e) => setTicket(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
+          ) : <Button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanQr')}</Button>}
+          <label className="field">{t('att.scanTicket')}<Input value={ticket} onChange={(e) => setTicket(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
           <div className="muted" style={{ textAlign: 'center' }}>{t('att.orPlate')}</div>
           <label className="field">{t('att.plate')}<PlateInput value={plate} onChange={setPlate} autoFocus /></label>
-          <button className="btn primary big" disabled={busy || (!plate && !ticket)} onClick={() => find()}>{t('att.find')}</button>
+          <Button type="button" className="btn primary big" disabled={busy || (!plate && !ticket)} onClick={() => find()}>{t('att.find')}</Button>
         </>
       ) : (
-        <PlateAutocomplete open={openSessions.data?.items ?? []} busy={busy || openSessions.loading} onSelect={(tk) => { setTicket(tk); void find({ ticket: tk }); }} />
+        <PlateAutocomplete open={openSessions.data?.items ?? []} busy={busy || openSessions.loading} error={openSessions.error} onSelect={(tk) => { setTicket(tk); void find({ ticket: tk }); }} />
       )}
       {m && !m.matched && (
         <div className="stack">
-          <div className="banner warn">{t('att.noMatch')}</div>
+          <Alert className="banner warn">{t('att.noMatch')}</Alert>
           {!!m.candidates?.length && <h2>{t('att.didYouMean')}</h2>}
           {m.candidates?.map((c) => (
-            <button key={c.sessionId} className="btn row between" onClick={() => { setFuzzy(c.sessionId); void find({ ticket: c.ticketCode }); }}>
+            <Button type="button" key={c.sessionId} className="btn row between" onClick={() => { setFuzzy(c.sessionId); void find({ ticket: c.ticketCode }); }}>
               <PlateChip plate={c.plate} size="lg" /><span className="muted">{c.slot}</span>
-            </button>
+            </Button>
           ))}
         </div>
       )}
-      {err && <div className="banner bad" role="alert">{err}{!navigator.onLine && (plate || ticket) && <div><button className="btn" onClick={queueOffline}>{t('att.queued')}</button></div>}</div>}
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}{!navigator.onLine && (plate || ticket) && <div><Button type="button" className="btn" onClick={queueOffline}>{t('att.queued')}</Button></div>}</Alert>}
       <Link to={b}>{t('common.back')}</Link>
     </div>
   );

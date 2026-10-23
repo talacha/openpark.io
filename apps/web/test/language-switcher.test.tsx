@@ -24,6 +24,8 @@ vi.mock('../src/offline.js', () => ({
 }));
 
 const { AppMenu } = await import('../src/components/AppMenu.js');
+const { SidebarProvider } = await import('../src/components/ui/sidebar.js');
+const { TooltipProvider } = await import('../src/components/ui/tooltip.js');
 
 function me(roles: Role[] = ['admin']): Me {
   return {
@@ -34,7 +36,7 @@ function me(roles: Role[] = ['admin']): Me {
 
 function mount(defaultLocale = 'en') {
   useApp.mockReturnValue({ me: me(), who: { user: null, superadmin: false, memberships: [] }, sites: [], site: null, setSiteCode: vi.fn(), signOut: vi.fn(() => Promise.resolve()), switchTenant: vi.fn(() => Promise.resolve()), reload: vi.fn(() => Promise.resolve()) });
-  return render(<I18nProvider defaultLocale={defaultLocale} terminology={{}}><MemoryRouter initialEntries={['/t/acme/users']}><AppMenu /></MemoryRouter></I18nProvider>);
+  return render(<I18nProvider defaultLocale={defaultLocale} terminology={{}}><MemoryRouter initialEntries={['/t/acme/users']}><TooltipProvider><SidebarProvider><AppMenu /></SidebarProvider></TooltipProvider></MemoryRouter></I18nProvider>);
 }
 
 afterEach(() => { cleanup(); store.clear(); });

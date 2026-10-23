@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { ApiError, patch, post } from '../api.js';
 import { canEditPassPolicy, useApp } from '../app-context.js';
 import { useApi } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useFormat, useT } from '../i18n.js';
 import type { PassView } from './Resident.js';
 
@@ -32,40 +39,44 @@ export function GuestPasses() {
   return (
     <div className="stack">
       <h1>{t('passes.title')}</h1>
+      <QueryState loading={res.loading} error={res.error} empty={!res.data} />
       {p && (
-        <section className="card stack">
+        <Card className="card stack">
           <h2>{t('passes.rules')}</h2>
           <div className="tiles">
-            <label className="field">{t('passes.qrTtl')}<input type="number" min={5} max={1440} value={p.qrTtlMin} disabled={!canEdit} onChange={(e) => num('qrTtlMin', e.target.value)} /></label>
-            <label className="field">{t('passes.maxStay')}<input type="number" min={1} max={72} step="0.5" value={p.maxStayHours} disabled={!canEdit} onChange={(e) => num('maxStayHours', e.target.value)} /></label>
-            <label className="field">{t('passes.reminder1')}<input type="number" min={0.5} step="0.5" value={p.reminderHours[0]} disabled={!canEdit} onChange={(e) => setP({ ...p, reminderHours: [Number(e.target.value), p.reminderHours[1]] })} /></label>
-            <label className="field">{t('passes.reminder2')}<input type="number" min={0.5} step="0.5" value={p.reminderHours[1]} disabled={!canEdit} onChange={(e) => setP({ ...p, reminderHours: [p.reminderHours[0], Number(e.target.value)] })} /></label>
+            <label className="field">{t('passes.qrTtl')}<Input type="number" min={5} max={1440} value={p.qrTtlMin} disabled={!canEdit} onChange={(e) => num('qrTtlMin', e.target.value)} /></label>
+            <label className="field">{t('passes.maxStay')}<Input type="number" min={1} max={72} step="0.5" value={p.maxStayHours} disabled={!canEdit} onChange={(e) => num('maxStayHours', e.target.value)} /></label>
+            <label className="field">{t('passes.reminder1')}<Input type="number" min={0.5} step="0.5" value={p.reminderHours[0]} disabled={!canEdit} onChange={(e) => setP({ ...p, reminderHours: [Number(e.target.value), p.reminderHours[1]] })} /></label>
+            <label className="field">{t('passes.reminder2')}<Input type="number" min={0.5} step="0.5" value={p.reminderHours[1]} disabled={!canEdit} onChange={(e) => setP({ ...p, reminderHours: [p.reminderHours[0], Number(e.target.value)] })} /></label>
             <label className="field">{t('passes.charge')} ({res.data?.currency})
-              <input type="number" min={0} step="0.01" value={p.overstayCharge / 100} disabled={!canEdit} onChange={(e) => setP({ ...p, overstayCharge: Math.round(Number(e.target.value) * 100) })} /></label>
+              <Input type="number" min={0} step="0.01" value={p.overstayCharge / 100} disabled={!canEdit} onChange={(e) => setP({ ...p, overstayCharge: Math.round(Number(e.target.value) * 100) })} /></label>
           </div>
           <p className="muted">{t('passes.chargeHelp')}</p>
           <fieldset style={{ border: 0, padding: 0, margin: 0 }}><legend>{t('passes.alerts')}</legend>
             <div className="row">
-              <label className="row"><input type="checkbox" checked disabled />{t('passes.alertHost')}</label>
-              <label className="row"><input type="checkbox" checked={p.alertRecipients.includes('guest')} disabled={!canEdit} onChange={() => toggle('guest')} />{t('passes.alertGuest')}</label>
-              <label className="row"><input type="checkbox" checked={p.alertRecipients.includes('supervisors')} disabled={!canEdit} onChange={() => toggle('supervisors')} />{t('passes.alertSupervisors')}</label>
+              <label className="row"><Checkbox checked disabled />{t('passes.alertHost')}</label>
+              <label className="row"><Checkbox checked={p.alertRecipients.includes('guest')} disabled={!canEdit} onCheckedChange={() => toggle('guest')} />{t('passes.alertGuest')}</label>
+              <label className="row"><Checkbox checked={p.alertRecipients.includes('supervisors')} disabled={!canEdit} onCheckedChange={() => toggle('supervisors')} />{t('passes.alertSupervisors')}</label>
             </div>
           </fieldset>
-          {canEdit && <div className="row"><button className="btn primary" onClick={save}>{t('common.save')}</button>{msg && <span className="muted">{msg}</span>}</div>}
-        </section>
+          {canEdit && <div className="row"><Button className="btn primary" onClick={save}>{t('common.save')}</Button>{msg && <span className="muted">{msg}</span>}</div>}
+        </Card>
       )}
       <section>
         <h2>{t('passes.list')}</h2>
-        <div className="tablewrap"><table>
-          <thead><tr><th>{t('units.code')}</th><th>{t('passes.guest')}</th><th>{t('common.status')}</th><th>{t('passes.expires')}</th><th /></tr></thead>
-          <tbody>{list.data?.map((x) => (
-            <tr key={x.id}>
-              <td>{x.unit.code}</td><td>{x.guestName}</td><td><span className="pill">{t(`res.status_${x.displayStatus}`)}</span></td>
-              <td>{fmt.dateTime(x.expiresAt)}</td>
-              <td>{x.status === 'active' && <button className="btn danger" onClick={() => cancel(x.id)}>{t('res.cancel')}</button>}{x.overstayCharge ? ` ${fmt.money(x.overstayCharge)}` : ''}</td>
-            </tr>
-          ))}</tbody>
-        </table></div>
+        <div className="tablewrap"><Table>
+          <TableHeader><TableRow><TableHead>{t('units.code')}</TableHead><TableHead>{t('passes.guest')}</TableHead><TableHead>{t('common.status')}</TableHead><TableHead>{t('passes.expires')}</TableHead><TableHead /></TableRow></TableHeader>
+          <TableBody>
+            <QueryState loading={list.loading} error={list.error} empty={!list.data?.length} table colSpan={5} />
+            {!list.loading && !list.error && list.data?.map((x) => (
+              <TableRow key={x.id}>
+                <TableCell>{x.unit.code}</TableCell><TableCell>{x.guestName}</TableCell><TableCell><Badge className="pill">{t(`res.status_${x.displayStatus}`)}</Badge></TableCell>
+                <TableCell>{fmt.dateTime(x.expiresAt)}</TableCell>
+                <TableCell>{x.status === 'active' && <Button variant="destructive" className="btn danger" onClick={() => cancel(x.id)}>{t('res.cancel')}</Button>}{x.overstayCharge ? ` ${fmt.money(x.overstayCharge)}` : ''}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table></div>
       </section>
     </div>
   );

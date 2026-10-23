@@ -3,8 +3,16 @@ import { Link } from 'react-router-dom';
 import { del, patch, post } from '../api.js';
 import { pickLabel, useApp } from '../app-context.js';
 import { useApi, useSubmitKey } from '../components/hooks.js';
+import { QueryState } from '../components/QueryState.js';
 import { errText } from '../errors.js';
 import { useI18n, useT } from '../i18n.js';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 
 interface Zone { code: string; name: string; labels: Record<string, string>; level: number | null; slots: number }
 interface SiteRow { code: string; name: string; timezone: string; address: string | null; settings: { aiThreshold?: number }; slots: number; open_sessions: number; zones: Zone[] }
@@ -50,23 +58,23 @@ export function Parking() {
     <div className="stack">
       <h1>{t('parking.title')}</h1>
       <p className="muted">{t('parking.intro')}</p>
-      {err && <div className="banner bad" role="alert">{err}</div>}
+      {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
       {canEdit && <CommunitySettings />}
       {canEdit && (
-        <form className="card stack" onSubmit={addSite}>
+        <Card render={<form className="card stack" onSubmit={addSite} />}>
           <h2>{t('parking.addSite')}</h2>
           <div className="row">
-            <label className="field">{t('units.code')}<input name="code" required maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" dir="ltr" /></label>
-            <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
+            <label className="field">{t('units.code')}<Input name="code" required maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" dir="ltr" /></label>
+            <label className="field grow">{t('units.name')}<Input name="name" required maxLength={100} /></label>
             <label className="field">{t('parking.timezone')}
-              <select name="timezone" required defaultValue={me?.tenant.country === 'MX' ? 'America/Mexico_City' : Intl.DateTimeFormat().resolvedOptions().timeZone}>{timezones(Intl.DateTimeFormat().resolvedOptions().timeZone).map((z) => <option key={z}>{z}</option>)}</select></label>
+              <NativeSelect name="timezone" required defaultValue={me?.tenant.country === 'MX' ? 'America/Mexico_City' : Intl.DateTimeFormat().resolvedOptions().timeZone}>{timezones(Intl.DateTimeFormat().resolvedOptions().timeZone).map((z) => <option key={z}>{z}</option>)}</NativeSelect></label>
           </div>
-          <label className="field">{t('parking.address')}<input name="address" maxLength={300} /></label>
-          <div><button className="btn primary" disabled={busy}>{t('parking.addSite')}</button></div>
-        </form>
+          <label className="field">{t('parking.address')}<Input name="address" maxLength={300} /></label>
+          <div><Button type="submit" className="btn primary" disabled={busy}>{t('parking.addSite')}</Button></div>
+        </Card>
       )}
-      {sites.data?.map((s) => <SiteCard key={s.code} site={s} tz={tz} canEdit={canEdit} run={run} />)}
-      {sites.data && !sites.data.length && <div className="banner">{t('parking.none')}</div>}
+      <QueryState loading={sites.loading} error={sites.error} empty={!sites.data?.length} emptyLabel={t('parking.none')} />
+      {!sites.loading && !sites.error && sites.data?.map((s) => <SiteCard key={s.code} site={s} tz={tz} canEdit={canEdit} run={run} />)}
     </div>
   );
 }
@@ -84,19 +92,19 @@ function CommunitySettings() {
     catch (x) { setMsg(errText(x)); }
   }
   return (
-    <section className="card stack" data-community>
+    <Card render={<section className="card stack" data-community />}>
       <div className="row between">
         <h2>{t('community.settings')} <small className="muted">{me!.tenant.name}</small></h2>
-        <button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t('common.hide') : t('community.edit')}</button>
+        <Button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t('common.hide') : t('community.edit')}</Button>
       </div>
       {open && (
         <>
-          <label className="field">{t('community.address')}<input value={address} maxLength={300} onChange={(e) => setAddress(e.target.value)} /></label>
-          <label className="field">{t('community.notes')}<textarea value={notes} maxLength={2000} onChange={(e) => setNotes(e.target.value)} /></label>
-          <div className="row"><button className="btn primary" onClick={save}>{t('common.save')}</button>{msg && <span className="muted">{msg}</span>}</div>
+          <label className="field">{t('community.address')}<Input value={address} maxLength={300} onChange={(e) => setAddress(e.target.value)} /></label>
+          <label className="field">{t('community.notes')}<Textarea value={notes} maxLength={2000} onChange={(e) => setNotes(e.target.value)} /></label>
+          <div className="row"><Button type="button" className="btn primary" onClick={save}>{t('common.save')}</Button>{msg && <span className="muted">{msg}</span>}</div>
         </>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -155,10 +163,10 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
   }
 
   return (
-    <section className="card stack" data-site={site.code}>
+    <Card render={<section className="card stack" data-site={site.code} />}>
       <div className="row between">
         <h2>{site.name} <small className="muted" dir="ltr">{site.code}</small></h2>
-        <button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t('common.hide') : t('parking.manage')}</button>
+        <Button type="button" className="btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t('common.hide') : t('parking.manage')}</Button>
       </div>
       <div className="muted">{t('parking.summary', { zones: site.zones.length, slots: site.slots, inside: site.open_sessions })}</div>
       {open && (
@@ -166,87 +174,90 @@ function SiteCard({ site, tz, canEdit, run }: { site: SiteRow; tz: string[]; can
           {canEdit && (
             <form className="stack" onSubmit={save}>
               <div className="row">
-                <label className="field grow">{t('units.name')}<input name="name" required defaultValue={site.name} maxLength={100} /></label>
+                <label className="field grow">{t('units.name')}<Input name="name" required defaultValue={site.name} maxLength={100} /></label>
                 <label className="field">{t('parking.timezone')}
-                  <select name="timezone" defaultValue={site.timezone}>{[...new Set([site.timezone, ...tz])].map((z) => <option key={z}>{z}</option>)}</select></label>
+                  <NativeSelect name="timezone" defaultValue={site.timezone}>{[...new Set([site.timezone, ...tz])].map((z) => <option key={z}>{z}</option>)}</NativeSelect></label>
                 <label className="field">{t('parking.threshold')}
-                  <input name="aiThreshold" type="number" min={0.5} max={1} step={0.01} defaultValue={site.settings.aiThreshold ?? 0.95} dir="ltr" /></label>
+                  <Input name="aiThreshold" type="number" min={0.5} max={1} step={0.01} defaultValue={site.settings.aiThreshold ?? 0.95} dir="ltr" /></label>
               </div>
-              <label className="field">{t('parking.address')}<input name="address" defaultValue={site.address ?? ''} maxLength={300} /></label>
+              <label className="field">{t('parking.address')}<Input name="address" defaultValue={site.address ?? ''} maxLength={300} /></label>
               <div className="row">
-                <button className="btn primary">{t('common.save')}</button>
-                <button type="button" className="btn danger" disabled={site.open_sessions > 0} title={site.open_sessions ? t('parking.retireBlocked') : undefined}
-                  onClick={() => { if (confirm(t('parking.retireConfirm', { name: site.name }))) void run(() => del(`/v1/sites/${site.code}`)); }}>{t('parking.retire')}</button>
+                <Button type="submit" className="btn primary">{t('common.save')}</Button>
+                <Button type="button" className="btn danger" disabled={site.open_sessions > 0} title={site.open_sessions ? t('parking.retireBlocked') : undefined}
+                  onClick={() => { if (confirm(t('parking.retireConfirm', { name: site.name }))) void run(() => del(`/v1/sites/${site.code}`)); }}>{t('parking.retire')}</Button>
               </div>
             </form>
           )}
 
           <h3>{t('parking.zones')}</h3>
-          <div className="tablewrap"><table>
-            <thead><tr><th>{t('units.code')}</th><th>{t('units.name')}</th><th>{t('parking.level')}</th><th className="num">{t('parking.slots')}</th><th /></tr></thead>
-            <tbody>{site.zones.map((z) => (
-              <tr key={z.code}>
-                <td dir="ltr">{z.code}</td><td>{pickLabel(z.labels, locale, z.name)}</td><td className="num">{z.level ?? '–'}</td><td className="num">{z.slots}</td>
-                <td>{canEdit && <div className="row">
-                  <button className="btn" onClick={() => setEditZone(z)}>{t('users.edit')}</button>
-                  <button className="btn danger" disabled={z.slots > 0} title={z.slots ? t('parking.zoneNotEmpty') : undefined} onClick={() => void refresh(() => del(`/v1/sites/${site.code}/zones/${z.code}`))}>{t('common.remove')}</button>
-                </div>}</td>
-              </tr>
-            ))}</tbody>
-          </table></div>
+          <div className="tablewrap"><Table>
+            <TableHeader><TableRow><TableHead>{t('units.code')}</TableHead><TableHead>{t('units.name')}</TableHead><TableHead>{t('parking.level')}</TableHead><TableHead className="num">{t('parking.slots')}</TableHead><TableHead /></TableRow></TableHeader>
+            <TableBody>{site.zones.map((z) => (
+              <TableRow key={z.code}>
+                <TableCell dir="ltr">{z.code}</TableCell><TableCell>{pickLabel(z.labels, locale, z.name)}</TableCell><TableCell className="num">{z.level ?? '–'}</TableCell><TableCell className="num">{z.slots}</TableCell>
+                <TableCell>{canEdit && <div className="row">
+                  <Button type="button" className="btn" onClick={() => setEditZone(z)}>{t('users.edit')}</Button>
+                  <Button type="button" className="btn danger" disabled={z.slots > 0} title={z.slots ? t('parking.zoneNotEmpty') : undefined} onClick={() => void refresh(() => del(`/v1/sites/${site.code}/zones/${z.code}`))}>{t('common.remove')}</Button>
+                </div>}</TableCell>
+              </TableRow>
+            ))}</TableBody>
+          </Table></div>
           {editZone && (
-            <form key={editZone.code} className="card row" onSubmit={saveZone} aria-label={t('users.editing', { who: editZone.code })}>
-              <label className="field grow">{t('units.name')}<input name="name" required defaultValue={editZone.name} maxLength={100} /></label>
-              <label className="field">{t('parking.level')}<input name="level" type="number" step={1} min={-20} max={200} defaultValue={editZone.level ?? ''} dir="ltr" /></label>
-              <button className="btn primary">{t('common.save')}</button><button type="button" className="btn" onClick={() => setEditZone(null)}>{t('common.cancel')}</button>
-            </form>
+            <Card key={editZone.code} render={<form className="card row" onSubmit={saveZone} aria-label={t('users.editing', { who: editZone.code })} />}>
+              <label className="field grow">{t('units.name')}<Input name="name" required defaultValue={editZone.name} maxLength={100} /></label>
+              <label className="field">{t('parking.level')}<Input name="level" type="number" step={1} min={-20} max={200} defaultValue={editZone.level ?? ''} dir="ltr" /></label>
+              <Button type="submit" className="btn primary">{t('common.save')}</Button><Button type="button" className="btn" onClick={() => setEditZone(null)}>{t('common.cancel')}</Button>
+            </Card>
           )}
           {canEdit && (
             <form className="row" onSubmit={addZone}>
-              <label className="field">{t('units.code')}<input name="code" required maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" dir="ltr" /></label>
-              <label className="field grow">{t('units.name')}<input name="name" required maxLength={100} /></label>
-              <label className="field">{t('parking.level')}<input name="level" type="number" step={1} min={-20} max={200} dir="ltr" /></label>
-              <button className="btn" disabled={busy}>{t('parking.addZone')}</button>
+              <label className="field">{t('units.code')}<Input name="code" required maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" dir="ltr" /></label>
+              <label className="field grow">{t('units.name')}<Input name="name" required maxLength={100} /></label>
+              <label className="field">{t('parking.level')}<Input name="level" type="number" step={1} min={-20} max={200} dir="ltr" /></label>
+              <Button type="submit" className="btn" disabled={busy}>{t('parking.addZone')}</Button>
             </form>
           )}
 
           <div className="row between"><h3>{t('parking.slots')}</h3>
-            <select value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)} aria-label={t('common.zone')}>
-              <option value="">{t('sessions.all')}</option>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</select></div>
-          <div className="tablewrap"><table>
-            <thead><tr><th>{t('units.code')}</th><th>{t('common.zone')}</th><th>{t('parking.level')}</th><th>{t('parking.type')}</th><th>{t('common.status')}</th><th>{t('slots.note')}</th><th /></tr></thead>
-            <tbody>{shown.map((x) => (
-              <tr key={x.code}>
-                <td dir="ltr">{x.code}</td><td dir="ltr">{x.zone}</td><td className="num">{x.level ?? '–'}</td><td>{typeLabel(x.type)}</td><td>{t(`slots.${x.status}`)}{x.plate ? ` · ${x.plate}` : ''}</td><td>{x.note ?? '–'}</td>
-                <td>{canEdit && <div className="row">
-                  <button className="btn" onClick={() => setEditSlot(x)}>{t('users.edit')}</button>
-                  <button className="btn danger" disabled={x.status === 'occupied'} onClick={() => void refresh(() => del(`/v1/slots/${x.code}?site=${site.code}`))}>{t('common.remove')}</button>
-                </div>}</td>
-              </tr>
-            ))}</tbody>
-          </table></div>
+            <NativeSelect value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)} aria-label={t('common.zone')}>
+              <option value="">{t('sessions.all')}</option>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</NativeSelect></div>
+          <div className="tablewrap"><Table>
+            <TableHeader><TableRow><TableHead>{t('units.code')}</TableHead><TableHead>{t('common.zone')}</TableHead><TableHead>{t('parking.level')}</TableHead><TableHead>{t('parking.type')}</TableHead><TableHead>{t('common.status')}</TableHead><TableHead>{t('slots.note')}</TableHead><TableHead /></TableRow></TableHeader>
+            <TableBody>
+              <QueryState loading={slots.loading} error={slots.error} empty={!shown.length} table colSpan={7} />
+              {!slots.loading && !slots.error && shown.map((x) => (
+                <TableRow key={x.code}>
+                  <TableCell dir="ltr">{x.code}</TableCell><TableCell dir="ltr">{x.zone}</TableCell><TableCell className="num">{x.level ?? '–'}</TableCell><TableCell>{typeLabel(x.type)}</TableCell><TableCell>{t(`slots.${x.status}`)}{x.plate ? ` · ${x.plate}` : ''}</TableCell><TableCell>{x.note ?? '–'}</TableCell>
+                  <TableCell>{canEdit && <div className="row">
+                    <Button type="button" className="btn" onClick={() => setEditSlot(x)}>{t('users.edit')}</Button>
+                    <Button type="button" className="btn danger" disabled={x.status === 'occupied'} onClick={() => void refresh(() => del(`/v1/slots/${x.code}?site=${site.code}`))}>{t('common.remove')}</Button>
+                  </div>}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table></div>
           {editSlot && (
-            <form key={editSlot.code} className="card row" onSubmit={saveSlot} aria-label={t('users.editing', { who: editSlot.code })}>
-              <label className="field">{t('common.zone')}<select name="zone" defaultValue={editSlot.zone}>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</select></label>
-              <label className="field">{t('parking.type')}<select name="type" defaultValue={editSlot.type}>{types.map((x) => <option key={x.code} value={x.code}>{pickLabel(x.label, locale, x.code)}</option>)}</select></label>
-              <label className="field">{t('common.status')}<select name="status" defaultValue={editSlot.status} disabled={editSlot.status === 'occupied'}>
-                {editSlot.status === 'occupied' && <option value="occupied">{t('slots.occupied')}</option>}{STATUSES.map((x) => <option key={x} value={x}>{t(`slots.${x}`)}</option>)}</select></label>
-              <label className="field grow">{t('slots.note')}<input name="note" defaultValue={editSlot.note ?? ''} maxLength={300} /></label>
-              <button className="btn primary">{t('common.save')}</button><button type="button" className="btn" onClick={() => setEditSlot(null)}>{t('common.cancel')}</button>
-            </form>
+            <Card key={editSlot.code} render={<form className="card row" onSubmit={saveSlot} aria-label={t('users.editing', { who: editSlot.code })} />}>
+              <label className="field">{t('common.zone')}<NativeSelect name="zone" defaultValue={editSlot.zone}>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</NativeSelect></label>
+              <label className="field">{t('parking.type')}<NativeSelect name="type" defaultValue={editSlot.type}>{types.map((x) => <option key={x.code} value={x.code}>{pickLabel(x.label, locale, x.code)}</option>)}</NativeSelect></label>
+              <label className="field">{t('common.status')}<NativeSelect name="status" defaultValue={editSlot.status} disabled={editSlot.status === 'occupied'}>
+                {editSlot.status === 'occupied' && <option value="occupied">{t('slots.occupied')}</option>}{STATUSES.map((x) => <option key={x} value={x}>{t(`slots.${x}`)}</option>)}</NativeSelect></label>
+              <label className="field grow">{t('slots.note')}<Input name="note" defaultValue={editSlot.note ?? ''} maxLength={300} /></label>
+              <Button type="submit" className="btn primary">{t('common.save')}</Button><Button type="button" className="btn" onClick={() => setEditSlot(null)}>{t('common.cancel')}</Button>
+            </Card>
           )}
           {canEdit && (site.zones.length ? (
             <form className="row" onSubmit={addSlot}>
-              <label className="field">{t('units.code')}<input name="code" required maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_.\-]*" dir="ltr" /></label>
-              <label className="field">{t('common.zone')}<select name="zone" required>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</select></label>
-              <label className="field">{t('parking.type')}<select name="type" required>{types.map((x) => <option key={x.code} value={x.code}>{pickLabel(x.label, locale, x.code)}</option>)}</select></label>
-              <label className="field grow">{t('slots.note')}<input name="note" maxLength={300} /></label>
-              <button className="btn" disabled={busy}>{t('parking.addSlot')}</button>
+              <label className="field">{t('units.code')}<Input name="code" required maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9_.\-]*" dir="ltr" /></label>
+              <label className="field">{t('common.zone')}<NativeSelect name="zone" required>{site.zones.map((z) => <option key={z.code} value={z.code}>{pickLabel(z.labels, locale, z.name)}</option>)}</NativeSelect></label>
+              <label className="field">{t('parking.type')}<NativeSelect name="type" required>{types.map((x) => <option key={x.code} value={x.code}>{pickLabel(x.label, locale, x.code)}</option>)}</NativeSelect></label>
+              <label className="field grow">{t('slots.note')}<Input name="note" maxLength={300} /></label>
+              <Button type="submit" className="btn" disabled={busy}>{t('parking.addSlot')}</Button>
             </form>
-          ) : <div className="banner warn">{t('parking.needZone')}</div>)}
+          ) : <Alert className="banner warn">{t('parking.needZone')}</Alert>)}
           <div className="muted">{t('parking.bulk')} <Link to="../inventory">{t('nav.inventory')}</Link></div>
         </>
       )}
-    </section>
+    </Card>
   );
 }
