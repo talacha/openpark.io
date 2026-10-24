@@ -12,7 +12,7 @@ const readCollapsed = (): boolean => {
   try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; }
 };
 
-function ShellContent({ collapsed, onToggleCollapsed }: { collapsed: boolean; onToggleCollapsed: () => void }) {
+function ShellContent({ collapsed }: { collapsed: boolean }) {
   const { me } = useApp();
   const t = useT();
   const { pathname } = useLocation();
@@ -22,11 +22,12 @@ function ShellContent({ collapsed, onToggleCollapsed }: { collapsed: boolean; on
 
   return (
     <>
-      <AppMenu collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} onNavigate={() => setOpenMobile(false)} />
+      <AppMenu collapsed={collapsed} onNavigate={() => setOpenMobile(false)} />
       <SidebarInset className="content">
         <header className="topbar">
           <SidebarTrigger
-            aria-label={openMobile ? t('nav.closeMenu') : t('nav.menu')}
+            className="-ms-1 size-11 md:size-7"
+            aria-label={isMobile ? (openMobile ? t('nav.closeMenu') : t('nav.menu')) : (open ? t('nav.collapse') : t('nav.expand'))}
             aria-expanded={isMobile ? openMobile : open}
             aria-controls="app-menu"
           />
@@ -56,9 +57,8 @@ export function AppShell() {
       data-collapsed={collapsed}
       open={!collapsed}
       onOpenChange={onOpenChange}
-      style={{ '--sidebar-width': '252px', '--sidebar-width-icon': '64px' } as React.CSSProperties}
     >
-      <ShellContent collapsed={collapsed} onToggleCollapsed={() => onOpenChange(collapsed)} />
+      <ShellContent collapsed={collapsed} />
     </SidebarProvider>
   );
 }

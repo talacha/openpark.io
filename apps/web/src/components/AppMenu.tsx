@@ -45,17 +45,16 @@ function MenuIconGlyph({ icon }: { icon?: MenuIcon }) {
   return <Glyph className="menu-icon" aria-hidden="true" />;
 }
 
-export function AppMenu({ onNavigate, collapsed: desktopPreference = false, onToggleCollapsed }: {
+export function AppMenu({ onNavigate, collapsed: desktopPreference = false }: {
   onNavigate?: () => void;
   collapsed?: boolean;
-  onToggleCollapsed?: () => void;
 }) {
   const t = useT();
   const nav = useNavigate();
   const { pathname } = useLocation();
   const { me, who, sites, site, setSiteCode, signOut, switchTenant } = useApp();
   const { dir, locale, setLocale } = useI18n();
-  const { isMobile } = useSidebar();
+  const { isMobile, setOpen: setSidebarOpen } = useSidebar();
   const collapsed = desktopPreference && !isMobile;
   const groups = buildMenu({ slug: me?.tenant.slug ?? null, roles: me?.roles ?? [], superadmin: !!who?.superadmin });
   const allTenants = useApi<PlatformTenant[]>(who?.superadmin ? '/v1/platform/tenants' : null);
@@ -77,7 +76,7 @@ export function AppMenu({ onNavigate, collapsed: desktopPreference = false, onTo
 
   const onHead = (id: string) => {
     if (collapsed) {
-      onToggleCollapsed?.();
+      setSidebarOpen(true);
       setOpen((current) => ({ ...current, [id]: true }));
       return;
     }
@@ -86,25 +85,10 @@ export function AppMenu({ onNavigate, collapsed: desktopPreference = false, onTo
 
   return (
     <Sidebar id="app-menu" aria-label={t('nav.menu')} className="side menu" collapsible="icon" side={side}>
-      <SidebarHeader className="gap-2 p-3">
+      <SidebarHeader className="gap-2 p-2">
         <div className="brand">
-          <img src="/icon.svg" alt="" width="24" height="24" />
+          <img src="/icon.svg" alt="" width="32" height="32" />
           <span className="menu-label">{t('app.name')}</span>
-          {onToggleCollapsed && !isMobile && (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-sm"
-              className="menu-collapse"
-              aria-expanded={!collapsed}
-              aria-controls="app-menu"
-              aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
-              title={collapsed ? t('nav.expand') : t('nav.collapse')}
-              onClick={onToggleCollapsed}
-            >
-              <ChevronRight className={collapsed ? '' : 'rotate-180 rtl:rotate-0'} aria-hidden="true" />
-            </Button>
-          )}
         </div>
         {me && <div className="menu-org menu-label">{me.tenant.name}</div>}
         {me && (who?.superadmin || (who?.memberships.length ?? 0) > 1) && (

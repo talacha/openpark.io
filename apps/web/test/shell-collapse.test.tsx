@@ -50,7 +50,7 @@ function mount(roles: Role[] = ['resident']) {
   return render(<I18nProvider defaultLocale="en" terminology={{}}><MemoryRouter initialEntries={['/t/acme/r']}><AppShell /></MemoryRouter></I18nProvider>);
 }
 
-const collapseBtn = (c: HTMLElement) => c.querySelector('button.menu-collapse') as HTMLButtonElement;
+const collapseBtn = (c: HTMLElement) => c.querySelector('[data-sidebar="trigger"]') as HTMLButtonElement;
 
 beforeEach(() => { store.clear(); useApi.mockClear(); });
 afterEach(() => cleanup());
@@ -78,6 +78,17 @@ describe('collapsible sidebar (AC-2.1, AC-2.2)', () => {
     act(() => { fireEvent.click(collapseBtn(container)); });
     expect(shell.getAttribute('data-collapsed')).toBe('false');
     expect(localStorage.getItem('op.menu.collapsed')).toBe('0');
+  });
+
+  it('uses the standard Shadcn widths and Ctrl/Cmd + # shortcut', () => {
+    const { container } = mount();
+    const shell = container.querySelector('.shell') as HTMLElement;
+    expect(shell.style.getPropertyValue('--sidebar-width')).toBe('16rem');
+    expect(shell.style.getPropertyValue('--sidebar-width-icon')).toBe('3rem');
+    act(() => { fireEvent.keyDown(window, { key: '#', ctrlKey: true }); });
+    expect(shell.getAttribute('data-collapsed')).toBe('true');
+    act(() => { fireEvent.keyDown(window, { key: '#', metaKey: true }); });
+    expect(shell.getAttribute('data-collapsed')).toBe('false');
   });
 
   it('restores the collapsed preference from localStorage on mount', () => {

@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
     "build": "tsc --noEmit && node scripts/fetch-models.mjs && node scripts/pseudo.mjs && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
