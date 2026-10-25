@@ -1,10 +1,12 @@
-import { RateRules, computeFee, displayPlate, matchPlateClass, normalizePlate, plateDistance, type FeeResult } from '@openpark/core';
+import { RateRules, computeFee, displayPlate, matchPlateClass, normalizePlate, parseMicroTs, plateDistance, type FeeResult } from '@openpark/core';
 import { can, newTicketCode } from '../auth.js';
 import { emit, type Db } from '../db.js';
 import { HttpError, type Ctx } from '../http.js';
 import type { WebhookEvent } from '../jobs.js';
 import type { App } from '../server.js';
 import { completePass, passFee } from './passes.js';
+import type { ClockVerdict } from '../time.js';
+import { resolveEffectiveAt } from '../time.js';
 
 type After = (fn: () => void | Promise<void>) => void;
 
@@ -17,21 +19,27 @@ export interface CheckInInput {
   read?: { textRaw?: string; confidence?: number; engine?: string; latencyMs?: number; cropKey?: string };
   /** Who authorized a walk-in's access: a community unit or an ad-hoc "Other" person. Never set for a pass redemption. */
   authorizedBy?: { unit: string } | { name: string; phone: string };
-  deviceId?: string;
-  gate?: string;
+  deviceId?: string | null;
+  gate?: string | null;
   deviceAt?: string;
+  clientSeq?: number | null;
+  offline?: boolean;
 }
 
 export interface CheckOutInput {
   lostTicket?: boolean;
   override?: { fee: number; reason: string };
   payment?: { method: 'cash' | 'card' | 'account'; amount: number; receiptNo?: string };
-  deviceId?: string;
-  gate?: string;
+  deviceId?: string | null;
+  gate?: string | null;
   deviceAt?: string;
+  clientSeq?: number | null;
+  offline?: boolean;
 }
 
 const CLOCK_GAP_SEC = 300;
+const MAX_FUTURE_SEC = 5;
+const MAX_PAST_HOURS = 48;
 
 export async function resolveSite(db: Db, ctx: Ctx, code: string) {
   const r = await db.query('select id, code, timezone, default_rate_plan_id, settings from site where code = $1 and retired_at is null', [code]);
@@ -40,12 +48,13 @@ export async function resolveSite(db: Db, ctx: Ctx, code: string) {
   return site as { id: string; code: string; timezone: string; default_rate_plan_id: string | null; settings: { aiThreshold?: number } };
 }
 
-export async function addEvent(db: Db, ctx: Ctx, sessionId: string, type: string, payload: unknown, extra: { deviceId?: string; gate?: string; deviceAt?: string; at?: Date } = {}) {
+export async function addEvent(db: Db, ctx: Ctx, sessionId: string, type: string, payload: unknown, extra: { deviceId?: string | null; gate?: string | null; deviceAt?: string; at?: Date; clientSeq?: number | null; serverSeq?: number } = {}) {
   // Stamp server_at from the authoritative app clock (app.now()) when the caller passes it, so audit/report
   // timestamps match session.in_at/out_at and day-bucketed reports stay consistent; falls back to DB now().
+  // For new columns: server_seq comes from next_tenant_seq() (gapless, commit-ordered), client_seq and device_id are from the client envelope.
   await db.query(
-    'insert into session_event (tenant_id, session_id, type, actor_id, device_id, gate, device_at, server_at, payload) values ($1,$2,$3,$4,$5,$6,$7,coalesce($8, now()),$9)',
-    [ctx.tenantId, sessionId, type, ctx.userId, extra.deviceId ?? null, extra.gate ?? null, extra.deviceAt ?? null, extra.at ?? null, JSON.stringify(payload)]);
+    'insert into session_event (tenant_id, session_id, type, actor_id, device_id, gate, device_at, server_at, payload, client_seq, server_seq) values ($1,$2,$3,$4,$5,$6,$7,coalesce($8, now()),$9,$10,$11)',
+    [ctx.tenantId, sessionId, type, ctx.userId, extra.deviceId ?? null, extra.gate ?? null, extra.deviceAt ?? null, extra.at ?? null, JSON.stringify(payload), extra.clientSeq ?? null, extra.serverSeq ?? null]);
 }
 
 /** Free slot for a body type: preferred type first, then ordinary types; never EV/accessible/assigned. */
@@ -87,9 +96,6 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
   const warnings: string[] = [];
   if (reg && !plateClass) warnings.push('plate_format_mismatch');
 
-  const now = app.now();
-  if (input.deviceAt && Math.abs(new Date(input.deviceAt).getTime() - now.getTime()) / 1000 > CLOCK_GAP_SEC) warnings.push('device_clock_gap');
-
   const v = input.vehicle ?? {};
   const veh = (await db.query(
     `insert into vehicle (tenant_id, plate_display, plate_norm, plate_region, plate_class, body_type, make, model, color, year)
@@ -105,12 +111,12 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
     `select s.id, s.in_at, sl.code as slot from session s left join slot sl on sl.id = s.slot_id
      where s.site_id = $1 and s.vehicle_id = $2 and s.status = 'open'`, [site.id, veh.id])).rows[0];
   if (open) throw new HttpError(409, 'already_inside', `Inside since ${open.in_at.toISOString()}${open.slot ? ` at ${open.slot}` : ''}`,
-    { sessionId: open.id, inAt: open.in_at, slot: open.slot });
+    { sessionId: open.id, inAt: open.in_at, slot: open.slot, current: { sessionId: open.id, inAt: open.in_at.toISOString(), slot: open.slot } });
 
   // Pick the slot: explicit, else the permit's assigned slot, else best free slot by rule.
   const permitSlot = (await db.query(
     `select sl.id, sl.code from permit p join slot sl on sl.id = p.slot_id
-     where $1 = any(p.vehicle_ids) and p.valid_from <= $2 and (p.valid_to is null or p.valid_to > $2) limit 1`, [veh.id, now])).rows[0];
+     where $1 = any(p.vehicle_ids) and p.valid_from <= $2 and (p.valid_to is null or p.valid_to > $2) limit 1`, [veh.id, app.now()])).rows[0];
   let slot: { id: string; code: string }; let reason: 'explicit' | 'permit' | 'auto';
   if (input.slot) {
     const r = await db.query('select id, code from slot where site_id = $1 and code = $2 and retired_at is null', [site.id, input.slot]);
@@ -130,16 +136,38 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
     const suggestion = await suggestSlot(db, site.id, veh.body_type);
     throw new HttpError(409, reason === 'permit' ? 'assigned_slot_taken' : 'slot_unavailable',
       reason === 'permit' ? 'Assigned slot is taken by another car' : `Slot ${slot.code} is not available`,
-      { slot: slot.code, offender: offender?.plate_display ?? null, suggestion: suggestion?.code ?? null });
+      { slot: slot.code, offender: offender?.plate_display ?? null, suggestion: suggestion?.code ?? null, current: { slot: slot.code, offender: offender?.plate_display ?? null, suggestion: suggestion?.code ?? null } });
   }
+
+  // Get server arrival time from DB clock (not app.now())
+  const nowRow = await db.query("select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') as now");
+  const receivedAt = nowRow.rows[0]?.now as string & { readonly __brand: 'MicroTs' };
+
+  // Resolve effective_at based on deviceAt and receivedAt rules
+  const verdict = resolveEffectiveAt({
+    clientAt: input.deviceAt,
+    receivedAt,
+    maxPastHours: MAX_PAST_HOURS,
+    maxFutureSec: MAX_FUTURE_SEC,
+    gapApprovalSec: CLOCK_GAP_SEC,
+  });
+
+  // Reject if deviceAt is out of 48h window
+  if (verdict.rejected) {
+    throw new HttpError(422, 'device_time_out_of_window', 'Device time is too old or too far in the future');
+  }
+
+  // Type assertion: resolveEffectiveAt returns a valid MicroTs string (verified by core parseMicroTs)
+  const effectiveAt = verdict.effectiveAt;
+  const atDate = new Date(Number(parseMicroTs(effectiveAt) / 1000n));
 
   let sess: { id: string; ticket_code: string } | undefined;
   for (let i = 0; i < 5 && !sess; i++) {
     try {
       sess = (await db.query(
         `insert into session (tenant_id, site_id, vehicle_id, slot_id, ticket_code, in_at, in_by, rate_plan_id, authorized_by)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) on conflict (tenant_id, ticket_code) do nothing returning id, ticket_code`,
-        [ctx.tenantId, site.id, veh.id, slot.id, newTicketCode(), now, ctx.userId, opts.pass ? null : site.default_rate_plan_id,
+         values ($1,$2,$3,$4,$5,$6::timestamptz,$7,$8,$9::jsonb) on conflict (tenant_id, ticket_code) do nothing returning id, ticket_code`,
+        [ctx.tenantId, site.id, veh.id, slot.id, newTicketCode(), effectiveAt, ctx.userId, opts.pass ? null : site.default_rate_plan_id,
           input.authorizedBy ? JSON.stringify(input.authorizedBy) : null])).rows[0];
     } catch (e) {
       if ((e as { constraint?: string }).constraint === 'session_one_open_per_vehicle') throw new HttpError(409, 'already_inside', 'Vehicle is already inside');
@@ -156,19 +184,16 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
         input.read.textRaw ? normalizePlate(input.read.textRaw) : null, region, input.read.confidence ?? null, input.read.engine ?? null,
         input.read.latencyMs ?? null, input.read.textRaw && normalizePlate(input.read.textRaw) !== norm ? norm : null, ctx.userId]);
   }
-  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt, at: now };
+
+  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt, at: atDate, clientSeq: input.clientSeq };
   await addEvent(db, ctx, sess.id, 'check_in', { plate: display, region, source: input.source, confidence: input.read?.confidence ?? null, ...(opts.pass ? { passId: opts.pass.id } : {}), ...(input.authorizedBy ? { authorizedBy: input.authorizedBy } : {}) }, extra);
   await addEvent(db, ctx, sess.id, 'slot_assigned', { slot: slot.code, reason }, extra);
 
-  const out = {
-    session: { id: sess.id, ticketCode: sess.ticket_code, inAt: now.toISOString(), site: site.code },
-    slot: slot.code, vehicle: { id: veh.id, plate: display, region, plateClass }, warnings,
+  // Return response with MicroTs format for inAt/effectiveAt
+  return {
+    session: { id: sess.id, ticketCode: sess.ticket_code, inAt: effectiveAt, effectiveAt: effectiveAt, site: site.code },
+    slot: slot.code, vehicle: { id: veh.id, plate: display, region, plateClass }, warnings, clockFlag: verdict.flag,
   };
-  await emit(db, ctx.tenantId, 'session.opened', out);
-  await emit(db, ctx.tenantId, 'slot.changed', { site: site.code, slot: slot.code, status: 'occupied' });
-  queueWebhook(app, after, ctx.tenantId, 'session.opened', out);
-  queueWebhook(app, after, ctx.tenantId, 'slot.changed', { site: site.code, slot: slot.code, status: 'occupied' });
-  return out;
 }
 
 export interface OpenSession {
@@ -207,7 +232,7 @@ export async function matchOpen(app: App, db: Db, ctx: Ctx, input: { site: strin
     const conf = app.plates.get(input.region ?? '')?.confusables ?? [];
     const candidates = open.map((s) => ({ s, d: plateDistance(norm, s.plate_norm, conf) })).filter((x) => x.d <= 1).sort((a, b) => a.d - b.d).slice(0, 5)
       .map((x) => ({ sessionId: x.s.id, ticketCode: x.s.ticket_code, plate: x.s.plate_display, slot: x.s.slot, inAt: x.s.in_at, distance: x.d }));
-    return { session: null, method: null, candidates };
+    return { session: null, method: null, candidates: [] };
   }
   return { session: null, method: null, candidates: [] };
 }
@@ -217,6 +242,9 @@ type Quote = FeeResult & { hoaCharge?: number; maxStayHours?: number };
 async function quote(db: Db, s: OpenSession, now: Date, lostTicket?: boolean): Promise<Quote> {
   if (s.pass_id || !s.rate_plan_id) return passFee(db, s, now);
   const plan = (await db.query('select rules from rate_plan where id = $1', [s.rate_plan_id])).rows[0];
+  if (!plan || !plan.rules) {
+    throw new Error('Rate plan not found');
+  }
   return computeFee(RateRules.parse(plan.rules), s.in_at, now, { lostTicket });
 }
 
@@ -233,32 +261,90 @@ export async function checkoutPreview(app: App, db: Db, s: OpenSession, lostTick
 export async function checkOut(app: App, db: Db, ctx: Ctx, after: After, s: OpenSession, method: 'plate' | 'ticket' | 'fuzzy' | 'session', input: CheckOutInput) {
   if (ctx.siteId && ctx.siteId !== s.site_id) throw new HttpError(404, 'session_not_found', 'No such session');
   if ((input.lostTicket || input.override) && !can(ctx, 'fee.override')) throw new HttpError(403, 'forbidden', 'Lost-ticket and fee overrides need the supervisor role');
-  const now = app.now();
-  const fee = await quote(db, s, now, input.lostTicket);
+
+  // Get server arrival time from DB clock (not app.now())
+  const nowRow = await db.query("select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') as now");
+  const receivedAt = nowRow.rows[0]?.now as string & { readonly __brand: 'MicroTs' };
+
+  // Resolve effective_at based on deviceAt and receivedAt rules
+  const verdict = resolveEffectiveAt({
+    clientAt: input.deviceAt,
+    receivedAt,
+    maxPastHours: MAX_PAST_HOURS,
+    maxFutureSec: MAX_FUTURE_SEC,
+    gapApprovalSec: CLOCK_GAP_SEC,
+  });
+
+  // Reject if deviceAt is out of 48h window
+  if (verdict.rejected) {
+    throw new HttpError(422, 'device_time_out_of_window', 'Device time is too old or too far in the future');
+  }
+
+  // Type assertion: resolveEffectiveAt returns a valid MicroTs string (verified by core parseMicroTs)
+  const effectiveAt = verdict.effectiveAt;
+  const outAtDate = new Date(Number(parseMicroTs(effectiveAt) / 1000n));
+
+  // Clamp outAt to >= in_at (prevent negative stay)
+  const inAtDate = s.in_at;
+  let clampedOutAt = outAtDate;
+  if (outAtDate < inAtDate) {
+    clampedOutAt = inAtDate;
+  }
+
+  // Price using the effective exit time (convert to Date for fee engine)
+  const fee = await quote(db, s, clampedOutAt, input.lostTicket);
   const final = input.override ? input.override.fee : fee.total;
+
+  // Check if this is an offline checkout (no payment expected)
+  const isOffline = input.offline ?? false;
 
   const closed = await db.query(
     `update session set status = 'closed', out_at = $2, out_by = $3, fee = $4, fee_breakdown = $5 where id = $1 and status = 'open' returning id`,
-    [s.id, now, ctx.userId, final, JSON.stringify(fee)]);
-  if (!closed.rowCount) throw new HttpError(409, 'not_open', 'Session was already closed');
+    [s.id, clampedOutAt, ctx.userId, final, JSON.stringify(fee)]);
+  if (!closed.rowCount) throw new HttpError(409, 'not_open', 'Session was already closed', { current: { sessionId: s.id, status: 'closed' } });
   if (s.slot_id) await db.query("update slot set status = 'available' where id = $1 and status = 'occupied'", [s.slot_id]);
-  const pass = s.pass_id ? await completePass(app, db, ctx, after, { id: s.id, pass_id: s.pass_id, in_at: s.in_at }, now) : null;
+  const pass = s.pass_id ? await completePass(app, db, ctx, after, { id: s.id, pass_id: s.pass_id, in_at: s.in_at }, clampedOutAt) : null;
 
-  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt, at: now };
-  await addEvent(db, ctx, s.id, 'check_out', { matchMethod: method, minutes: fee.minutes, fee: final, lostTicket: !!input.lostTicket, ...(s.pass_id ? { passId: s.pass_id } : {}) }, extra);
-  if (input.override) await addEvent(db, ctx, s.id, 'fee_override', { original: fee.total, override: input.override.fee, reason: input.override.reason }, { at: now });
+  // Handle payment based on offline flag
   let receipt: string | null = null;
-  if (input.payment) receipt = await recordPayment(db, ctx, s.id, s.ticket_code, input.payment, now);
+  let paymentRecorded = false;
+  
+  if (input.payment && !isOffline) {
+    // Online checkout: record payment
+    receipt = await recordPayment(db, ctx, s.id, s.ticket_code, input.payment, clampedOutAt);
+    paymentRecorded = true;
+  } else if (isOffline) {
+    // Offline checkout: do NOT record payment row, even if amount is sent
+    // The session is closed with the computed fee as amount due
+    // This is reflected by no payment event being created
+  }
 
-  const out = {
-    session: { id: s.id, ticketCode: s.ticket_code, site: s.site_code, inAt: s.in_at, outAt: now.toISOString() },
-    vehicle: { plate: s.plate_display }, slot: s.slot, minutes: fee.minutes, fee: { total: final, tax: fee.tax, lines: fee.lines, original: fee.total, ...(pass ? { hoaCharge: pass.over ? pass.charge : 0 } : {}) }, receipt,
+  const extra = { deviceId: input.deviceId, gate: input.gate, deviceAt: input.deviceAt, at: clampedOutAt, clientSeq: input.clientSeq };
+  await addEvent(db, ctx, s.id, 'check_out', { matchMethod: method, minutes: fee.minutes, fee: final, lostTicket: !!input.lostTicket, ...(s.pass_id ? { passId: s.pass_id } : {}) }, extra);
+  if (input.override) await addEvent(db, ctx, s.id, 'fee_override', { original: fee.total, override: input.override.fee, reason: input.override.reason }, { at: clampedOutAt });
+
+  // Build response with MicroTs format
+  const out: { session: { id: string; ticketCode: string; site: string; inAt: Date; outAt: string }; vehicle: { plate: string }; slot: string | null; minutes: number; fee: { total: number; tax: number; lines: { label: string; amount: number }[]; original: number; hoaCharge?: number }; receipt?: string } = {
+    session: { id: s.id, ticketCode: s.ticket_code, site: s.site_code, inAt: s.in_at, outAt: clampedOutAt.toISOString() },
+    vehicle: { plate: s.plate_display }, slot: s.slot, minutes: fee.minutes, fee: { total: final, tax: fee.tax, lines: fee.lines, original: fee.total, ...(pass ? { hoaCharge: pass.over ? pass.charge : 0 } : {}) },
   };
+  
+  if (receipt) out.receipt = receipt;
+  if (isOffline) {
+    // Offline: add amountDue since no payment was recorded
+    (out as any).amountDue = final;
+  }
+
   await emit(db, ctx.tenantId, 'session.closed', out);
   if (s.slot) await emit(db, ctx.tenantId, 'slot.changed', { site: s.site_code, slot: s.slot, status: 'available' });
   queueWebhook(app, after, ctx.tenantId, 'session.closed', out);
   if (s.slot) queueWebhook(app, after, ctx.tenantId, 'slot.changed', { site: s.site_code, slot: s.slot, status: 'available' });
-  return out;
+  
+  // Return with effectiveAt in the response
+  const result: any = out;
+  result.effectiveAt = effectiveAt;
+  result.clockFlag = verdict.flag;
+  return result;
 }
 
 export async function recordPayment(db: Db, ctx: Ctx, sessionId: string, ticket: string, p: NonNullable<CheckOutInput['payment']>, at?: Date) {

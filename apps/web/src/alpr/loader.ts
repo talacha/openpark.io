@@ -52,3 +52,118 @@ export async function loadReader() {
   const m = await loadPlateModels();
   return createReader(m.ort, m.detector, m.ocr);
 }
+
+/** Check if models are ready by verifying cache presence */
+async function checkModelsInCache(cache: Cache, manifest: any): Promise<boolean> {
+  try {
+    // Check ORT files
+    for (const url of [`/ort/${manifest.ort.mjs}`, `/ort/${manifest.ort.wasm}`]) {
+      const res = await cache.match(url);
+      if (!res || !res.ok) return false;
+    }
+    // Check model files
+    for (const name of Object.keys(manifest.files)) {
+      const res = await cache.match(`/models/${name}`);
+      if (!res || !res.ok) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Track ALPR readiness state
+let readinessState: 'ready' | 'downloading' | 'unavailable' = 'unavailable';
+const readinessListeners = new Set<(status: 'ready' | 'downloading' | 'unavailable') => void>();
+
+/** Prefetch models via the service worker for offline use */
+export async function prefetchReader(): Promise<void> {
+  // If we have a service worker controller, ask it to precache
+  const controller = navigator.serviceWorker.controller;
+  if (controller) {
+    try {
+      const channel = new MessageChannel();
+      const promise = new Promise<void>((resolve, reject) => {
+        channel.port1.onmessage = (e) => {
+          if (e.data?.type === 'PRECACHE_MODELS_DONE') {
+            resolve();
+          }
+        };
+        
+        controller.postMessage({ type: 'PRECACHE_MODELS' }, [channel.port2]);
+        
+        // Timeout after 30 seconds
+        setTimeout(() => {
+          channel.port1.close();
+          reject(new Error('Message timeout'));
+        }, 30000);
+      });
+      
+      await promise;
+      // Update state after successful precache
+      readinessState = 'ready';
+      readinessListeners.forEach(fn => fn('ready'));
+      return;
+    } catch {
+      // Fallback to direct fetch
+    }
+  }
+
+  // Fallback: fetch models directly and put in cache
+  try {
+    const [ort, manifest] = await Promise.all([
+      import('onnxruntime-web/wasm'),
+      fetch('/models/manifest.json').then(r => { if (!r.ok) throw new Error('plate models not installed'); return r.json() as Promise<{ ort: { mjs: string; wasm: string }; files: Record<string, { sha256: string }> }>; }),
+    ]);
+
+    const cache = await caches.open(CACHE);
+    
+    // Update state to downloading
+    readinessState = 'downloading';
+    readinessListeners.forEach(fn => fn('downloading'));
+    
+    // ORT files
+    for (const url of [`/ort/${manifest.ort.mjs}`, `/ort/${manifest.ort.wasm}`]) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          await cache.put(url, res.clone());
+        }
+      } catch {
+        // Ignore individual failures
+      }
+    }
+
+    // Model files
+    for (const [name, info] of Object.entries(manifest.files)) {
+      try {
+        const res = await fetch(`/models/${name}`);
+        if (res.ok) {
+          await cache.put(`/models/${name}`, res.clone());
+        }
+      } catch {
+        // Ignore individual failures
+      }
+    }
+    
+    // Check if all models are now present
+    const allPresent = await checkModelsInCache(cache, manifest);
+    readinessState = allPresent ? 'ready' : 'unavailable';
+    readinessListeners.forEach(fn => fn(readinessState));
+  } catch {
+    readinessState = 'unavailable';
+    readinessListeners.forEach(fn => fn('unavailable'));
+  }
+}
+
+/** Get current models readiness status */
+export function readerReadiness(): 'ready' | 'downloading' | 'unavailable' {
+  return readinessState;
+}
+
+/** Subscribe to readiness changes */
+export function subscribeReaderReadiness(fn: (status: 'ready' | 'downloading' | 'unavailable') => void): () => void {
+  fn(readinessState); // Call immediately with current state
+  readinessListeners.add(fn);
+  return () => readinessListeners.delete(fn);
+}
