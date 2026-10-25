@@ -31,7 +31,7 @@ Routes are those in `apps/web/src/App.tsx`; the leading `/t/:slug` is the curren
 The single Resident home screen; an admin or super admin may open it to see what residents see
 (`hasResidentView` in `menu.ts`), though a verified unit is needed to issue a pass.
 
-- **Edit profile** — name, phone, and opt-in to guest check-in/check-out notifications.
+- **Edit profile** — name, phone, profile picture, and opt-in to guest check-in/check-out notifications.
 - **Issue new parking pass** — the "New Guest Parking Pass" section; one active pass per unit.
 - **Share pass** — share the pass QR / link with the guest.
 - **Previous passes** — passes issued for the unit, including those issued by an attendant linked to

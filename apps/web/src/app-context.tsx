@@ -11,7 +11,7 @@ export type Role = (typeof ROLES)[number];
 export interface Me {
   roles: Role[];
   user: { id: string; email: string; name: string | null; phone: string | null; locale: string | null; notifyGuestEvents?: boolean } | null;
-  /** A short-lived signed URL for the resident's profile picture, or null. */
+  /** A signed URL for an uploaded profile picture, else the person's Gravatar (404 when the address has none). */
   avatarUrl?: string | null;
   unit: { code: string; name: string } | null;
   /** Whether the caller's unit grant is verified. FEAT-005 finalizes this; read defensively (missing => verified). */

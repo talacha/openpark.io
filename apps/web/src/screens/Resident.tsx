@@ -70,13 +70,13 @@ function Collapsible({ title, open, onToggle, headingRef, children }:
 
 function Avatar({ url, name, email, unit }: { url: string | null | undefined; name: string | null | undefined; email: string | null | undefined; unit: string }) {
   const t = useT();
-  const [failed, setFailed] = useState(false);
-  const showImg = !!url && !failed;
+  // Base UI decides between the image and the fallback: it preloads `src` and keeps the fallback while the
+  // picture is missing or fails (an uploaded avatar with an expired link, or a Gravatar 404 for an address
+  // with no profile). Rendering both is what makes that fallback work.
   return (
     <AvatarRoot className="avatar">
-      {showImg
-        ? <AvatarImage className="avatar-img" src={url!} alt={t('res.avatarAlt')} onError={() => setFailed(true)} />
-        : <AvatarFallback className="avatar-initials" aria-hidden="true">{initialsOf(name, email)}</AvatarFallback>}
+      {url ? <AvatarImage className="avatar-img" src={url} alt={t('res.avatarAlt')} referrerPolicy="no-referrer" /> : null}
+      <AvatarFallback className="avatar-initials" aria-hidden="true">{initialsOf(name, email)}</AvatarFallback>
       <Badge className="avatar-pill" aria-label={t('res.unit', { unit })}>{unit}</Badge>
     </AvatarRoot>
   );

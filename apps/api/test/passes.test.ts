@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { gravatarUrl } from '../src/gravatar.js';
 import { processPassReminders, processStayAlerts } from '../src/services/passes.js';
 import { addResident, addUnit, addUser, harness, idem, signup, tenantId, waitFor, type Harness, type Resident, type Tenant } from './helpers.js';
 
@@ -71,8 +72,11 @@ describe('resident profile: avatar and notify opt-in', () => {
 
   it('uploads a valid avatar, returns a signed URL from /v1/me (never the key), and rejects oversize and bad MIME', async () => {
     const r = await resident();
-    // No avatar yet.
-    expect((await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json().avatarUrl).toBeNull();
+    // No upload yet: the Gravatar fallback points at the address's picture. d=404 means an address with no
+    // profile returns no image, so the screen keeps its initials.
+    const initial = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json();
+    expect(initial.avatarUrl).toBe(gravatarUrl(r.email));
+    expect(initial.avatarUrl).toMatch(/^https:\/\/gravatar\.com\/avatar\/[a-f0-9]{64}\?s=512&d=404&r=g$/);
 
     const ok = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/webp', dataBase64: b64(WEBP) } });
     expect(ok.statusCode, ok.body).toBe(200);

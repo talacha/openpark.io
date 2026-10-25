@@ -16,6 +16,22 @@ vi.stubGlobal('localStorage', {
   clear: () => store.clear(),
 });
 
+// Base UI preloads avatars with `new Image()`. jsdom never loads, so the test drives load/error itself.
+const images: FakeImage[] = [];
+class FakeImage {
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  complete = false;
+  naturalWidth = 0;
+  referrerPolicy = '';
+  crossOrigin: string | null = null;
+  sizes = '';
+  srcset = '';
+  src = '';
+  constructor() { images.push(this); }
+}
+const RealImage = globalThis.Image;
+
 // Drive the two useApi calls: /v1/passes/active (first) and /v1/passes?limit=10 (second).
 let activeData: unknown = null;
 let historyData: unknown = null;
@@ -60,8 +76,8 @@ function mount(me: Me, { search = '', hash = '' }: { search?: string; hash?: str
 
 const en = (k: string, v?: Record<string, unknown>) => translate('en', k, v);
 
-beforeEach(() => { store.clear(); activeData = { pass: null, policy }; historyData = []; reload.mockClear(); patch.mockClear(); post.mockClear(); });
-afterEach(() => { cleanup(); window.location.hash = ''; });
+beforeEach(() => { store.clear(); images.length = 0; vi.stubGlobal('Image', FakeImage); activeData = { pass: null, policy }; historyData = []; reload.mockClear(); patch.mockClear(); post.mockClear(); });
+afterEach(() => { cleanup(); vi.stubGlobal('Image', RealImage); window.location.hash = ''; });
 
 describe('Resident view (AC-3.1 … 3.8)', () => {
   it('shows avatar initials fallback, a bottom-center unit pill, and welcomes by name when present', () => {
@@ -75,6 +91,32 @@ describe('Resident view (AC-3.1 … 3.8)', () => {
   it('falls back to the email local-part initials when there is no name', () => {
     const { container } = mount(makeMe());
     expect(container.querySelector('.avatar-initials')?.textContent).toBe('RR'); // rosa.residente → R, R
+  });
+
+  it('shows a Gravatar picture and keeps the initials when the address has no profile (404)', () => {
+    const gravatar = `https://gravatar.com/avatar/${'a'.repeat(64)}?s=512&d=404&r=g`;
+    const { container } = mount(makeMe({ avatarUrl: gravatar }));
+    // Base UI preloads the image before mounting it; that preload is what a 404 fails.
+    const preload = images.at(-1)!;
+    expect(preload.src).toBe(gravatar);
+    // No referrer is sent to the third party, so the app URL is not leaked alongside the hash.
+    expect(preload.referrerPolicy).toBe('no-referrer');
+    act(() => preload.onerror?.());
+    expect(container.querySelector('.avatar-initials')?.textContent).toBe('RR');
+    expect(container.querySelector('img.avatar-img')).toBeNull();
+  });
+
+  it('shows the picture once it loads and retries when the avatar URL changes (e.g. an upload)', () => {
+    const gravatar = `https://gravatar.com/avatar/${'a'.repeat(64)}?s=512&d=404&r=g`;
+    const { container, rerender } = mount(makeMe({ avatarUrl: gravatar }));
+    const preload = images.at(-1)!;
+    act(() => { preload.complete = true; preload.naturalWidth = 64; preload.onload?.(); });
+    expect((container.querySelector('img.avatar-img') as HTMLImageElement).getAttribute('src')).toBe(gravatar);
+
+    const signed = '/v1/files/avatar.webp?exp=1&sig=x';
+    useApp.mockReturnValue({ me: makeMe({ avatarUrl: signed }), reload });
+    rerender(<I18nProvider defaultLocale="en" terminology={{}}><MemoryRouter initialEntries={['/t/acme/r']}><ResidentHome /></MemoryRouter></I18nProvider>);
+    expect(images.at(-1)!.src).toBe(signed);
   });
 
   it('starts with both pass sections collapsed by default', () => {
