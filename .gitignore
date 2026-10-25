@@ -11,3 +11,4 @@ e2e/shots
 apps/web/public/models/
 apps/web/public/ort/
 .worktrees/
+.env*
