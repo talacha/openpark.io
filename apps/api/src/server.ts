@@ -13,6 +13,7 @@ import { HttpError, registry, type Ctx } from './http.js';
 import { Jobs } from './jobs.js';
 import { loadPlateRegistry } from './registry.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerEnforcementRoutes } from './routes/enforcement.js';
 import { registerInventoryRoutes } from './routes/inventory.js';
 import { registerMiscRoutes } from './routes/misc.js';
 import { registerPassRoutes } from './routes/passes.js';
@@ -72,7 +73,13 @@ async function resolveExternalUser(app: App, ext: ExternalIdentity): Promise<Ide
 
 export async function buildApp({ cfg, now = () => new Date(), storage, notifier, verifier }: BuildOpts): Promise<App> {
   registry.length = 0;
-  const app = Fastify({ logger: cfg.LOG_LEVEL === 'silent' ? false : { level: cfg.LOG_LEVEL }, bodyLimit: 12 * 1024 * 1024 }) as unknown as App;
+  const app = Fastify({
+    logger: cfg.LOG_LEVEL === 'silent' ? false : { level: cfg.LOG_LEVEL },
+    bodyLimit: 12 * 1024 * 1024,
+    // Signed DB image keys carry the tenant UUID, a `db/` segment, and a 64-char hash (113 chars); the default
+    // cap of 100 would answer 414 before the route could verify the signature.
+    routerOptions: { maxParamLength: 200 },
+  }) as unknown as App;
   await app.register(cors, { origin: cfg.CORS_ORIGIN === '*' ? true : cfg.CORS_ORIGIN.split(','), exposedHeaders: ['Idempotent-Replayed'] });
 
   app.decorate('cfg', cfg);
@@ -168,6 +175,7 @@ export async function buildApp({ cfg, now = () => new Date(), storage, notifier,
   });
 
   registerAuthRoutes(app);
+  registerEnforcementRoutes(app);
   registerSessionRoutes(app);
   registerSlotRoutes(app);
   registerRateRoutes(app);

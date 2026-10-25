@@ -9,7 +9,7 @@ export type Role = (typeof ROLES)[number];
 
 const ALL = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void', 'inventory.edit',
   'inventory.import', 'rate_plan.edit', 'settings.edit', 'users.edit', 'audit.read', 'tenant.delete',
-  'pass.own', 'pass.redeem', 'pass.admin'] as const;
+  'pass.own', 'pass.redeem', 'pass.admin', 'enforcement'] as const;
 export type Permission = (typeof ALL)[number];
 
 const ATTENDANT: readonly Permission[] = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'pass.redeem'];
@@ -18,9 +18,9 @@ const PERMS: Record<Role, readonly Permission[]> = {
   resident: ['me', 'pass.own'],
   attendant: ATTENDANT,
   // Same as an attendant, plus overrides and voids, and the monitoring console; alerted when cars overstay.
-  supervisor: [...ATTENDANT, 'fee.override', 'session.void', 'pass.admin'],
+  supervisor: [...ATTENDANT, 'fee.override', 'session.void', 'pass.admin', 'enforcement'],
   // Configures a single property.
-  admin: ALL.filter((p) => p !== 'tenant.delete'),
+  admin: ALL.filter((p) => p !== 'tenant.delete' && p !== 'enforcement'),
 };
 
 /** Who is asking: their roles in the current property, and whether they are a platform-wide Super Admin. */

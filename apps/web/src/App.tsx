@@ -1,10 +1,11 @@
 import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom';
 import { homeFor, useApp, type Role } from './app-context.js';
 import { AppShell, AttendantLayout } from './components/Shell.js';
-import { hasResidentView, isAdmin, isOperator, isOps, isStaff } from './menu.js';
+import { hasEnforcement, hasResidentView, isAdmin, isOperator, isOps, isStaff } from './menu.js';
 import { Auth, Onboarding } from './screens/Auth.js';
 import { AiSettings } from './screens/Settings.js';
 import { Bulk } from './screens/Bulk.js';
+import { Enforcement } from './screens/Enforcement.js';
 import { AttendantHome, CheckInCapture, CheckInConfirm, CheckInReview, CheckOut, Flow } from './screens/Attendant.js';
 import { Dashboard } from './screens/Dashboard.js';
 import { GuestPass } from './screens/GuestPass.js';
@@ -21,10 +22,11 @@ import { Sessions } from './screens/Sessions.js';
 import { Slots } from './screens/Slots.js';
 
 /** Who may open which part of the app. The menu shows a subset of this; these guards also cover typed URLs. */
-type Area = 'ops' | 'admin' | 'operator' | 'resident' | 'staff';
+type Area = 'ops' | 'admin' | 'operator' | 'resident' | 'staff' | 'enforcement';
 const allowed = (area: Area, roles: Role[], superadmin: boolean) => {
   switch (area) {
     case 'resident': return hasResidentView(roles, superadmin);
+    case 'enforcement': return hasEnforcement(roles);
     case 'admin': return isAdmin(roles, superadmin);
     case 'ops': return isOps(roles, superadmin);
     case 'operator': return isOperator(roles, superadmin) || isStaff(roles, superadmin); // the menu offers it to attendants; supervisors and admins can still use it by link
@@ -68,6 +70,9 @@ export function App() {
         <Route path="/platform" element={<Platform />} />
         <Route path="/t/:slug" element={<TenantGate />}>
           <Route index element={<Home />} />
+          <Route element={<Area area="enforcement" />}>
+            <Route path="enforcement" element={<Enforcement />} />
+          </Route>
           <Route element={<Area area="ops" />}>
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="sessions" element={<Sessions />} />

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { can } from '../auth.js';
 import { emit } from '../db.js';
 import { HttpError, definePublicRoute, defineRoute, openApiDocument } from '../http.js';
+import { imageAssetByKey, parseImageStorageKey } from '../images.js';
 import type { App } from '../server.js';
 import { signUrl, verifySignedUrl } from '../storage.js';
 import { processPassReminders, processStayAlerts } from '../services/passes.js';
@@ -24,16 +25,25 @@ export function registerMiscRoutes(app: App) {
     handler: async () => [...app.plates.values()].map((r) => ({ region: r.region, name: r.name, charset: r.charset, confusables: r.confusables })),
   });
 
-  // Content-Type is derived from the (signed, server-controlled) key's extension — crops are always .jpg, avatars may
-  // be .png/.webp/.jpg — rather than hardcoded, so a PNG/WebP avatar is not mislabelled as JPEG. The extension comes
-  // from the key the server itself minted at upload, never from client input, so it is trusted.
+  // Content-Type is derived from the (signed, server-controlled) key's extension — crops are always .jpg, DB-backed
+  // images are always .webp — rather than hardcoded, so a PNG/WebP avatar is not mislabelled as JPEG. The extension
+  // comes from the key the server itself minted at upload, never from client input, so it is trusted.
   const MIME_BY_EXT: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
   definePublicRoute(app, {
-    method: 'GET', path: '/v1/files/:key', summary: 'Signed file download (plate crop or avatar)',
+    method: 'GET', path: '/v1/files/:key', summary: 'Signed file download (plate crop, avatar or evidence)',
     async handler({ req, reply }) {
       const { key } = req.params as { key: string };
       const { exp, sig } = req.query as { exp?: string; sig?: string };
       if (!exp || !sig || !verifySignedUrl(app.cfg.JWT_SECRET, key, Number(exp), sig)) throw new HttpError(403, 'bad_signature', 'Link expired or invalid');
+
+      // DB-backed images carry their tenant in the key, so the RLS context can be selected without a session.
+      const dbKey = parseImageStorageKey(key);
+      if (dbKey) {
+        const asset = await app.db.withTenant(dbKey.tenantId, (db) => imageAssetByKey(db, dbKey.tenantId, dbKey.key));
+        if (!asset) throw new HttpError(404, 'file_not_found', 'No such file');
+        return reply.type(asset.mime).header('cache-control', 'private, max-age=300').send(asset.data);
+      }
+
       const ext = key.split('.').pop()?.toLowerCase() ?? '';
       return reply.type(MIME_BY_EXT[ext] ?? 'application/octet-stream').send(await app.storage.get(key));
     },

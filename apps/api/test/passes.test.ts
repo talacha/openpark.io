@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import sharp from 'sharp';
 import { gravatarUrl } from '../src/gravatar.js';
 import { processPassReminders, processStayAlerts } from '../src/services/passes.js';
 import { addResident, addUnit, addUser, harness, idem, signup, tenantId, waitFor, type Harness, type Resident, type Tenant } from './helpers.js';
@@ -66,17 +67,19 @@ describe('resident access', () => {
 });
 
 describe('resident profile: avatar and notify opt-in', () => {
-  // WEBP magic: 'RIFF' .... 'WEBP'. A valid 12-byte+ header so signatureMatches accepts it.
-  const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBP'), Buffer.from('VP8 tiny')]);
+  let WEBP: Buffer;
+  beforeAll(async () => {
+    WEBP = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 255, g: 0, b: 0 } } }).webp().toBuffer();
+  });
   const b64 = (b: Buffer) => b.toString('base64');
 
-  it('uploads a valid avatar, returns a signed URL from /v1/me (never the key), and rejects oversize and bad MIME', async () => {
+  it('uploads a valid avatar, returns a signed URL from /v1/me (never the key), and rejects undecodable and mismatched images', async () => {
     const r = await resident();
     // No upload yet: the Gravatar fallback points at the address's picture. d=404 means an address with no
     // profile returns no image, so the screen keeps its initials.
     const initial = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json();
     expect(initial.avatarUrl).toBe(gravatarUrl(r.email));
-    expect(initial.avatarUrl).toMatch(/^https:\/\/gravatar\.com\/avatar\/[a-f0-9]{64}\?s=512&d=404&r=g$/);
+    expect(initial.avatarUrl).toMatch(/^https:\/\/0\.gravatar\.com\/avatar\/[a-f0-9]{64}\?s=512&d=404&r=g$/);
 
     const ok = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/webp', dataBase64: b64(WEBP) } });
     expect(ok.statusCode, ok.body).toBe(200);
@@ -84,16 +87,27 @@ describe('resident profile: avatar and notify opt-in', () => {
     expect(me.avatarUrl).toMatch(/^\/v1\/files\/.+\?exp=\d+&sig=/); // a signed, short-lived URL
     expect(me.avatarUrl).not.toContain('avatars/'); // the raw storage key is never surfaced (it is URL-encoded in the path, but the key path itself is not exposed as plain text)
 
-    // Oversize: a decoded payload over 100 KB is rejected.
-    const big = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBP'), Buffer.alloc(102_401 - 12)]);
-    const over = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/webp', dataBase64: b64(big) } });
-    expect(over.statusCode).toBe(400);
-    expect(over.json().error.code).toBe('avatar_invalid');
+    // A payload with a valid WebP header that cannot actually be decoded is rejected by the optimiser.
+    const broken = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBP'), Buffer.from('VP8 tiny')]);
+    const undecodable = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/webp', dataBase64: b64(broken) } });
+    expect(undecodable.statusCode).toBe(400);
+    expect(undecodable.json().error.code).toBe('image_invalid');
 
-    // Bad MIME/signature: only WebP is accepted, so PNG rejected at Zod validation layer.
+    // The declared type must match the bytes: WebP content declared as PNG is rejected.
     const bad = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/png', dataBase64: b64(WEBP) } });
     expect(bad.statusCode).toBe(400);
-    expect(bad.json().error.code).toBe('validation_failed');
+    expect(bad.json().error.code).toBe('avatar_invalid');
+  });
+
+  it('accepts a JPEG and serves the optimised WebP', async () => {
+    const r = await resident();
+    const jpeg = await sharp({ create: { width: 32, height: 24, channels: 3, background: { r: 0, g: 120, b: 0 } } }).jpeg().toBuffer();
+    const up = await h.app.inject({ method: 'POST', url: '/v1/me/avatar', headers: idem(r), payload: { contentType: 'image/jpeg', dataBase64: b64(jpeg) } });
+    expect(up.statusCode, up.body).toBe(200);
+    const url = (await h.app.inject({ method: 'GET', url: '/v1/me', headers: r.h })).json().avatarUrl as string;
+    const got = await h.app.inject({ method: 'GET', url });
+    expect(got.statusCode, got.body).toBe(200);
+    expect(got.headers['content-type']).toContain('image/webp');
   });
 
   it('serves the WebP avatar through the signed GET with image/webp Content-Type', async () => {

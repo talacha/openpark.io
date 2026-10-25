@@ -13,6 +13,7 @@ screens and docs use the **term**. For who uses the product and the journeys eac
 | **Slot** | One parking space in a zone. Has a type (standard, accessible, EV…), a **level** (from its zone), a **status** (operational/available, reserved, out of service — plus the runtime *occupied*, set only by check-out) and a note. Only `available` slots are assignable at the gate. | `slot` |
 | **Unit** | A home (apartment, house) in the community. A resident belongs to a unit, not to a slot. Has a code, a name, a floor, a note and optionally a site. | `unit` |
 | **User** | A registered account with access to one or more units in one or more communities. Holds one or more **roles**. Users can self-sign up, but an admin or super admin must **verify** a resident's unit grant (`membership.unit_verified`) before it counts: only a verified resident may issue guest passes; staff-placed grants are verified on creation, bulk-imported and self-signup grants await an admin's verify. | `app_user` + `membership` |
+| **Profile picture** | An optional image on a person's account, shown beside their name. An uploaded one wins and is served through a short-lived signed URL; otherwise the person's **Gravatar** is used, and their initials when the email has no Gravatar. | `app_user.avatar_key` |
 | **Role** | Cumulative access, least to most: **Resident**, **Attendant**, **Supervisor**, **Admin**. A person can hold several. | `membership.roles` |
 | **Super Admin** | A platform-wide flag on a person: can configure every community and switch between them. Not a role of a community. | `app_user.is_superadmin` |
 | **Invitation** | A pending offer of roles (and a unit) to an email address; claimed at first sign-in. May carry Super Admin. | `membership_invite` |
@@ -20,6 +21,8 @@ screens and docs use the **term**. For who uses the product and the journeys eac
 | **Stay** | One visit of a car: check-in to check-out, with its events, fee and payment. | `session`, `session_event` |
 | **Vehicle** | A car known by its plate (and body type, make, model, colour). | `vehicle` |
 | **Plate read** | One reading of a plate image, on the device or the server, and what the attendant decided. | `plate_read` |
+| **Enforcement case** | A supervisor's recorded parking violation. A linked department receives a 5,000 MXN fine (photo optional); an unlinked vehicle requires photo evidence of immobilization. Append-only. | `enforcement_case` |
+| **Image asset** | A stored WebP keyed by the image's identity — type, subject (email or plate), event/action, optional department number and region — so re-uploading replaces instead of accumulating. Used for profile pictures and enforcement evidence. | `image_asset` |
 | **Rate plan** | Versioned pricing rules (grace, first period, increments, daily cap, tax). Editing creates a new version; a plan used by a stay is never changed. | `rate_plan` |
 | **API key** | A credential for another system, scoped to the community (and optionally one site) with a role. Shown once. | `api_key` |
 | **Webhook** | A URL told about events (car checked in/out, slot changed, plate needs review, guest overstay), signed with a secret shown once. | `webhook_endpoint`, `webhook_delivery` |
@@ -35,12 +38,13 @@ Community ─┬─ Site ─┬─ Zone ── Slot
            ├─ User ── (roles, unit)             (Resident ⇒ exactly one unit)
            │      └─ Invitation                 (roles, unit, Super Admin)
            ├─ Rate plan ── Site (default)       (a stay pins the plan version it was priced with)
+           ├─ Enforcement case ── Unit (fine, when linked) or photo evidence (immobilization, when unlinked)
            └─ API key · Webhook
 Super Admin ── any Community
 ```
 
 Rules the data enforces: a Resident must have a unit; a community keeps at least one Admin; one active guest pass per unit; a retired site or
-slot stays as history; a unit with residents, invitations or passes cannot be deleted; a zone with slots cannot be deleted.
+slot stays as history; a unit with residents, invitations or passes cannot be deleted; a zone with slots cannot be deleted. An enforcement fine names its unit, is exactly 5,000 MXN and may carry photo evidence; an unlinked immobilization must.
 
 ## Field types (what the forms use)
 

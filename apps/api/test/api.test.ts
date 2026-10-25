@@ -81,7 +81,7 @@ describe('check in and check out', () => {
     expect(out.json()).toMatchObject({ minutes: 357, fee: { total: 23000 }, slot: 'B1-001' });
 
     const events = (await h.app.inject({ method: 'GET', url: `/v1/sessions/${inn.session.id}/events`, headers: t.h })).json();
-    expect(events.map((e: { type: string }) => e.type)).toEqual(['check_in', 'slot_assigned', 'check_out', 'payment']);
+    expect(events.map((e: { type: string }) => e.type)).toEqual(['check_in', 'slot_assigned', 'payment', 'check_out']);
     const occ2 = (await h.app.inject({ method: 'GET', url: '/v1/occupancy', headers: t.h })).json();
     expect(occ2.totals.occupied).toBe(0);
   });

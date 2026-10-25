@@ -56,6 +56,9 @@ Permissions: `checkin`, `checkout`, `payment`, `slot.status`, `pass.redeem`.
 - Everything an Attendant can do, plus:
 - **Occupancy dashboard** (`/dashboard`), **Stays** (`/sessions`), **Slots** (`/slots`),
   **Guest passes** (`/passes`).
+- **Enforcement** (`/enforcement`) — scan a plate, ticket or guest pass; see validity and the
+  assigned box; record a 5,000 MXN department fine (photo optional) or an unlinked
+  immobilization (photo required).
 - **Overstay alerts** — notified per community when a guest car passes the policy thresholds. The
   thresholds are **policy-derived**, not fixed: reminders fire at `policy.reminderHours` and the
   overstay at `policy.maxStayHours` (10 h / 11 h / 12 h are only the shipped defaults). The 12 h

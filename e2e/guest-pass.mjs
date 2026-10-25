@@ -57,8 +57,7 @@ await r.goto(`${WEB}/t/${owner.tenant}/dashboard`);
 await r.waitForURL(/\/r$/);
 ok('resident is bounced away from the admin console');
 
-await r.fill('input[name=phone]', '+52 55 1234 5678');
-await r.click('text=Save');
+await r.click('text=New guest parking pass');
 await r.waitForSelector('input[name=guestName]');
 await r.fill('input[name=guestName]', 'Luis Invitado');
 await r.fill('input[name=guestPhone]', '+525511112222');
@@ -82,18 +81,18 @@ const pass = await apiPass();
 const a = await login(attendant);
 await a.waitForURL(/\/a$/);
 await a.click('.tabbar >> text=Check in');
-await a.fill('input[aria-label="Pass code"]', 'OPP1.not-a-real-pass');
-await a.click('text=Use this pass');
+const checkInEntry = a.getByLabel('Plate or code', { exact: true });
+await checkInEntry.fill('OPP1.not-a-real-pass');
+await a.click('text=Next');
 await a.waitForSelector('.banner.bad');
 ok(`junk code rejected: "${(await a.textContent('.banner.bad')).trim()}"`);
-await a.fill('input[aria-label="Pass code"]', pass.qr);
-await a.click('text=Use this pass');
-await a.waitForSelector('text=/Guest pass for Luis Invitado/');
-ok('valid pass recognised before the plate is taken');
-await a.click('[data-mode=keypad]').catch(() => {});
-for (const c of 'GST123') await a.click(`.keypad button[aria-label="${c}"]`);
-await a.screenshot({ path: `${shots}/g2-attendant-pass.png` });
+await checkInEntry.fill(pass.qr);
 await a.click('text=Next');
+await a.waitForURL(/\/checkin\/confirm$/);
+await a.waitForSelector('text=/Guest pass for Luis Invitado/');
+ok('valid pass recognised and taken straight to confirmation');
+await a.locator('input[aria-required="true"]').fill('GST123');
+await a.screenshot({ path: `${shots}/g2-attendant-pass.png` });
 await a.click('text=Confirm check-in');
 await a.waitForSelector('.kv dd.num');
 const ticket = (await a.textContent('.kv dd.num')).trim();
@@ -102,6 +101,7 @@ await a.click('text=Done');
 
 // ---- resident sees the guest inside, with the limit and the charge ----
 await r.reload();
+await r.click('text=New guest parking pass');
 await r.waitForSelector('text=/Inside since/');
 const rules = await r.textContent('.card');
 if (!/\$5,000\.00/.test(await r.textContent('body'))) throw new Error('resident should see the 5,000 MXN HOA charge');
@@ -111,17 +111,19 @@ await r.screenshot({ path: `${shots}/g3-resident-inside.png` });
 
 // ---- check-out frees the unit ----
 await a.click('.tabbar >> text=Check out');
-await a.getByLabel('Ticket code', { exact: true }).fill(ticket);
+await a.getByLabel('Plate, ticket or guest pass', { exact: true }).fill(ticket);
 await a.click('text=Find car');
 await a.waitForSelector('.feetotal');
 const fee = (await a.textContent('.feetotal')).trim();
 if (!/0\.00/.test(fee)) throw new Error(`pass stays are free, got ${fee}`);
-await a.click('text=Take payment');
+await a.click('text=/Confirm leaving/');
 await a.waitForSelector('text=/Receipt/');
 ok(`guest checked out free of charge (${fee})`);
 await r.reload();
+await r.click('text=New guest parking pass');
 await r.waitForSelector('input[name=guestName]');
-await r.waitForSelector('text=Recent passes');
+await r.click('text=Previous parking passes');
+await r.waitForSelector('text=Luis Invitado');
 ok('unit is free for a new pass; history shows the completed one');
 
 // ---- cancel before check-in ----
@@ -141,7 +143,7 @@ await expand(adm, 'Admin');
 await adm.click('a.nav:has-text("Units")');
 await adm.waitForSelector('text=Apartment A-101');
 await adm.screenshot({ path: `${shots}/g4-units.png` });
-await adm.click('a.nav:has-text("People")');
+await adm.click('a.nav:has-text("Users")');
 await adm.waitForSelector(`text=resident-${sfx}@example.com`);
 await adm.screenshot({ path: `${shots}/g5-people.png` });
 await expand(adm, 'Platform view');

@@ -26,7 +26,8 @@ export class CaptureNotifier implements Notifier {
 export async function harness(opts: { env?: Record<string, string>; verifier?: (cfg: ReturnType<typeof loadConfig>) => IdentityVerifier } = {}): Promise<Harness> {
   const clock = { now: new Date('2026-10-20T14:00:00Z') };
   const notifier = new CaptureNotifier();
-  const cfg = loadConfig({ ...process.env, LOG_LEVEL: 'silent', JOBS_ENABLED: 'false', TRIAL_SIGNUP: 'true', ...opts.env } as NodeJS.ProcessEnv);
+  // Tests stay hermetic: never inherit a real Gravatar key from the developer's shell (pass one via opts.env).
+  const cfg = loadConfig({ ...process.env, LOG_LEVEL: 'silent', JOBS_ENABLED: 'false', TRIAL_SIGNUP: 'true', GRAVATAR_API_KEY: '', ...opts.env } as NodeJS.ProcessEnv);
   const verifier = opts.verifier?.(cfg);
   const app = await buildApp({ cfg, now: () => clock.now, notifier, verifier });
   return { app, clock, notifier, close: () => app.close() };

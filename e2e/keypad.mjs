@@ -7,7 +7,7 @@ await call('/v1/me/profile', { method: 'PATCH', token: su.token, tenant: su.tena
 const b = await chromium.launch({ channel: 'chrome' });
 const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, locale: 'en-US' })).newPage();
 await p.goto(`${WEB}/login`); await p.fill('input[name=email]', `k-${sfx}@example.com`); await p.fill('input[name=password]', 'correct-horse-battery'); await p.click('button.primary');
-await p.waitForURL(/dashboard/); await p.goto(`${WEB}/t/${su.tenant.slug}/a/checkin`); await p.click('[data-mode=keypad]').catch(() => {}); await p.waitForSelector('.keypad');
+await p.waitForURL(/dashboard/); await p.goto(`${WEB}/t/${su.tenant.slug}/a/checkin`); await p.getByRole('button', { name: 'Manual entry', exact: true }).click(); await p.waitForSelector('.keypad');
 const rows = await p.$$eval('.keyrow', (rs) => rs.map((r) => [...r.querySelectorAll('button')].map((x) => x.textContent.trim()).join(' ')));
 console.log('rows:'); rows.forEach((r) => console.log('  ' + r));
 const want = ['1 2 3 4 5 6 7 8 9 0', 'Q W E R T Y U I O P', 'A S D F G H J K L Ñ', 'Z X C V B N M ⌫ ✕'];

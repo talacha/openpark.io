@@ -33,3 +33,15 @@ Status key: [x] done, [~] in progress, [x] not started. Updated as work lands.
 - [x] Apply migrations 008, 009, 010 to Supabase; run advisors.
 - [x] Commit (r@rob.cr) and push; verify the three Vercel deployments live.
 - [ ] Verify the live deployment (after the push).
+
+## 6. Role and capture refinements
+- [x] Resident view is limited to users holding the resident role.
+- [x] Check-in and check-out use one plate, ticket, or guest-pass field, camera first, with Manual Entry swapping in the keypad.
+- [x] Browser smoke, guest-pass, role-menu, keypad, CRUD, and localization-audit scripts match the current UI.
+
+## 7. Supervisor enforcement
+- [x] Supervisor-only screen scans plates, ticket QRs, and guest-pass QRs, and shows validity plus the assigned box.
+- [x] Detect no open check-in, stays over 12 hours, and parking that differs from the active permit box.
+- [x] Record a 5,000 MXN fine for the responsible department when a current pass or walk-in authorization links a unit.
+- [x] Require photographic evidence for unlinked immobilization and serve it through a short-lived signed URL.
+- [x] Cover role boundaries, violation rules, evidence, and the complete browser flow with automated tests.

@@ -13,9 +13,9 @@ const errs = []; p.on('pageerror', (e) => errs.push(String(e))); p.on('console',
 p.on('dialog', (d) => d.accept());
 await p.goto(`${WEB}/login`); await p.fill('input[name=email]', `crud-${sfx}@example.com`); await p.fill('input[name=password]', 'correct-horse-battery'); await p.click('button.primary'); await p.waitForURL(/dashboard/);
 
-// ---- an admin can open the Resident and Operator views ----
-await p.goto(`${WEB}/t/${T}/r`); await p.waitForSelector('.banner.warn a[href$="/users"]');
-ok(true, 'an admin without a unit sees how to get the Resident view working, with a link to People');
+// ---- an admin can open Operator view, but not Resident view without the resident role ----
+await p.goto(`${WEB}/t/${T}/r`); await p.waitForURL(/\/dashboard$/);
+ok(true, 'an admin without the resident role is redirected away from Resident view');
 await p.goto(`${WEB}/t/${T}/a`); await p.waitForSelector('.att');
 ok(/\/a$/.test(p.url()), 'an admin can open the Operator view');
 
@@ -98,7 +98,7 @@ ok(true, 'revoked the key');
 await p.fill('form input[name=url]', 'https://example.com/hook'); await p.click('form:has(input[name=url]) button.primary');
 await p.locator('tr:has-text("example.com/hook")').waitFor();
 await p.locator('tr:has-text("example.com/hook")').getByRole('button', { name: 'Edit' }).click();
-await p.fill('form[aria-label] input[name=url]', 'https://example.com/v2'); await p.locator('form[aria-label] input[type=checkbox]').last().uncheck(); await p.locator('form[aria-label] button.primary').click();
+await p.fill('form[aria-label] input[name=url]', 'https://example.com/v2'); await p.locator('form[aria-label] [role=checkbox]').last().click(); await p.locator('form[aria-label] button.primary').click();
 await p.locator('tr:has-text("example.com/v2"):has-text("Paused")').waitFor();
 ok(true, 'created, edited and paused a webhook');
 await p.locator('tr:has-text("example.com/v2")').getByRole('button', { name: 'Remove' }).click();

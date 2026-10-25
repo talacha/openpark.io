@@ -27,6 +27,11 @@ const Env = z.object({
    * are created by a platform admin and people join by invitation. Self-hosters turn it on for first-run setup.
    */
   TRIAL_SIGNUP: z.enum(['true', 'false', '1', '0']).default('false').transform((v) => v === 'true' || v === '1'),
+  /**
+   * Optional Gravatar API key. Used server-side only (never sent to the browser) to call the v3 profile
+   * endpoint, which has higher rate limits than the public avatar URL and confirms a profile exists.
+   */
+  GRAVATAR_API_KEY: z.string().optional(),
   /** Notifications (all optional; without any, messages are logged and recorded as undeliverable). */
   RESEND_API_KEY: z.string().optional(),
   MAIL_FROM: z.string().optional(),

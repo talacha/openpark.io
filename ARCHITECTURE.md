@@ -41,7 +41,7 @@ Every client goes through the API; only the ALPR worker talks to the VLM, and bo
 | Database | PostgreSQL 16+ | Row-level security per tenant; LISTEN/NOTIFY for realtime. |
 | Jobs | pg-boss (queue inside Postgres) | Imports, exports, webhooks, retention purges. No Redis to operate. |
 | Realtime | Server-sent events | Live occupancy on every open screen. |
-| Object storage | Adapter: S3-compatible, Azure Blob, GCS, local disk | Plate crops and exports. Local disk for single-node installs. |
+| Object storage | Adapter: S3-compatible, Azure Blob, GCS, local disk | Plate crops and exports. Profile pictures and enforcement evidence live in Postgres (`image_asset`). Local disk for single-node installs. |
 | ALPR worker | Python 3.12, ONNX Runtime | Separate container behind HTTP. CPU by default; CUDA or OpenVINO optional. |
 | VLM fallback | Any OpenAI-compatible server (llama.cpp, vLLM, Ollama) | Optional second-opinion reader and vehicle attributes. |
 | Auth | Email + passkeys built in; OIDC/SAML to any IdP | Keycloak for self-hosters; Entra ID or Google for SaaS clients. |
@@ -83,6 +83,8 @@ Thirteen tables cover v1: a tenant owns sites, a site owns zones, a zone owns sl
 | `session` | site\_id, vehicle\_id, slot\_id, ticket\_code, in\_at, out\_at, in\_by, out\_by, rate\_plan\_id + version, fee, fee\_breakdown (jsonb), status | One open session per vehicle per site (partial unique index). `in_by` and `out_by` can be different attendants |
 | `session_event` | session\_id, type, actor\_id, device\_id, gate, server\_at, device\_at, payload (jsonb) | Append-only timeline: check-in, slot moves, check-out, payment, edits, voids |
 | `plate_read` | session\_id, device\_id, crop\_key, text\_raw, text\_norm, region, confidence, engine, latency\_ms, corrected\_to, decided\_by | Drives accuracy metrics and opt-in fine-tuning |
+| `enforcement_case` | site\_id, session\_id, vehicle\_id, reasons, action, unit\_id, amount\_minor, currency, evidence\_key, actor\_id | Append-only supervisor violation: 5,000 MXN department fine (photo optional), or unlinked immobilization with required photo evidence |
+| `image_asset` | tenant\_id, key, type, subject\_kind, subject, region, event, department\_number, mime, data, bytes, width, height, sha256 | Content-addressed WebP for profile pictures and enforcement evidence; `key` hashes the image's identity, so re-uploading replaces instead of accumulating |
 | `device` | site\_id, kind (phone, ip\_camera, gate), lane, direction | Lane cameras and gates |
 | `audit_event` | actor, action, entity, before, after, at | Append-only log for everything outside sessions: inventory imports, settings, users |
 
@@ -286,12 +288,14 @@ Everything the UI does is a public REST call (OpenAPI 3.1, versioned under `/v1`
 | POST | `/v1/inventory/import/{job}/apply` | Apply a previewed diff |
 | POST | `/v1/inventory/import/{job}/rollback` | Restore the pre-import snapshot |
 | POST | `/v1/alpr/read` | Image in, ranked plate candidates out |
+| GET | `/v1/enforcement/inspect?site=&entry=` | Supervisor vehicle validity, expected box, responsible unit, and required action |
+| POST | `/v1/enforcement/flags` | Record a department fine (photo optional) or an unlinked immobilization (photo required) |
 | GET | `/v1/reports/shifts?date=` | Sessions and cash per attendant shift |
 | GET | `/v1/events` | Server-sent events: occupancy, sessions, low-confidence reads |
 
 **Integrations.** Webhooks (HMAC-SHA256 signed, retried with backoff) for `session.opened`, `session.closed`, `slot.changed`, `read.needs_review`. Gates and barriers via webhook or MQTT. IP cameras via RTSP or ONVIF snapshots into the ALPR worker. Payment adapters (Stripe, Mercado Pago) and ESC/POS receipt printers are plug-ins.
 
-**Security.** Postgres RLS isolates tenants even if application code misses a filter. Writes require an `Idempotency-Key`. API keys are scoped per tenant and per site. Plate images are served only through short-lived signed URLs. The audit log is append-only.
+**Security.** Postgres RLS isolates tenants even if application code misses a filter. Writes require an `Idempotency-Key`. API keys are scoped per tenant and per site. Plate images and enforcement evidence are served only through short-lived signed URLs. The audit log is append-only. Profile pictures are optional: an uploaded one is stored as WebP and served through a signed URL; when there is none, the screen asks Gravatar for the picture registered to the person's email. Only the SHA-256 of the address (never the address) is sent, with no referrer, and Gravatar's `d=404` means an address without a profile returns no image, so the initials stay. When `GRAVATAR_API_KEY` is set, the API calls Gravatar's v3 profile endpoint server-side instead (the key never reaches the browser) and caches the answer; without it, the public avatar URL is used.
 
 A person can hold several roles; access is the union. Roles, least to most access:
 
@@ -299,7 +303,7 @@ A person can hold several roles; access is the union. Roles, least to most acces
 | --- | --- |
 | Resident | Lives in the complex (belongs to a unit) and issues guest parking passes by QR code |
 | Attendant | Check in, check out, take payment, scan plates and QR codes, mark a slot out of service |
-| Supervisor | Everything an Attendant can, plus override fees, void sessions, manage guest passes; is notified per community when a car passes 10, 11 and 12 hours |
+| Supervisor | Everything an Attendant can, plus override fees, void sessions, manage guest passes, and enforce parking violations; is notified per community when a car passes 10, 11 and 12 hours |
 | Admin | Configures one community (the surfaced name for a property): sites, zones, slots, units, people (verifying residents' unit access), bulk import/export, and — under Advanced — rates, integrations and AI. Localization is code-controlled, not an admin screen. |
 | Super Admin | A platform-wide flag, not a role of a community: configures every community and switches between them |
 
@@ -319,6 +323,7 @@ Fourteen screens across the two apps cover v1; all are mocked up in the companio
 | Rate plans | app | Admin | Versioned pricing rules and a fee simulator |
 | AI plate reading settings | app | Admin | Mode, threshold, engines, plate regions, retention |
 | Bulk import/export | app | Admin | One screen with entity tabs (Communities, Slots, Units, Users): validate, review diff, apply, roll back — no secrets in any export or diff |
+| Vehicle enforcement | app | Supervisor | Scan plate, ticket, or pass; show validity and assigned box; flag a department fine (photo optional) or record an unlinked immobilization with required photo evidence |
 | Attendant home | app | Attendant | Check in / Check out, live free count, recent activity |
 | Check-in capture | app | Attendant | Camera with live plate box, read and confidence |
 | Check-in confirm | app | Attendant | Vehicle details, suggested slot, ticket |

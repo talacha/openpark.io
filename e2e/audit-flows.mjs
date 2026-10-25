@@ -26,11 +26,12 @@ async function session(role, vp = [390, 844], mode = 'en-XA') {
   const ctx = await b.newContext({ viewport: { width: vp[0], height: vp[1] }, locale: 'en-US' });
   await ctx.addInitScript((m) => { try { localStorage.setItem('op.locale', m); } catch {} }, mode);
   const p = await ctx.newPage();
+  p.setDefaultTimeout(15000);
   p.on('dialog', (d) => d.accept('reason'));
   p.on('pageerror', (e) => flag(`${role}: page error`, String(e).slice(0, 140)));
   p.on('console', (m) => { if (m.type() === 'error' && !/favicon|Failed to load resource/.test(m.text())) flag(`${role}: console`, m.text().slice(0, 140)); });
   await p.goto(`${WEB}/login`); await p.fill('input[name=email]', people[role].email); await p.fill('input[name=password]', people[role].password); await p.click('button.primary');
-  await p.waitForSelector('.menu-nav', { state: 'attached' });
+  await p.waitForSelector(vp[0] < 768 ? '.topbar' : '.menu-nav', { state: 'attached' });
   return p;
 }
 /** Text on screen that is not wrapped by the pseudo-locale, ignoring data (names, plates, numbers, codes). */
@@ -51,7 +52,7 @@ async function scan(p, where) {
   for (const t of texts) flag(where, t);
 }
 const click = (p, sel) => p.click(sel);
-const type = async (p, s) => { await p.click('[data-mode=keypad]').catch(() => {}); for (const c of s) await p.click(`.keypad button[aria-label="${c}"]`); };
+const type = async (p, s) => { await p.locator('.tabs button').nth(1).click(); await p.locator('input[dir=ltr]').fill(''); for (const c of s) await p.click(`.keypad button[aria-label="${c}"]`); };
 const pause = (p, ms = 500) => p.waitForTimeout(ms);
 
 // ---------------- logged out: auth errors ----------------
@@ -59,6 +60,7 @@ const pause = (p, ms = 500) => p.waitForTimeout(ms);
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, locale: 'en-US' });
   await ctx.addInitScript(() => { try { localStorage.setItem('op.locale', 'en-XA'); } catch {} });
   const p = await ctx.newPage();
+  p.setDefaultTimeout(15000);
   await p.goto(`${WEB}/login`); await p.fill('input[name=email]', 'nobody@example.com'); await p.fill('input[name=password]', 'wrong-password'); await p.click('button.primary'); await pause(p); await scan(p, 'login: wrong password');
   await p.goto(`${WEB}/signup`); await pause(p, 700); await scan(p, 'signup page');
   await p.fill('input[name=name]', 'X'); await p.fill('input[name=org]', 'Dup Org'); await p.fill('input[name=email]', people.owner.email); await p.fill('input[name=password]', 'correct-horse-battery'); await p.click('button.primary'); await pause(p, 800); await scan(p, 'signup: email taken');
@@ -70,18 +72,22 @@ const pause = (p, ms = 500) => p.waitForTimeout(ms);
   const p = await session('attendant');
   await p.goto(`${WEB}/t/${T}/a`); await pause(p, 700); await scan(p, 'attendant home');
   await p.goto(`${WEB}/t/${T}/a/checkin`); await pause(p); await scan(p, 'check-in capture');
-  await p.fill('input[aria-label*="ass code" i], input[placeholder]', 'OPP1.bogus').catch(() => {});
-  await p.locator('.card button').filter({ hasText: /\[/ }).nth(1).click().catch(() => {}); await pause(p); await scan(p, 'check-in: bad pass code');
-  await type(p, 'GST123'); await p.click('.btn.primary.big'); await pause(p, 700); await scan(p, 'check-in confirm');
+  await p.locator('input[dir=ltr]').fill('OPP1.bogus');
+  await p.locator('.btn.primary.big').last().click(); await pause(p); await scan(p, 'check-in: bad pass code');
+  await p.locator('.banner.bad button').click();
+  await type(p, 'GST123'); await p.click('.btn.primary.big'); await pause(p, 700);
+  await p.locator('input[role=combobox]').fill('U1'); await p.locator('li[role=option]').click(); await scan(p, 'check-in confirm');
   await p.click('.btn.primary.big'); await p.waitForSelector('.kv dd.num'); await pause(p, 400); await scan(p, 'check-in ticket');
   const ticket = (await p.textContent('.kv dd.num')).trim();
   await p.click('.btn.primary.big'); await pause(p);
   // duplicate
-  await p.goto(`${WEB}/t/${T}/a/checkin`); await type(p, 'GST123'); await p.click('.btn.primary.big'); await pause(p, 600); await p.click('.btn.primary.big'); await pause(p, 800); await scan(p, 'check-in: already inside');
+  await p.goto(`${WEB}/t/${T}/a/checkin`); await type(p, 'GST123'); await p.click('.btn.primary.big'); await pause(p, 600);
+  await p.locator('input[role=combobox]').fill('U1'); await p.locator('li[role=option]').click();
+  await p.click('.btn.primary.big'); await pause(p, 800); await scan(p, 'check-in: already inside');
   // checkout: bogus then real
   await p.goto(`${WEB}/t/${T}/a/checkout`); await pause(p);
-  await p.getByRole('textbox').nth(0).fill('NOSUCH99'); await p.locator('.btn.primary.big').click(); await pause(p, 800); await scan(p, 'check-out: no match');
-  await p.getByRole('textbox').nth(0).fill(ticket); await p.locator('.btn.primary.big').click(); await p.waitForSelector('.feetotal'); await pause(p, 300); await scan(p, 'check-out review');
+  await p.locator('input[dir=ltr]').fill('NOSUCH99'); await p.locator('.att > .btn.primary.big').click(); await pause(p, 800); await scan(p, 'check-out: no match');
+  await p.locator('input[dir=ltr]').fill(ticket); await p.locator('.att > .btn.primary.big').click(); await p.waitForSelector('.feetotal'); await pause(p, 300); await scan(p, 'check-out review');
   await p.locator('.btn.primary.big').click(); await pause(p, 800); await scan(p, 'check-out receipt');
   await p.goto(`${WEB}/t/${T}/queue`); await pause(p); await scan(p, 'sync queue');
   await p.context().close();
@@ -91,6 +97,7 @@ const pause = (p, ms = 500) => p.waitForTimeout(ms);
 {
   const p = await session('resident');
   await p.goto(`${WEB}/t/${T}/r`); await pause(p, 800); await scan(p, 'resident: no pass yet');
+  await p.locator('.collapsible-head').first().click();
   await p.fill('input[name=guestName]', 'Gx'); await p.fill('input[name=guestPhone]', '+525511112222'); await p.locator('form:has(input[name=guestName]) button.primary').click(); await p.waitForSelector('[role=img]'); await pause(p, 400); await scan(p, 'resident: active pass');
   // second pass attempt is blocked in the UI; provoke the server error through the API-backed regenerate/cancel path instead
   await p.locator('button.danger').click(); await p.waitForSelector('input[name=guestName]'); await pause(p, 500); await scan(p, 'resident: after cancel');
@@ -104,12 +111,12 @@ const pause = (p, ms = 500) => p.waitForTimeout(ms);
   await p.goto(`${WEB}/t/${T}/slots`); await pause(p, 700); await p.locator('.slot').first().click(); await pause(p, 300); await scan(p, 'slots: selected slot');
   await p.goto(`${WEB}/t/${T}/rates`); await pause(p, 700); await p.getByRole('button').filter({ hasText: /\[/ }).nth(1).click().catch(() => {}); await pause(p, 700); await scan(p, 'rates + simulator');
   await p.goto(`${WEB}/t/${T}/units`); await pause(p, 700);
-  await p.fill('input[name=code]', 'U1'); await p.fill('input[name=name]', 'Dup'); await p.locator('form.card.row button.primary').click(); await pause(p, 700); await scan(p, 'units: duplicate code');
+  await p.fill('input[name=code]', 'U1'); await p.fill('input[name=name]', 'Dup'); await p.locator('form:has(input[name=code]) button.primary').click(); await pause(p, 700); await scan(p, 'units: duplicate code');
   await p.goto(`${WEB}/t/${T}/users`); await pause(p, 700);
   await p.fill('input[name=email]', people.attendant.email); await p.locator('form.card button.primary').click(); await pause(p, 700); await scan(p, 'people: already a member');
-  await p.goto(`${WEB}/t/${T}/inventory`); await pause(p, 700); await p.fill('textarea', '{"schemaVersion":1,"sites":[,]}'); await p.locator('button.primary').first().click(); await pause(p, 700); await scan(p, 'inventory: bad json');
+  await p.goto(`${WEB}/t/${T}/bulk`); await pause(p, 700); await p.fill('textarea', '{"schemaVersion":1,"sites":[,]}'); await p.locator('button.primary').first().click(); await pause(p, 700); await scan(p, 'bulk: bad json');
   await p.goto(`${WEB}/t/${T}/ai`); await pause(p, 700); await scan(p, 'ai settings');
-  await p.goto(`${WEB}/t/${T}/locale`); await pause(p, 700); await scan(p, 'localization');
+  await p.goto(`${WEB}/t/${T}/parking`); await pause(p, 700); await scan(p, 'communities and parking');
   await p.goto(`${WEB}/t/${T}/passes`); await pause(p, 700); await scan(p, 'guest passes');
   await p.goto(`${WEB}/platform`); await pause(p, 800); await scan(p, 'organisations');
   await p.fill('input[name=org]', 'Dup'); await p.fill('input[name=owner]', people.owner.email); await p.locator('form.card button.primary').click(); await pause(p, 800); await scan(p, 'organisations: create result');

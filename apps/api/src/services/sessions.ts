@@ -1,4 +1,4 @@
-import { RateRules, computeFee, displayPlate, matchPlateClass, normalizePlate, parseMicroTs, plateDistance, type FeeResult } from '@openpark/core';
+import { RateRules, computeFee, displayPlate, matchPlateClass, normalizePlate, parseMicroTs, plateDistance, toMicroTs, type FeeResult } from '@openpark/core';
 import { can, newTicketCode } from '../auth.js';
 import { emit, type Db } from '../db.js';
 import { HttpError, type Ctx } from '../http.js';
@@ -139,9 +139,7 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
       { slot: slot.code, offender: offender?.plate_display ?? null, suggestion: suggestion?.code ?? null, current: { slot: slot.code, offender: offender?.plate_display ?? null, suggestion: suggestion?.code ?? null } });
   }
 
-  // Get server arrival time from DB clock (not app.now())
-  const nowRow = await db.query("select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') as now");
-  const receivedAt = nowRow.rows[0]?.now as string & { readonly __brand: 'MicroTs' };
+  const receivedAt = toMicroTs(app.now());
 
   // Resolve effective_at based on deviceAt and receivedAt rules
   const verdict = resolveEffectiveAt({
@@ -189,11 +187,15 @@ export async function checkIn(app: App, db: Db, ctx: Ctx, after: After, input: C
   await addEvent(db, ctx, sess.id, 'check_in', { plate: display, region, source: input.source, confidence: input.read?.confidence ?? null, ...(opts.pass ? { passId: opts.pass.id } : {}), ...(input.authorizedBy ? { authorizedBy: input.authorizedBy } : {}) }, extra);
   await addEvent(db, ctx, sess.id, 'slot_assigned', { slot: slot.code, reason }, extra);
 
-  // Return response with MicroTs format for inAt/effectiveAt
-  return {
+  const out = {
     session: { id: sess.id, ticketCode: sess.ticket_code, inAt: effectiveAt, effectiveAt: effectiveAt, site: site.code },
     slot: slot.code, vehicle: { id: veh.id, plate: display, region, plateClass }, warnings, clockFlag: verdict.flag,
   };
+  await emit(db, ctx.tenantId, 'session.opened', out);
+  await emit(db, ctx.tenantId, 'slot.changed', { site: site.code, slot: slot.code, status: 'occupied' });
+  queueWebhook(app, after, ctx.tenantId, 'session.opened', out);
+  queueWebhook(app, after, ctx.tenantId, 'slot.changed', { site: site.code, slot: slot.code, status: 'occupied' });
+  return out;
 }
 
 export interface OpenSession {
@@ -232,7 +234,7 @@ export async function matchOpen(app: App, db: Db, ctx: Ctx, input: { site: strin
     const conf = app.plates.get(input.region ?? '')?.confusables ?? [];
     const candidates = open.map((s) => ({ s, d: plateDistance(norm, s.plate_norm, conf) })).filter((x) => x.d <= 1).sort((a, b) => a.d - b.d).slice(0, 5)
       .map((x) => ({ sessionId: x.s.id, ticketCode: x.s.ticket_code, plate: x.s.plate_display, slot: x.s.slot, inAt: x.s.in_at, distance: x.d }));
-    return { session: null, method: null, candidates: [] };
+    return { session: null, method: null, candidates };
   }
   return { session: null, method: null, candidates: [] };
 }
@@ -262,9 +264,7 @@ export async function checkOut(app: App, db: Db, ctx: Ctx, after: After, s: Open
   if (ctx.siteId && ctx.siteId !== s.site_id) throw new HttpError(404, 'session_not_found', 'No such session');
   if ((input.lostTicket || input.override) && !can(ctx, 'fee.override')) throw new HttpError(403, 'forbidden', 'Lost-ticket and fee overrides need the supervisor role');
 
-  // Get server arrival time from DB clock (not app.now())
-  const nowRow = await db.query("select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') as now");
-  const receivedAt = nowRow.rows[0]?.now as string & { readonly __brand: 'MicroTs' };
+  const receivedAt = toMicroTs(app.now());
 
   // Resolve effective_at based on deviceAt and receivedAt rules
   const verdict = resolveEffectiveAt({

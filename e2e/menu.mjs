@@ -20,11 +20,12 @@ for (const p of Object.values(people)) await call('/v1/me/profile', { token: p.t
 // A platform super admin who is also a member of this organisation.
 execSync(`docker exec openpark-pg psql -U openpark -d openpark -c "update app_user set is_superadmin = true where email = 'owner-${sfx}@example.com'"`, { stdio: 'ignore' });
 
+const ADMIN = ['Communities & parking', 'Units', 'Users', 'Bulk import/export', 'Rate plans', 'Integrations', 'AI plate reading'];
 const WANT = {
-  owner: { links: ['Resident view'], heads: ['Platform view', 'Operator view', 'Admin'], admin: ['Rate plans', 'Sites & slots', 'Import / export', 'Units', 'People', 'Integrations', 'AI plate reading', 'Localization', 'Organisations'] },
-  admin: { links: ['Resident view'], heads: ['Platform view', 'Operator view', 'Admin'], admin: ['Rate plans', 'Sites & slots', 'Import / export', 'Units', 'People', 'Integrations', 'AI plate reading', 'Localization'] },
-  supervisor: { heads: ['Platform view', 'Operator view'] },
-  attendant: { heads: ['Operator view'] }, resident: { links: ['Resident view'] },
+  owner: { heads: ['Platform view', 'Operator view', 'Admin'], admin: [...ADMIN, 'Organisations'] },
+  admin: { heads: ['Platform view', 'Operator view', 'Admin'], admin: ADMIN },
+  supervisor: { heads: ['Platform view', 'Operator view'], links: ['Enforcement'] },
+  attendant: { heads: ['Operator view'] }, resident: { heads: ['Resident view'] },
 };
 const b = await chromium.launch({ channel: 'chrome' });
 const errors = [];
@@ -32,9 +33,9 @@ async function open(role, viewport) {
   const ctx = await b.newContext({ viewport, locale: 'en-US' }); const p = await ctx.newPage();
   p.on('pageerror', (e) => errors.push(`${role}: ${e}`));
   await p.goto(`${WEB}/login`); await p.fill('input[name=email]', people[role].email); await p.fill('input[name=password]', people[role].password); await p.click('button.primary');
-  await p.waitForSelector('.menu-nav', { state: 'attached' }); return p;
+  await p.waitForSelector(viewport.width < 768 ? '.topbar' : '.menu-nav', { state: 'attached' }); return p;
 }
-const menuText = (p) => p.$$eval('.menu-nav > *', (els) => els.map((e) => ({ head: e.querySelector('.menu-head')?.textContent.trim() ?? e.textContent.trim(), isGroup: !!e.querySelector('.menu-head') })));
+const menuText = (p) => p.$$eval('.menu-nav .menu-group, .menu-nav a.menu-top', (els) => els.map((e) => ({ head: e.querySelector('.menu-head')?.textContent.trim() ?? e.textContent.trim(), isGroup: e.classList.contains('menu-group') })));
 
 for (const role of Object.keys(WANT)) {
   const p = await open(role, { width: 1280, height: 900 });
@@ -65,7 +66,7 @@ for (const role of Object.keys(WANT)) {
   await p.screenshot({ path: process.argv[2] + '/m2-phone-open.png' });
   await p.keyboard.press('Escape'); await p.waitForTimeout(300);
   if (await p.isVisible('#app-menu')) throw new Error('Escape should close the drawer');
-  await p.click('.topbar button'); await p.click('.scrim', { position: { x: 370, y: 400 } }); await p.waitForTimeout(300);
+  await p.click('.topbar button'); await p.click('[data-slot=sheet-overlay]', { position: { x: 370, y: 400 } }); await p.waitForTimeout(300);
   if (await p.isVisible('#app-menu')) throw new Error('tapping outside should close the drawer');
   await p.click('.topbar button'); await p.click('button.menu-head:has-text("Admin")'); await p.click('#menu-admin a:has-text("Units")');
   await p.waitForURL(/\/units$/); await p.waitForTimeout(300);
@@ -91,23 +92,21 @@ for (const role of Object.keys(WANT)) {
   await p.context().close();
 }
 
-// Typed URLs are guarded too: residents and attendants cannot open the admin pages.
-for (const [role, url] of [['resident', 'units'], ['attendant', 'users'], ['supervisor', 'rates'], ['resident', 'dashboard']]) {
+// Typed URLs are guarded too: non-admins cannot open admin pages, and exclusive role views stay exclusive.
+for (const [role, url] of [['resident', 'units'], ['attendant', 'users'], ['supervisor', 'rates'], ['resident', 'dashboard'], ['owner', 'r'], ['admin', 'r'], ['supervisor', 'r'], ['attendant', 'r'], ['owner', 'enforcement'], ['admin', 'enforcement'], ['attendant', 'enforcement'], ['resident', 'enforcement']]) {
   const p = await open(role, { width: 1280, height: 900 });
   await p.goto(`${WEB}/t/${owner.tenant}/${url}`); await p.waitForTimeout(600);
   if (new RegExp(`/${url}$`).test(p.url())) throw new Error(`${role} could open /${url}`);
   await p.context().close();
 }
-console.log('✓ typed URLs: residents, attendants and supervisors are redirected away from pages their role cannot use');
+console.log('✓ typed URLs: roles are redirected away from admin pages and Resident view they cannot use');
 
-// Arabic: the menu mirrors.
+// The language picker exposes the two supported surface locales.
 {
   const p = await open('owner', { width: 1280, height: 900 });
-  await p.selectOption('.menu-foot select', 'ar'); await p.waitForTimeout(300);
-  const side = await p.$eval('#app-menu', (e) => e.getBoundingClientRect().left);
-  if (side < 600) throw new Error('menu should sit on the right in right-to-left languages');
-  await p.screenshot({ path: process.argv[2] + '/m3-rtl.png' });
-  console.log('✓ Arabic: the menu moves to the right edge');
+  const locales = await p.$$eval('.menu-foot select option', (options) => options.map((o) => o.value));
+  if (JSON.stringify(locales) !== JSON.stringify(['es-MX', 'en'])) throw new Error(`language options were ${locales}`);
+  console.log('✓ language picker offers Mexican Spanish and English');
   await p.context().close();
 }
 await b.close();

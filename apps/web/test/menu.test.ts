@@ -19,7 +19,11 @@ describe('menu by roles', () => {
     expect(resident.items.map((i) => i.labelKey)).toEqual(['nav.editProfile', 'nav.newPass']);
   });
   it('attendants see only the operator view', () => expect(ids(['attendant'])).toEqual(['operator']));
-  it('supervisors are attendants who also see the platform view', () => expect(ids(['supervisor'])).toEqual(['platform', 'operator']));
+  it('supervisors are attendants who also see enforcement and the platform view', () => expect(ids(['supervisor'])).toEqual(['enforcement', 'platform', 'operator']));
+  it('offers enforcement only to supervisors', () => {
+    for (const r of ['resident', 'attendant', 'admin'] as Role[]) expect(ids([r])).not.toContain('enforcement');
+    expect(ids([], true)).not.toContain('enforcement');
+  });
   it('admins see the platform and operator views and the Admin group, but not the resident view', () => expect(ids(['admin'])).toEqual(['platform', 'operator', 'admin']));
   it('combines the views of every role a person holds', () => {
     expect(ids(['resident', 'attendant'])).toEqual(['resident', 'operator']);

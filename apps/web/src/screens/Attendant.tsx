@@ -45,7 +45,7 @@ function Collapsible({ title, defaultOpen = false, children }: { title: string; 
  * normal tab-stop with `aria-pressed`, so keyboard traversal is the standard Tab/Space with no roving-focus or
  * Left/Right contract to half-implement. The active panel is rendered by the caller below the group.
  */
-function Tabs({ tab, onTab, labels, label }: { tab: 'camera' | 'manual'; onTab: (t: 'camera' | 'manual') => void; labels: { camera: string; manual: string }; label: string }) {
+export function Tabs({ tab, onTab, labels, label }: { tab: 'camera' | 'manual'; onTab: (t: 'camera' | 'manual') => void; labels: { camera: string; manual: string }; label: string }) {
   return (
     <div className="tabs" role="group" aria-label={label}>
       {(['camera', 'manual'] as const).map((k) => (
@@ -227,7 +227,7 @@ const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKLÑ', 'ZXCVBNM'] as const
  * On-screen plate keyboard: digits, then QWERTY rows (with Ñ), and a last row of Z..M plus Delete and a clear (✕) key.
  * Plates are always typed left-to-right whatever the interface language.
  */
-function Keypad({ value, onChange }: { region?: string; value: string; onChange: (v: string) => void }) {
+export function Keypad({ value, onChange }: { region?: string; value: string; onChange: (v: string) => void }) {
   const t = useT();
   const key = (c: string) => <Button key={c} type="button" onClick={() => onChange(value + c)} aria-label={c}>{c}</Button>;
   return (

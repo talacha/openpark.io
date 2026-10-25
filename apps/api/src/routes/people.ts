@@ -9,6 +9,7 @@ import { cancelUnusedPassesOfHost } from '../services/passes.js';
 import { applyUnits, exportUnits, parseUnitsDoc, previewUnits } from '../services/units.js';
 import { applyUsers, exportUsers, parseUsersDoc, previewUsers, rollbackUsers, type UsersRollback } from '../services/usersimport.js';
 import { locateJsonError } from '../jsonpos.js';
+import { imageAsset, imageStorageKey, parseImageStorageKey } from '../images.js';
 import { provisionTenant, type Owner } from '../services/tenants.js';
 import type { App } from '../server.js';
 
@@ -74,30 +75,27 @@ export function registerPeopleRoutes(app: App) {
     },
   });
 
-  // A resident's profile picture: base64 JSON upload (same transport as plate crops), stored via app.storage and
-  // served only through short-lived signed URLs (GET /v1/me returns the URL, never the key).
-  // Images are resized to 256×256 WebP at ~10-20KB before upload (client-side processing).
+  // A resident's profile picture: base64 JSON upload (same transport as plate crops). The server optimises it to
+  // WebP and stores it in Postgres, keyed by email; GET /v1/me returns a short-lived signed URL, never the key.
   defineRoute(app, {
-    method: 'POST', path: '/v1/me/avatar', summary: 'Upload my profile picture (WebP only, up to 100 KB)', perm: 'me', replaySafe: true,
-    body: z.object({ contentType: z.enum(['image/webp']), dataBase64: z.string().min(1) }),
-    async handler({ ctx, db, body }) {
+    method: 'POST', path: '/v1/me/avatar', summary: 'Upload my profile picture (JPEG, PNG or WebP, up to 5 MiB)', perm: 'me', replaySafe: true,
+    body: z.object({ contentType: z.enum(['image/webp', 'image/jpeg', 'image/png']), dataBase64: z.string().min(1) }),
+    async handler({ app, ctx, db, body }) {
       if (!ctx.userId) throw new HttpError(400, 'user_required', 'API keys have no profile');
+      const user = (await db.query('select email, avatar_key from app_user where id = $1', [ctx.userId])).rows[0];
+      if (!user) throw new HttpError(404, 'user_not_found', 'No such user');
       let buf: Buffer;
       try { buf = Buffer.from(body.dataBase64, 'base64'); } catch { throw new HttpError(400, 'avatar_invalid', 'The image could not be decoded'); }
-      if (buf.length === 0 || buf.length > 102_400) throw new HttpError(400, 'avatar_invalid', 'The image must be a valid WebP file no larger than 100 KB');
+      if (buf.length === 0 || buf.length > 5 * 1024 * 1024) throw new HttpError(400, 'avatar_invalid', 'The image must be 5 MiB or smaller');
       if (!signatureMatches(body.contentType, buf)) throw new HttpError(400, 'avatar_invalid', 'The image data does not match its declared type');
-      const key = `${ctx.tenantId}/avatars/${ctx.userId}.webp`;
-      const priorKey = (await db.query('select avatar_key from app_user where id = $1', [ctx.userId])).rows[0]?.avatar_key as string | null;
-      try {
-        await app.storage.put(key, buf);
-      } catch (e) {
-        app.log.warn({ err: (e as Error).message }, 'avatar storage put failed');
-        throw new HttpError(503, 'storage_unavailable', 'The image store is unavailable; try again later');
-      }
+
+      const asset = await imageAsset(db, ctx.tenantId, { type: 'avatar', subject: user.email }, buf);
+      if (!asset) throw new HttpError(500, 'avatar_failed', 'The image could not be stored');
+      const key = imageStorageKey(ctx.tenantId, asset.key);
       await db.query('update app_user set avatar_key = $2 where id = $1', [ctx.userId, key]);
-      // One object per user: always WebP now, so priorKey should match key on success.
-      if (priorKey && priorKey !== key) {
-        try { await app.storage.delete(priorKey); } catch (e) { app.log.warn({ err: (e as Error).message, key: priorKey }, 'orphaned avatar delete failed'); }
+      // A picture stored before the move to Postgres is an object-storage key; remove it once the new row is live.
+      if (user.avatar_key && !parseImageStorageKey(user.avatar_key)) {
+        try { await app.storage.delete(user.avatar_key); } catch (e) { app.log.warn({ err: (e as Error).message, key: user.avatar_key }, 'orphaned avatar delete failed'); }
       }
       return { ok: true };
     },

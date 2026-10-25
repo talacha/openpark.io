@@ -42,16 +42,22 @@ log(`zone label localized: ${zone}`);
 await page.selectOption('.menu-foot select', 'en');
 await page.screenshot({ path: `${shots}/01-dashboard.png` });
 
-// Attendant: keypad check-in
+// Attendant: camera-first capture, then keypad check-in on Manual Entry
 await page.goto(page.url().replace(/\/dashboard.*/, '/a'));
 await page.waitForURL(/\/a$/);
 await page.setViewportSize({ width: 420, height: 900 });
 await page.click('.tabbar >> text=Check in');
-await page.click('[data-mode=keypad]').catch(() => {});
+await page.getByLabel('Plate or code', { exact: true }).waitFor();
+await page.waitForSelector('video[aria-label="Use camera"]', { state: 'attached' });
+await page.getByRole('button', { name: 'Manual entry', exact: true }).click();
+if (await page.locator('video[aria-label="Use camera"]').count()) throw new Error('Manual Entry should replace the camera with the keypad');
 for (const c of 'ABC123') await page.click(`.keypad button[aria-label="${c}"]`);
 await page.screenshot({ path: `${shots}/02-keypad.png` });
 await page.click('text=Next');
 await page.waitForSelector('text=Confirm check-in');
+await page.getByRole('checkbox', { name: 'Other', exact: true }).click();
+await page.getByLabel("Authorizing person's name", { exact: true }).fill('Rosa');
+await page.getByLabel("Authorizing person's phone, with country code", { exact: true }).fill('+525511112222');
 await page.screenshot({ path: `${shots}/03-confirm.png` });
 await page.click('text=Confirm check-in');
 await page.waitForSelector('.kv dd.num');
@@ -60,14 +66,14 @@ log(`check-in issued ticket ${ticket}`);
 await page.screenshot({ path: `${shots}/04-ticket.png` });
 await page.click('text=Done');
 
-// Check-out by ticket
+// Check-out by ticket through the unified field
 await page.click('.tabbar >> text=Check out');
-await page.fill('input[dir=ltr] >> nth=0', ticket);
+await page.getByLabel('Plate, ticket or guest pass', { exact: true }).fill(ticket);
 await page.click('text=Find car');
 await page.waitForSelector('.feetotal');
 log(`check-out preview fee: ${(await page.textContent('.feetotal')).trim()}`);
 await page.screenshot({ path: `${shots}/05-checkout.png` });
-await page.click('text=Take payment');
+await page.click('text=/Confirm leaving/');
 await page.waitForSelector('text=/Receipt/');
 log('check-out completed with receipt');
 await page.click('text=Done');
@@ -80,7 +86,7 @@ await page.click('a.nav:has-text("Sessions")');
 await page.click('tbody tr.click >> nth=0');
 await page.waitForSelector('.timeline li');
 const events = await page.$$eval('.timeline li strong', (n) => n.map((x) => x.textContent));
-if (events.join() !== 'Checked in,Slot assigned,Checked out,Payment') throw new Error(`timeline was ${events}`);
+if (events.join() !== 'Checked in,Slot assigned,Payment,Checked out') throw new Error(`timeline was ${events}`);
 log(`session timeline: ${events.join(' → ')}`);
 await page.screenshot({ path: `${shots}/06-sessions.png` });
 
@@ -94,7 +100,7 @@ await page.click('a.nav:has-text("Slots")');
 await page.waitForSelector('.slot');
 await page.screenshot({ path: `${shots}/08-slots.png` });
 
-await page.click('a.nav:has-text("Import / export")');
+await page.click('a.nav:has-text("Bulk import/export")');
 await page.fill('textarea', '{\n  "schemaVersion": 1,\n  "sites": [,]\n}');
 await page.click('text=Validate and preview');
 await page.waitForSelector('.banner.bad');
@@ -102,15 +108,17 @@ errors.length = 0; // the 400 above is the point of this step
 log(`bad JSON reported: ${(await page.textContent('.banner.bad')).trim().slice(0, 80)}`);
 await page.screenshot({ path: `${shots}/09-inventory-error.png` });
 
-// Localization: Arabic flips to right-to-left; pseudo-locale renders
-await page.selectOption('.menu-foot select', 'ar');
-if ((await page.getAttribute('html', 'dir')) !== 'rtl') throw new Error('html[dir] should be rtl for Arabic');
+// Localization: the public picker exposes only Mexican Spanish and English
+const locales = await page.$$eval('.menu-foot select option', (options) => options.map((o) => o.value));
+if (JSON.stringify(locales) !== JSON.stringify(['es-MX', 'en'])) throw new Error(`language options were ${locales}`);
+await page.selectOption('.menu-foot select', 'es-MX');
 await page.click('a.nav[href$="/dashboard"]');
 await page.waitForSelector('.tile .value');
-await page.screenshot({ path: `${shots}/10-dashboard-ar.png` });
-log('Arabic renders right-to-left');
-await page.selectOption('.menu-foot select', 'en-XA');
-await page.screenshot({ path: `${shots}/11-pseudo.png` });
+if (!(await page.textContent('h1')).includes('Ocupación')) throw new Error('Spanish should localize the dashboard');
+await page.screenshot({ path: `${shots}/10-dashboard-es.png` });
+log('language picker switches between Mexican Spanish and English');
+await page.selectOption('.menu-foot select', 'en');
+await page.screenshot({ path: `${shots}/11-dashboard-en.png` });
 
 // Phone viewport, attendant home
 await page.setViewportSize({ width: 390, height: 844 });

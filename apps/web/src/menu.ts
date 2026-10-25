@@ -5,7 +5,7 @@ export type MenuIcon = 'resident' | 'platform' | 'operator' | 'admin' | 'profile
 
 export interface MenuItem { id: string; labelKey: string; to: string; icon?: MenuIcon }
 export interface MenuGroup {
-  id: 'resident' | 'platform' | 'operator' | 'admin';
+  id: 'resident' | 'enforcement' | 'platform' | 'operator' | 'admin';
   labelKey: string;
   /** Where the group's heading links to (its first page). */
   to: string;
@@ -22,12 +22,15 @@ export const isAdmin = (roles: Role[], superadmin: boolean) => superadmin || has
 export const isOperator = (roles: Role[], superadmin = false) => superadmin || has(roles, 'attendant', 'supervisor', 'admin');
 /** Only residents open the Resident view; staff roles and Super Admins do not get it by default (a unit is needed to use it). */
 export const hasResidentView = (roles: Role[], _superadmin: boolean) => has(roles, 'resident');
+/** Vehicle enforcement is a supervisor-only mode; other staff roles and the platform flag alone do not grant it. */
+export const hasEnforcement = (roles: Role[]) => has(roles, 'supervisor');
 /** Anyone who is not only a resident may use the staff screens (queue, check-in by link). */
 export const isStaff = (roles: Role[], superadmin: boolean) => superadmin || roles.some((r) => r !== 'resident');
 
 /**
  * The one menu used on every screen and device. Which groups appear depends only on the person's roles (a person can hold several):
  *  - Resident view: residents
+ *  - Enforcement: supervisors only
  *  - Platform view (operations): supervisors, admins and super admins
  *  - Operator view (check in / check out): attendants and supervisors
  *  - Admin: admins and platform super admins, with everything that is admin-only as sub-items
@@ -42,6 +45,10 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
       { id: 'profile', labelKey: 'nav.editProfile', to: `${base}/r?edit=1`, icon: 'profile' },
       { id: 'newpass', labelKey: 'nav.newPass', to: `${base}/r#new`, icon: 'newpass' },
     ],
+  });
+
+  if (slug && hasEnforcement(roles)) groups.push({
+    id: 'enforcement', labelKey: 'nav.enforcement', to: `${base}/enforcement`, icon: 'platform', items: [],
   });
 
   if (slug && isOps(roles, superadmin)) {

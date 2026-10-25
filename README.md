@@ -46,7 +46,7 @@ Python (`services/alpr`, `packages/sdk-py`): `pip install -e 'services/alpr[dev]
 
 ## Status against ARCHITECTURE.md
 
-Built and tested: tenancy with Postgres RLS (isolation, append-only history and used-rate-plan immutability enforced by grants), check-in/check-out with idempotent writes and every exception in the table, fee engine (matches the worked example), versioned rate plans, audit timeline, shift report, inventory export/import with ranges, diff, conflicts and rollback, webhooks (HMAC, retried), SSE, API keys per tenant and site, roles, resident profile pictures with a Gravatar fallback, OpenAPI 3.1, offline-first attendant queue, localization with RTL and tenant terminology, ALPR worker with ONNX engine (verified end to end in containers), docker compose.
+Built and tested: tenancy with Postgres RLS (isolation, append-only history and used-rate-plan immutability enforced by grants), check-in/check-out with idempotent writes and every exception in the table, fee engine (matches the worked example), versioned rate plans, audit timeline, shift report, inventory export/import with ranges, diff, conflicts and rollback, webhooks (HMAC, retried), SSE, API keys per tenant and site, roles, resident profile pictures with a Gravatar fallback, vehicle enforcement with photo evidence, OpenAPI 3.1, offline-first attendant queue, localization with RTL and tenant terminology, ALPR worker with ONNX engine (verified end to end in containers), docker compose.
 
 Not built yet:
 
