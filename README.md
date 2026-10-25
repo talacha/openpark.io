@@ -85,6 +85,10 @@ run it every 1-5 minutes. Vercel's Hobby plan only allows daily crons, so `.gith
 `select cron.schedule('pass-reminders', '* * * * *', $$select net.http_get('https://api.openpark.io/v1/cron/pass-reminders', headers := '{"Authorization":"Bearer <CRON_SECRET>"}'::jsonb)$$)` with the `pg_cron` and `pg_net` extensions.
 The nightly plate-image purge stays on Vercel Cron (`vercel.json`).
 
+## Production migrations
+
+`apps/api/migrations/*.sql` are applied in order by `pnpm migrate`, which records each filename in `schema_migration` and skips what is already there. Locally it uses `ADMIN_DATABASE_URL` (the owner role). In production, `.github/workflows/migrate.yml` runs it only after the `ci` workflow succeeds on `main`; add the owner connection string as the `PROD_ADMIN_DATABASE_URL` repository secret. The runtime `DATABASE_URL` uses the RLS-bound `openpark_app` role and cannot run DDL, and `OPENPARK_APP_PASSWORD` is deliberately not passed to this job because `migrate` would reset that role's password. The job is serialized with a `migrate-production` concurrency group and fails loudly if the secret is missing. Keep migrations backward-compatible: Vercel deploys on push while the migration job waits for CI to finish.
+
 ## Hosting cost: serverless vs. always-on
 
 The API is stateless request/response work over Postgres (a few ms of CPU per call), so it is cheap on serverless as long as no

@@ -1,0 +1,42 @@
+name: migrate
+
+# Production schema changes run only after the full CI suite passes on main, so a red build never reaches the database.
+# The job needs the owner connection string in PROD_ADMIN_DATABASE_URL: the runtime DATABASE_URL uses the RLS-bound
+# openpark_app role, which cannot run DDL. Do not add OPENPARK_APP_PASSWORD here; migrate would reset that role's
+# password and break the running API.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Apply pending migrations
+        env:
+          ADMIN_DATABASE_URL: ${{ secrets.PROD_ADMIN_DATABASE_URL }}
+        run: |
+          if [ -z "$ADMIN_DATABASE_URL" ]; then
+            echo "::error::PROD_ADMIN_DATABASE_URL is not set. Add the owner connection string as a repository secret."
+            exit 1
+          fi
+          pnpm --filter @openpark/api migrate

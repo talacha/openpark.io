@@ -69,6 +69,7 @@ pnpm --filter @openpark/core exec vitest run test/fees.test.ts  # by file
 ## Deploy & secrets
 
 - Push to `main` only to ship; Vercel auto-deploys three projects (marketing `www.openpark.io`, app `app.openpark.io`, API `api.openpark.io`).
+- Production migrations: `.github/workflows/migrate.yml` runs `pnpm migrate` after the `ci` workflow succeeds on `main`. It needs the `PROD_ADMIN_DATABASE_URL` repo secret (owner connection string). Never add `OPENPARK_APP_PASSWORD` there: `migrate` would reset the app role password and break the running API. Keep migrations backward-compatible — Vercel deploys on push while this job waits for CI.
 - Commit identity: `git -c user.email=r@rob.cr commit`. No Claude/AI attribution lines in commit messages.
 - Never print secrets, never pass them as tool arguments, never write them to files. Generate in a shell variable and pipe via stdin (`printf %s "$S" | vercel env add NAME production --sensitive --yes`, `gh secret set` with `GH_TOKEN=$(gh auth token -u rmontero)`).
 - `docker compose up -d --build` → web, api, postgres (+ one-shot migrator). `--profile ai` adds ALPR worker + VLM server.
