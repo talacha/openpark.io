@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "prebuild": "pnpm --filter @openpark/core build",
     "build": "tsc --noEmit && node scripts/fetch-models.mjs && node scripts/pseudo.mjs && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
