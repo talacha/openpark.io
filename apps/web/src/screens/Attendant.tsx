@@ -11,6 +11,7 @@ import { parsePassQr, spaceCode } from '../pass.js';
 import { applyPassAccept, applyPassError, applyPassRemove, beginPassLookup, canConfirm, capacityBar, clearPassError, emptyFlow, hostValid, isStalePassLookup, type Candidate, type FlowState, type HostValue } from '../attendant-flow.js';
 import { useApi, useLiveEvents } from '../components/hooks.js';
 import { QueryState } from '../components/QueryState.js';
+import { EnforcementReports } from '../components/EnforcementReports.js';
 import { useFormat, useT } from '../i18n.js';
 import { errText } from '../errors.js';
 import { feeLabel, passReason } from '../labels.js';
@@ -216,6 +217,7 @@ export function AttendantHome() {
       <QueryState loading={occ.loading} error={occ.error} empty={false} />
       <Card className="card tile"><div className="label">{t('att.freeNow')}</div><div className="value" style={{ fontSize: '3rem' }}>{occ.data ? fmt.number(occ.data.totals.free) : '–'}</div></Card>
       {occ.data && <CapacityBar occ={occ.data} />}
+      <Collapsible title={t('enf.pending')} defaultOpen><EnforcementReports status="open" /></Collapsible>
       <Collapsible title={t('att.recent')} defaultOpen={false}><RecentActivity /></Collapsible>
     </div>
   );

@@ -44,4 +44,6 @@ Status key: [x] done, [~] in progress, [x] not started. Updated as work lands.
 - [x] Detect no open check-in, stays over 12 hours, and parking that differs from the active permit box.
 - [x] Record a 5,000 MXN fine for the responsible department when a current pass or walk-in authorization links a unit.
 - [x] Require photographic evidence for unlinked immobilization and serve it through a short-lived signed URL.
+- [x] Allow evidence on every violation and keep an append-only photo history on each report.
+- [x] Attendants issue pending fines and upload immobilization evidence before checkout is allowed.
 - [x] Cover role boundaries, violation rules, evidence, and the complete browser flow with automated tests.

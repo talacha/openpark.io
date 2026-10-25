@@ -9,10 +9,10 @@ export type Role = (typeof ROLES)[number];
 
 const ALL = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'fee.override', 'session.void', 'inventory.edit',
   'inventory.import', 'rate_plan.edit', 'settings.edit', 'users.edit', 'audit.read', 'tenant.delete',
-  'pass.own', 'pass.redeem', 'pass.admin', 'enforcement'] as const;
+  'pass.own', 'pass.redeem', 'pass.admin', 'enforcement', 'enforcement.process'] as const;
 export type Permission = (typeof ALL)[number];
 
-const ATTENDANT: readonly Permission[] = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'pass.redeem'];
+const ATTENDANT: readonly Permission[] = ['me', 'read', 'checkin', 'checkout', 'payment', 'slot.status', 'pass.redeem', 'enforcement.process'];
 const PERMS: Record<Role, readonly Permission[]> = {
   // Lives in the complex and issues guest passes: sees nothing of the lot's operations.
   resident: ['me', 'pass.own'],

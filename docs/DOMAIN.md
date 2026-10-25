@@ -21,7 +21,8 @@ screens and docs use the **term**. For who uses the product and the journeys eac
 | **Stay** | One visit of a car: check-in to check-out, with its events, fee and payment. | `session`, `session_event` |
 | **Vehicle** | A car known by its plate (and body type, make, model, colour). | `vehicle` |
 | **Plate read** | One reading of a plate image, on the device or the server, and what the attendant decided. | `plate_read` |
-| **Enforcement case** | A supervisor's recorded parking violation. A linked department receives a 5,000 MXN fine (photo optional); an unlinked vehicle requires photo evidence of immobilization. Append-only. | `enforcement_case` |
+| **Enforcement case** | A supervisor's recorded parking violation. A linked department requires a 5,000 MXN fine and immobilization before checkout; an unlinked vehicle requires immobilization evidence. | `enforcement_case` |
+| **Enforcement evidence** | One photo in a report's append-only history. Ordinary appends do not change completion; the explicit immobilization action does. | `enforcement_evidence` |
 | **Image asset** | A stored WebP keyed by the image's identity — type, subject (email or plate), event/action, optional department number and region — so re-uploading replaces instead of accumulating. Used for profile pictures and enforcement evidence. | `image_asset` |
 | **Rate plan** | Versioned pricing rules (grace, first period, increments, daily cap, tax). Editing creates a new version; a plan used by a stay is never changed. | `rate_plan` |
 | **API key** | A credential for another system, scoped to the community (and optionally one site) with a role. Shown once. | `api_key` |
@@ -38,13 +39,13 @@ Community ─┬─ Site ─┬─ Zone ── Slot
            ├─ User ── (roles, unit)             (Resident ⇒ exactly one unit)
            │      └─ Invitation                 (roles, unit, Super Admin)
            ├─ Rate plan ── Site (default)       (a stay pins the plan version it was priced with)
-           ├─ Enforcement case ── Unit (fine, when linked) or photo evidence (immobilization, when unlinked)
+           ├─ Enforcement case ── Unit and append-only photo evidence
            └─ API key · Webhook
 Super Admin ── any Community
 ```
 
 Rules the data enforces: a Resident must have a unit; a community keeps at least one Admin; one active guest pass per unit; a retired site or
-slot stays as history; a unit with residents, invitations or passes cannot be deleted; a zone with slots cannot be deleted. An enforcement fine names its unit, is exactly 5,000 MXN and may carry photo evidence; an unlinked immobilization must.
+slot stays as history; a unit with residents, invitations or passes cannot be deleted; a zone with slots cannot be deleted. An enforcement fine names its unit and is exactly 5,000 MXN. Linked reports require fine issuance and immobilization before checkout; unlinked reports require immobilization evidence.
 
 ## Field types (what the forms use)
 

@@ -5,6 +5,7 @@ import { HttpError, type Ctx } from '../http.js';
 import type { WebhookEvent } from '../jobs.js';
 import type { App } from '../server.js';
 import { completePass, passFee } from './passes.js';
+import { assertEnforcementClear } from './enforcement-guard.js';
 import type { ClockVerdict } from '../time.js';
 import { resolveEffectiveAt } from '../time.js';
 
@@ -263,6 +264,7 @@ export async function checkoutPreview(app: App, db: Db, s: OpenSession, lostTick
 export async function checkOut(app: App, db: Db, ctx: Ctx, after: After, s: OpenSession, method: 'plate' | 'ticket' | 'fuzzy' | 'session', input: CheckOutInput) {
   if (ctx.siteId && ctx.siteId !== s.site_id) throw new HttpError(404, 'session_not_found', 'No such session');
   if ((input.lostTicket || input.override) && !can(ctx, 'fee.override')) throw new HttpError(403, 'forbidden', 'Lost-ticket and fee overrides need the supervisor role');
+  await assertEnforcementClear(db, s.id);
 
   const receivedAt = toMicroTs(app.now());
 

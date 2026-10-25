@@ -140,3 +140,42 @@ describe('unlinked immobilization evidence', () => {
     expect(r.json().error.code).toBe('not_a_violation');
   });
 });
+
+describe('attendant report completion', () => {
+  it('requires fine and immobilization before checkout and appends photos without replacing them', async () => {
+    const { plate, session } = await checkIn();
+    await setAge(session.id, 13);
+    const report = (await flag(plate, 'fine')).json();
+    const reports = await h.app.inject({ method: 'GET', url: '/v1/enforcement/reports?site=DEMO-01&status=open', headers: attendant.h });
+    expect(reports.statusCode, reports.body).toBe(200);
+    expect(reports.json().items.find((r: { id: string }) => r.id === report.id)).toMatchObject({ requiredActions: ['fine', 'immobilization'] });
+
+    const blocked = await h.app.inject({ method: 'POST', url: '/v1/checkout', headers: idem(attendant), payload: { site: 'DEMO-01', ticket: session.ticketCode } });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.code).toBe('enforcement_required');
+
+    const issued = await h.app.inject({ method: 'POST', url: `/v1/enforcement/cases/${report.id}/fine`, headers: idem(attendant) });
+    expect(issued.statusCode, issued.body).toBe(200);
+    expect(issued.json()).toMatchObject({ requiredActions: ['immobilization'], fine: { amountMinor: 500000 } });
+    const issuedAt = issued.json().fineIssuedAt;
+    const replay = await h.app.inject({ method: 'POST', url: `/v1/enforcement/cases/${report.id}/fine`, headers: idem(attendant) });
+    expect(replay.json().fineIssuedAt).toBe(issuedAt);
+
+    const firstPhoto = await h.app.inject({ method: 'POST', url: `/v1/enforcement/cases/${report.id}/evidence`, headers: idem(attendant), payload: { contentType: 'image/jpeg', dataBase64: jpeg.toString('base64'), immobilize: false } });
+    expect(firstPhoto.statusCode, firstPhoto.body).toBe(201);
+    expect(firstPhoto.json()).toMatchObject({ requiredActions: ['immobilization'], immobilizedAt: null });
+    expect(firstPhoto.json().evidence).toHaveLength(1);
+
+    const secondPhoto = await h.app.inject({ method: 'POST', url: `/v1/enforcement/cases/${report.id}/evidence`, headers: idem(attendant), payload: { contentType: 'image/jpeg', dataBase64: jpeg.toString('base64'), immobilize: true } });
+    expect(secondPhoto.statusCode, secondPhoto.body).toBe(201);
+    expect(secondPhoto.json()).toMatchObject({ requiredActions: [], status: 'complete' });
+    expect(secondPhoto.json().evidence).toHaveLength(2);
+    expect(secondPhoto.json().evidence[0].url).not.toBe(secondPhoto.json().evidence[1].url);
+    expect(secondPhoto.json().evidence[0].url).not.toContain(secondPhoto.json().evidence[1].id);
+
+    const checkedOut = await h.app.inject({ method: 'POST', url: '/v1/checkout', headers: idem(attendant), payload: { site: 'DEMO-01', ticket: session.ticketCode } });
+    expect(checkedOut.statusCode, checkedOut.body).toBe(200);
+    const open = await h.app.inject({ method: 'GET', url: '/v1/enforcement/reports?site=DEMO-01&status=open', headers: attendant.h });
+    expect(open.json().items.some((r: { id: string }) => r.id === report.id)).toBe(false);
+  });
+});

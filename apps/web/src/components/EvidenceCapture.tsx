@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useT } from '../i18n.js';
 import { Input } from '@/components/ui/input';
 
@@ -41,6 +41,8 @@ export function EvidenceCapture({ value, onChange, required = false, disabled = 
   const helpId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (!value && inputRef.current) inputRef.current.value = ''; }, [value]);
 
   async function choose(file: File | undefined) {
     if (!file) return;
@@ -53,7 +55,7 @@ export function EvidenceCapture({ value, onChange, required = false, disabled = 
   return (
     <>
       <label className="field">{t('enf.evidence')}
-        <Input type="file" accept="image/*" capture="environment" required={required} disabled={disabled || busy}
+        <Input ref={inputRef} type="file" accept="image/*" capture="environment" required={required} disabled={disabled || busy}
           aria-describedby={helpId} onChange={(e) => { void choose(e.target.files?.[0]); }} />
       </label>
       <p className="muted" id={helpId}>{t('enf.evidenceHelp')}</p>

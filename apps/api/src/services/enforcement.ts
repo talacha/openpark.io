@@ -106,6 +106,19 @@ export async function inspectVehicle(app: App, db: Db, ctx: Ctx, siteCode: strin
   };
 }
 
+async function storeEvidence(app: App, db: Db, ctx: Ctx, found: Inspection, evidenceId: string, data: string) {
+  const asset = await imageAsset(db, ctx.tenantId, {
+    type: found.action === 'fine' ? 'violation' : 'immobilization',
+    subject: found.plate ?? evidenceId,
+    subjectKind: found.plate ? 'plate' : 'text',
+    region: found.region,
+    event: evidenceId,
+    departmentNumber: found.unit?.code ?? null,
+  }, Buffer.from(data, 'base64'));
+  if (!asset) throw new HttpError(500, 'evidence_failed', 'The evidence could not be stored');
+  return imageStorageKey(ctx.tenantId, asset.key);
+}
+
 export async function flagVehicle(app: App, db: Db, ctx: Ctx, input: {
   site: string; entry: string; action: 'fine' | 'immobilization';
   evidence?: { contentType: 'image/jpeg'; dataBase64: string };
@@ -118,28 +131,98 @@ export async function flagVehicle(app: App, db: Db, ctx: Ctx, input: {
   }
 
   const id = randomUUID();
+  const now = app.now();
   let evidenceKey: string | null = null;
+  let evidenceId: string | null = null;
   if (input.evidence) {
-    const asset = await imageAsset(db, ctx.tenantId, {
-      type: input.action === 'fine' ? 'violation' : 'immobilization',
-      subject: found.plate ?? input.entry,
-      region: found.region,
-      event: found.reasons[0] ?? input.action,
-      departmentNumber: found.unit?.code ?? null,
-    }, Buffer.from(input.evidence.dataBase64, 'base64'));
-    if (!asset) throw new HttpError(500, 'evidence_failed', 'The evidence could not be stored');
-    evidenceKey = imageStorageKey(ctx.tenantId, asset.key);
+    evidenceId = randomUUID();
+    evidenceKey = await storeEvidence(app, db, ctx, found, evidenceId, input.evidence.dataBase64);
   }
 
   const site = await resolveSite(db, ctx, input.site);
-  // The evidence row and the case share this transaction: a failed insert rolls back both.
   await db.query(
     `insert into enforcement_case (id, tenant_id, site_id, session_id, vehicle_id, plate_display, plate_region,
-      reasons, action, unit_id, amount_minor, currency, evidence_key, actor_id, created_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      reasons, action, unit_id, amount_minor, currency, evidence_key, actor_id, created_at, fine_issued_at, immobilized_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
     [id, ctx.tenantId, site.id, found.sessionId, found.vehicleId,
       found.plate, found.region, found.reasons, found.action, found.unit?.id ?? null,
-      found.action === 'fine' ? FINE_MINOR : null, found.action === 'fine' ? 'MXN' : null, evidenceKey, ctx.userId, app.now()]);
+      found.action === 'fine' ? FINE_MINOR : null, found.action === 'fine' ? 'MXN' : null, evidenceKey, ctx.userId, now,
+      null, found.action === 'immobilization' ? now : null]);
+  if (evidenceId && evidenceKey) {
+    await db.query('insert into enforcement_evidence (id, tenant_id, case_id, image_key, actor_id, created_at) values ($1,$2,$3,$4,$5,$6)',
+      [evidenceId, ctx.tenantId, id, evidenceKey, ctx.userId, now]);
+  }
 
   return { id, ...found, evidenceUrl: evidenceKey ? signUrl(app.cfg.JWT_SECRET, evidenceKey, 300) : null };
+}
+
+const REPORT_SQL = `select c.id, c.site_id, c.session_id, c.vehicle_id, c.plate_display, c.plate_region, c.reasons, c.action,
+  c.unit_id, c.amount_minor, c.currency, c.evidence_key, c.actor_id, c.created_at, c.fine_issued_at, c.immobilized_at,
+  st.code as site_code, u.code as unit_code, u.name as unit_name
+  from enforcement_case c join site st on st.id = c.site_id left join unit u on u.id = c.unit_id`;
+
+function requiredActions(row: { unit_id: string | null; fine_issued_at: Date | null; immobilized_at: Date | null }) {
+  const required: string[] = [];
+  if (row.unit_id && !row.fine_issued_at) required.push('fine');
+  if (!row.immobilized_at) required.push('immobilization');
+  return required;
+}
+
+async function presentReport(app: App, db: Db, row: any) {
+  const required = requiredActions(row);
+  const photos = (await db.query('select id, image_key, created_at from enforcement_evidence where case_id = $1 order by created_at, id', [row.id])).rows;
+  return {
+    id: row.id, site: row.site_code, sessionId: row.session_id, vehicleId: row.vehicle_id,
+    plate: row.plate_display, region: row.plate_region, reasons: row.reasons, action: row.action,
+    unit: row.unit_id ? { id: row.unit_id, code: row.unit_code, name: row.unit_name } : null,
+    fine: row.amount_minor == null ? null : { amountMinor: row.amount_minor, currency: row.currency },
+    createdAt: row.created_at, fineIssuedAt: row.fine_issued_at, immobilizedAt: row.immobilized_at,
+    requiredActions: required, status: required.length ? 'open' : 'complete',
+    evidence: photos.map((p) => ({ id: p.id, url: signUrl(app.cfg.JWT_SECRET, p.image_key, 300), createdAt: p.created_at })),
+  };
+}
+
+async function reportById(app: App, db: Db, id: string) {
+  const row = (await db.query(`${REPORT_SQL} where c.id = $1`, [id])).rows[0];
+  if (!row) throw new HttpError(404, 'report_not_found', 'No such enforcement report');
+  return presentReport(app, db, row);
+}
+
+export async function listReports(app: App, db: Db, ctx: Ctx, input: { site?: string; status: 'open' | 'all'; limit: number }) {
+  const where: string[] = []; const args: unknown[] = [];
+  const add = (sql: string, value: unknown) => { args.push(value); where.push(sql.replace('?', `$${args.length}`)); };
+  if (input.site) add('c.site_id = ?', (await resolveSite(db, ctx, input.site)).id);
+  else if (ctx.siteId) add('c.site_id = ?', ctx.siteId);
+  if (input.status === 'open') where.push(`((c.unit_id is not null and (c.fine_issued_at is null or c.immobilized_at is null)) or (c.unit_id is null and c.immobilized_at is null))`);
+  args.push(input.limit);
+  const rows = (await db.query(`${REPORT_SQL}${where.length ? ` where ${where.join(' and ')}` : ''} order by c.created_at desc, c.id limit $${args.length}`, args)).rows;
+  const reports = [];
+  for (const row of rows) reports.push(await presentReport(app, db, row));
+  return { items: reports };
+}
+
+export async function issueFine(app: App, db: Db, ctx: Ctx, id: string) {
+  const row = (await db.query('select id, action, unit_id, fine_issued_at from enforcement_case where id = $1 for update', [id])).rows[0];
+  if (!row) throw new HttpError(404, 'report_not_found', 'No such enforcement report');
+  if (row.action !== 'fine' || !row.unit_id) throw new HttpError(409, 'fine_not_available', 'This report has no responsible unit to fine');
+  if (!row.fine_issued_at) await db.query('update enforcement_case set fine_issued_at = $2 where id = $1', [id, app.now()]);
+  return reportById(app, db, id);
+}
+
+export async function appendReportEvidence(app: App, db: Db, ctx: Ctx, id: string, input: { dataBase64: string; immobilize: boolean }) {
+  const row = (await db.query(`${REPORT_SQL} where c.id = $1 for update of c`, [id])).rows[0];
+  if (!row) throw new HttpError(404, 'report_not_found', 'No such enforcement report');
+  if (input.immobilize && row.immobilized_at) throw new HttpError(409, 'already_immobilized', 'This vehicle is already immobilized');
+  const evidenceId = randomUUID();
+  const found = {
+    action: row.action, plate: row.plate_display, region: row.plate_region,
+    unit: row.unit_id ? { id: row.unit_id, code: row.unit_code, name: row.unit_name } : null,
+  } as Inspection;
+  const key = await storeEvidence(app, db, ctx, found, evidenceId, input.dataBase64);
+  const now = app.now();
+  await db.query('insert into enforcement_evidence (id, tenant_id, case_id, image_key, actor_id, created_at) values ($1,$2,$3,$4,$5,$6)',
+    [evidenceId, ctx.tenantId, id, key, ctx.userId, now]);
+  await db.query('update enforcement_case set evidence_key = $2, immobilized_at = case when $3 then coalesce(immobilized_at, $4) else immobilized_at end where id = $1',
+    [id, key, input.immobilize, now]);
+  return reportById(app, db, id);
 }

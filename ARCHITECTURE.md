@@ -83,7 +83,8 @@ Thirteen tables cover v1: a tenant owns sites, a site owns zones, a zone owns sl
 | `session` | site\_id, vehicle\_id, slot\_id, ticket\_code, in\_at, out\_at, in\_by, out\_by, rate\_plan\_id + version, fee, fee\_breakdown (jsonb), status | One open session per vehicle per site (partial unique index). `in_by` and `out_by` can be different attendants |
 | `session_event` | session\_id, type, actor\_id, device\_id, gate, server\_at, device\_at, payload (jsonb) | Append-only timeline: check-in, slot moves, check-out, payment, edits, voids |
 | `plate_read` | session\_id, device\_id, crop\_key, text\_raw, text\_norm, region, confidence, engine, latency\_ms, corrected\_to, decided\_by | Drives accuracy metrics and opt-in fine-tuning |
-| `enforcement_case` | site\_id, session\_id, vehicle\_id, reasons, action, unit\_id, amount\_minor, currency, evidence\_key, actor\_id | Append-only supervisor violation: 5,000 MXN department fine (photo optional), or unlinked immobilization with required photo evidence |
+| `enforcement_case` | site\_id, session\_id, vehicle\_id, reasons, action, unit\_id, amount\_minor, currency, evidence\_key, fine\_issued\_at, immobilized\_at | Supervisor violation; linked reports require fine and immobilization before checkout, unlinked reports require immobilization |
+| `enforcement_evidence` | case\_id, image\_key, actor\_id, created\_at | Append-only report photos; every image is optimized to WebP in Postgres |
 | `image_asset` | tenant\_id, key, type, subject\_kind, subject, region, event, department\_number, mime, data, bytes, width, height, sha256 | Content-addressed WebP for profile pictures and enforcement evidence; `key` hashes the image's identity, so re-uploading replaces instead of accumulating |
 | `device` | site\_id, kind (phone, ip\_camera, gate), lane, direction | Lane cameras and gates |
 | `audit_event` | actor, action, entity, before, after, at | Append-only log for everything outside sessions: inventory imports, settings, users |
@@ -289,7 +290,10 @@ Everything the UI does is a public REST call (OpenAPI 3.1, versioned under `/v1`
 | POST | `/v1/inventory/import/{job}/rollback` | Restore the pre-import snapshot |
 | POST | `/v1/alpr/read` | Image in, ranked plate candidates out |
 | GET | `/v1/enforcement/inspect?site=&entry=` | Supervisor vehicle validity, expected box, responsible unit, and required action |
-| POST | `/v1/enforcement/flags` | Record a department fine (photo optional) or an unlinked immobilization (photo required) |
+| POST | `/v1/enforcement/flags` | Create a violation report with optional evidence, or required evidence for unlinked immobilization |
+| GET | `/v1/enforcement/reports?site=&status=` | List report status, required actions, and photo history |
+| POST | `/v1/enforcement/cases/{id}/fine` | Issue the linked department's 5,000 MXN fine once |
+| POST | `/v1/enforcement/cases/{id}/evidence` | Append a photo or confirm immobilization |
 | GET | `/v1/reports/shifts?date=` | Sessions and cash per attendant shift |
 | GET | `/v1/events` | Server-sent events: occupancy, sessions, low-confidence reads |
 
@@ -323,8 +327,8 @@ Fourteen screens across the two apps cover v1; all are mocked up in the companio
 | Rate plans | app | Admin | Versioned pricing rules and a fee simulator |
 | AI plate reading settings | app | Admin | Mode, threshold, engines, plate regions, retention |
 | Bulk import/export | app | Admin | One screen with entity tabs (Communities, Slots, Units, Users): validate, review diff, apply, roll back — no secrets in any export or diff |
-| Vehicle enforcement | app | Supervisor | Scan plate, ticket, or pass; show validity and assigned box; flag a department fine (photo optional) or record an unlinked immobilization with required photo evidence |
-| Attendant home | app | Attendant | Check in / Check out, live free count, recent activity |
+| Vehicle enforcement | app | Supervisor | Scan plate, ticket, or pass; show validity and assigned box; create violation reports and append photo evidence |
+| Attendant home | app | Attendant | Check in / Check out, live free count, recent activity, and pending fine and immobilization actions required before checkout |
 | Check-in capture | app | Attendant | Camera with live plate box, read and confidence |
 | Check-in confirm | app | Attendant | Vehicle details, suggested slot, ticket |
 | Low-confidence review | app | Attendant | Candidate plates and keypad (Assist mode) |

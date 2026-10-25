@@ -7,6 +7,7 @@ import { useFormat, useT } from '../i18n.js';
 import { Keypad, Tabs } from './Attendant.js';
 import { LiveCamera } from '../components/LiveCamera.js';
 import { EvidenceCapture } from '../components/EvidenceCapture.js';
+import { EnforcementReports } from '../components/EnforcementReports.js';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,8 +68,8 @@ export function Enforcement() {
     if (!result?.action || !site) return;
     setBusy(true); setErr('');
     try {
-      // A photo is required for an unlinked immobilization and optional for an overstay fine.
-      const withEvidence = result.action === 'immobilization' || (result.reasons.includes('overstay') && !!evidence);
+      // Every violation can include evidence; unlinked immobilization requires it.
+      const withEvidence = result.action === 'immobilization' || !!evidence;
       const flagged = await post<Flagged>('/v1/enforcement/flags', {
         site: site.code, entry: entry.trim(), action: result.action,
         ...(withEvidence ? { evidence: { contentType: 'image/jpeg', dataBase64: evidence.split(',')[1] } } : {}),
@@ -89,6 +90,7 @@ export function Enforcement() {
         {recorded.plate ? <div className="platebox"><PlateChip plate={recorded.plate} region={recorded.region ?? undefined} size="xl" /></div> : <p>{t('enf.noPlate')}</p>}
         {recorded.evidenceUrl && <p><a className="btn" href={recorded.evidenceUrl} target="_blank" rel="noreferrer">{t('enf.viewEvidence')}</a></p>}
         <Button type="button" className="btn primary big" onClick={() => changeEntry('')}>{t('enf.another')}</Button>
+        <EnforcementReports status="all" />
       </div>
     );
   }
@@ -128,7 +130,7 @@ export function Enforcement() {
           </dl>
           {result.action === 'fine' && (
             <>
-              {result.reasons.includes('overstay') && <EvidenceCapture value={evidence} onChange={setEvidence} />}
+              <EvidenceCapture value={evidence} onChange={setEvidence} />
               <Button type="button" className="btn danger big" disabled={busy} onClick={() => void flag()}>{t('enf.flagFine', { amount: fmt.money(result.fine!.amountMinor) })}</Button>
             </>
           )}
@@ -141,6 +143,7 @@ export function Enforcement() {
           )}
         </section>
       )}
+      <EnforcementReports status="all" />
     </div>
   );
 }
