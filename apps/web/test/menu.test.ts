@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Role } from '../src/app-context.js';
-import { buildMenu } from '../src/menu.js';
+import { buildMenu, hasResidentView } from '../src/menu.js';
 
 const menu = (roles: Role[], superadmin = false, slug: string | null = 'acme') => buildMenu({ slug, roles, superadmin });
 const ids = (roles: Role[], superadmin = false, slug: string | null = 'acme') => menu(roles, superadmin, slug).map((g) => g.id);
@@ -20,7 +20,7 @@ describe('menu by roles', () => {
   });
   it('attendants see only the operator view', () => expect(ids(['attendant'])).toEqual(['operator']));
   it('supervisors are attendants who also see the platform view', () => expect(ids(['supervisor'])).toEqual(['platform', 'operator']));
-  it('admins see the resident, platform and operator views and the Admin group', () => expect(ids(['admin'])).toEqual(['resident', 'platform', 'operator', 'admin']));
+  it('admins see the platform and operator views and the Admin group, but not the resident view', () => expect(ids(['admin'])).toEqual(['platform', 'operator', 'admin']));
   it('combines the views of every role a person holds', () => {
     expect(ids(['resident', 'attendant'])).toEqual(['resident', 'operator']);
     expect(ids(['resident', 'admin'])).toEqual(['resident', 'platform', 'operator', 'admin']);
@@ -56,7 +56,16 @@ describe('menu by roles', () => {
     expect(m.map((g) => g.id)).toEqual(['admin']);
     expect(m[0]!.items).toEqual([{ id: 'organisations', labelKey: 'platform.tenants', to: '/platform' }]);
   });
-  it('shows a super admin inside any property every view', () => expect(ids([], true)).toEqual(['resident', 'platform', 'operator', 'admin']));
+  it('shows a super admin inside any property every staff view, but not the resident view', () => expect(ids([], true)).toEqual(['platform', 'operator', 'admin']));
+  it('opens the resident view only to users holding the resident role', () => {
+    expect(hasResidentView(['resident'], false)).toBe(true);
+    expect(hasResidentView(['resident', 'admin'], false)).toBe(true);
+    expect(hasResidentView(['admin'], false)).toBe(false);
+    expect(hasResidentView(['supervisor'], false)).toBe(false);
+    expect(hasResidentView(['attendant'], false)).toBe(false);
+    expect(hasResidentView([], true)).toBe(false);
+    expect(hasResidentView(['admin'], true)).toBe(false);
+  });
   it('shows nothing to someone with no role and no super admin flag', () => expect(menu([], false, null)).toEqual([]));
   it('links every item under the organisation slug', () => {
     for (const g of menu(['admin'])) for (const i of g.items) expect(i.to.startsWith('/t/acme/')).toBe(true);

@@ -138,6 +138,8 @@
   "att.keypad": "إدخال اللوحة",
   "att.camera": "استخدام الكاميرا",
   "att.plate": "اللوحة",
+  "att.plateOrCode": "لوحة أو رمز",
+  "att.plateTicketOrPass": "لوحة أو تذكرة أو تصريح زائر",
   "att.region": "منطقة اللوحة",
   "att.read": "القراءة",
   "att.confidence": "الثقة {pct}",

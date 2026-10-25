@@ -40,9 +40,9 @@ function mount() {
 const HINTED = 'OPP2|p1|3|K7Q2M9XA|DEMO-01|A-101|Rosa|ABC123|4102444800|SIG'; // valid, plate hint ABC123
 
 async function typeAndUse(container: HTMLElement, token: string) {
-  const input = container.querySelector('input[aria-label="Pass code"]') as HTMLInputElement;
+  const input = container.querySelector('input[aria-label="Plate or code"]') as HTMLInputElement;
   fireEvent.change(input, { target: { value: token } });
-  const use = [...container.querySelectorAll('button')].find((b) => b.textContent === translate('en', 'att.passUse'))!;
+  const use = [...container.querySelectorAll('button')].find((b) => b.textContent === translate('en', 'common.next'))!;
   await act(async () => { fireEvent.click(use); });
 }
 

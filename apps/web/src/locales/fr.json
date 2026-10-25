@@ -138,6 +138,8 @@
   "att.keypad": "Saisir la plaque",
   "att.camera": "Utiliser la caméra",
   "att.plate": "Plaque",
+  "att.plateOrCode": "Plaque ou code",
+  "att.plateTicketOrPass": "Plaque, ticket ou pass visiteur",
   "att.region": "Région de la plaque",
   "att.read": "Lecture",
   "att.confidence": "Confiance {pct}",

@@ -18,9 +18,9 @@ import type { Me, SiteInfo } from '../src/app-context.js';
 const h = vi.hoisted(() => ({ scanToken: '' }));
 
 // Keep decodeQr REAL (so we decode the artifact the guest page actually rendered); swap only the camera UI for a button.
-vi.mock('../src/components/QrScanner.js', () => ({
-  QrScanner: ({ onResult }: { onResult: (t: string) => void; onClose: () => void }) => (
-    <button type="button" onClick={() => onResult(h.scanToken)}>__scan__</button>
+vi.mock('../src/components/LiveCamera.js', () => ({
+  LiveCamera: ({ onQr }: { onQr: (t: string) => void }) => (
+    <button type="button" onClick={() => onQr(h.scanToken)}>__scan__</button>
   ),
 }));
 
@@ -128,8 +128,7 @@ describe('resident share → guest page → attendant scan → gate redemption (
 
     const { container } = mountAttendant();
 
-    // Open the scanner and read the guest's QR (the camera path, not a typed code).
-    await act(async () => { fireEvent.click(btn(container, translate('en', 'att.scanPass'))); });
+    // The camera widget is already on screen (camera tab is the default): read the guest's QR, not a typed code.
     const scan = await waitFor(() => btn(container, '__scan__'));
     await act(async () => { fireEvent.click(scan); });
 

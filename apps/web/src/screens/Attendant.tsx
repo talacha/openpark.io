@@ -1,5 +1,5 @@
 import { PlateChip } from '@openpark/ui';
-import { Suspense, createContext, lazy, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, get, isNetworkError, post, request, write } from '../api.js';
 import { useApp } from '../app-context.js';
@@ -54,10 +54,6 @@ function Tabs({ tab, onTab, labels, label }: { tab: 'camera' | 'manual'; onTab: 
     </div>
   );
 }
-
-// Load the standalone camera view on demand; LiveCamera shares the decoder from the QR chunk.
-const QrScanner = lazy(() => import('../components/QrScanner.js').then((m) => ({ default: m.QrScanner })));
-const Scanner = (props: { onResult: (text: string) => void; onClose: () => void }) => <Suspense fallback={<div className="muted">…</div>}><QrScanner {...props} /></Suspense>;
 
 const FlowCtx = createContext<{
   flow: FlowState;
@@ -262,8 +258,8 @@ export function CheckInCapture() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const b = base(me!.tenant.slug);
-  const [scanning, setScanning] = useState(false);
-  const [code, setCode] = useState('');
+  // One field for both capture kinds: a plate or a guest-pass code, typed, keyed or scanned.
+  const [entry, setEntry] = useState('');
   const passBannerRef = useRef<HTMLDivElement>(null);
   const passErrRef = useRef<HTMLDivElement>(null);
 
@@ -272,10 +268,32 @@ export function CheckInCapture() {
   // A rejected scan likewise takes focus, so a keyboard/screen-reader attendant lands on the failure, not past it.
   useEffect(() => { if (flow.passError) passErrRef.current?.focus(); }, [flow.passError]);
 
+  /** A pass QR is always a code; a registry-valid plate always wins; otherwise only long tokens count as pass codes. */
+  const looksLikePass = (v: string) => {
+    const s = v.trim();
+    if (parsePassQr(s)) return true;
+    if (matchesRegistry(s, me!.tenant.plate_regions)) return false;
+    return s.length >= 10; // /v1/passes/lookup requires tokens of at least 10 characters
+  };
+
+  /** Typing or keying edits the one field; plate-shaped values also update the flow's plate directly. */
+  function onEntry(v: string) {
+    setEntry(v);
+    if (!looksLikePass(v)) set({ plate: v, source: 'manual', candidates: [], plateFromPass: false });
+  }
+
+  /** One submit for the unified field: pass codes go to the pass lookup, plates to the usual confirmation. */
+  function submitEntry() {
+    const v = entry.trim();
+    if (!v) return;
+    if (looksLikePass(v)) { void usePass(v); return; }
+    set({ plate: v, source: 'manual', candidates: [], plateFromPass: false });
+    nav(`${b}/checkin/confirm`);
+  }
+
   /** Look a scanned or typed pass up before taking the plate, so a bad QR is caught at the gate, not after. */
   async function usePass(raw: string) {
     const token = raw.trim();
-    setScanning(false);
     if (!token) return;
     // The QR carries the guest, unit, plate hint and expiry, so an expired or foreign code is rejected before any round trip.
     const q = parsePassQr(token);
@@ -302,7 +320,7 @@ export function CheckInCapture() {
       // filled the plate in the meantime: a hinted pass pre-fills the plate (keypad/camera stay available to correct it);
       // a no-hint pass clears a plate left over from a PREVIOUS pass but keeps one the attendant captured independently.
       update((s) => applyPassAccept(s, { token, guest: r.pass.guestName, unit: r.pass.unit.name, q, regions: me!.tenant.plate_regions }));
-      setCode('');
+      setEntry('');
       setCamera(false);
       // AC-4.2.2: a successful scan lands DIRECTLY on the complete prefilled confirmation form (Host from the pass unit,
       // plate from the hint, Make/Model/Year and the auto-picked Slot), not a plate-only keypad that needs another Next.
@@ -316,6 +334,7 @@ export function CheckInCapture() {
 
   /** A plate read on-device. Seen in several frames it goes straight to confirm; a single "Capture" read below the site threshold goes to review. */
   function onPlate(p: { text: string; confidence: number; votes: number }) {
+    setEntry(p.text);
     const norm = normalizePlate(p.text);
     const region = me!.tenant.plate_regions[0] ?? flow.region;
     const valid = matchesRegistry(p.text, me!.tenant.plate_regions);
@@ -343,23 +362,13 @@ export function CheckInCapture() {
   return (
     <div className="att">
       <h1>{t('att.capture')}</h1>
-      {flow.pass ? (
+      {flow.pass && (
         <Alert className="banner" role="status" aria-live="polite" tabIndex={-1} ref={passBannerRef}>
           <strong>{t('att.passFor', { guest: flow.pass.guest, unit: flow.pass.unit })}</strong>
           {flow.pass.verifyCode && <div className="num" dir="ltr">{t('att.passVerified', { code: spaceCode(flow.pass.verifyCode) })}</div>}
           {flow.pass.plateHint && <div className="muted">{t('att.passPlateHint', { plate: flow.pass.plateHint })}</div>}
           <div><Button type="button" className="btn" onClick={() => { passSeq.current++; update(applyPassRemove); }}>{t('att.passRemove')}</Button></div>
         </Alert>
-      ) : scanning ? (
-        <Scanner onClose={() => setScanning(false)} onResult={(text) => { void usePass(text); }} />
-      ) : (
-        <Card className="card stack">
-          <Button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanPass')}</Button>
-          <div className="row">
-            <Input className="grow" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('att.passCode')} aria-label={t('att.passCode')} dir="ltr" autoCapitalize="off" />
-            <Button type="button" className="btn" disabled={!code.trim()} onClick={() => { void usePass(code); }}>{t('att.passUse')}</Button>
-          </div>
-        </Card>
       )}
       {flow.passError && (
         <Alert variant="destructive" className="banner bad" role="alert" tabIndex={-1} ref={passErrRef}>
@@ -371,15 +380,18 @@ export function CheckInCapture() {
       {camera ? (
         <>
           {!aiOn && <Alert className="banner">{t('att.cameraAiOff')}</Alert>}
-          <LiveCamera regions={me!.tenant.plate_regions} qr={!flow.pass} plate={aiOn} busy={busy} onQr={(text) => { void usePass(text); }} onPlate={onPlate} onSnap={(img) => { void capture(img); }} />
+          <LiveCamera regions={me!.tenant.plate_regions} qr={!flow.pass} plate={aiOn} busy={busy} onQr={(text) => { setEntry(text); void usePass(text); }} onPlate={onPlate} onSnap={(img) => { void capture(img); }} />
         </>
       ) : (
         <>
           <div className="platebox">{flow.plate ? <PlateChip plate={flow.plate} region={flow.region} size="xl" /> : <span className="muted">{t('att.plate')}</span>}</div>
-          <Keypad region={flow.region} value={flow.plate} onChange={(v) => set({ plate: v, source: 'manual', candidates: [], plateFromPass: false })} />
-          <Button type="button" className="btn primary big" disabled={!flow.plate} onClick={() => nav(`${b}/checkin/confirm`)}>{t('common.next')}</Button>
+          <Keypad region={flow.region} value={entry} onChange={onEntry} />
         </>
       )}
+      <label className="field">{t('att.plateOrCode')}
+        <Input value={entry} onChange={(e) => onEntry(e.target.value)} placeholder={t('att.plateOrCode')} aria-label={t('att.plateOrCode')} dir="ltr" autoCapitalize="off" />
+      </label>
+      <Button type="button" className="btn primary big" disabled={!entry.trim()} onClick={submitEntry}>{t('common.next')}</Button>
       {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
     </div>
   );
@@ -696,6 +708,8 @@ export function CheckOut() {
   const { me, site, can } = useApp();
   const fmt = useFormat(site?.timezone, me?.tenant.currency);
   const [tab, setTab] = useState<'camera' | 'manual'>('camera');
+  // One field for plate, ticket or guest pass; the match still goes out as plate or ticket, never both.
+  const [entry, setEntry] = useState('');
   const [plate, setPlate] = useState('');
   const [ticket, setTicket] = useState('');
   const [m, setM] = useState<Match | null>(null);
@@ -705,22 +719,37 @@ export function CheckOut() {
   const [err, setErr] = useState('');
   const [receipt, setReceipt] = useState<string | 'queued' | null>(null);
   const [busy, setBusy] = useState(false);
-  const [scanning, setScanning] = useState(false);
   const b = base(me!.tenant.slug);
   // The Manual Entry autocomplete lists currently-parked cars, oldest first (longest stay first).
   const openSessions = useApi<{ items: OpenRow[] }>(site && tab === 'manual' ? `/v1/sessions?site=${site.code}&status=open&sort=in_at_asc&limit=200` : null, [site?.code, tab]);
 
   // A quick-checkout link from Recent Activity carries the session ticket in router state: resolve it on mount.
   const fromState = (loc.state as { ticket?: string } | null)?.ticket;
-  useEffect(() => { if (fromState) { setTab('manual'); void find({ ticket: fromState }); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (fromState) { setTab('manual'); setEntry(fromState); void find({ ticket: fromState }); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function find(over?: { ticket?: string; plate?: string }, lostTicket = lost) {
     if (!site) return;
     setErr(''); setBusy(true);
     try {
-      const body = { site: site.code, plate: over?.ticket ? undefined : over?.plate ?? (plate || undefined), ticket: over?.ticket ?? (ticket || undefined), region: me!.tenant.plate_regions[0], lostTicket: lostTicket || undefined };
+      // An override fully determines the lookup kind, so a stale plate/ticket from a previous search never rides along.
+      const body = { site: site.code, plate: over ? ('ticket' in over ? undefined : over.plate) : (plate || undefined), ticket: over ? ('ticket' in over ? over.ticket : undefined) : (ticket || undefined), region: me!.tenant.plate_regions[0], lostTicket: lostTicket || undefined };
       setM(await request<Match>('POST', '/v1/checkout/match', body));
     } catch (e) { setErr(isNetworkError(e) ? t('att.offline') : errText(e)); } finally { setBusy(false); }
+  }
+
+  /** One submit for the unified field: registry-valid plates match by plate; anything else is a ticket or pass code. */
+  function findEntry() {
+    const v = entry.trim();
+    if (!v) return;
+    if (parsePassQr(v) || !matchesRegistry(v, me!.tenant.plate_regions)) {
+      const tk = v.toUpperCase();
+      setTicket(tk); setPlate('');
+      void find({ ticket: tk });
+    } else {
+      const p = normalizePlate(v);
+      setPlate(p); setTicket('');
+      void find({ plate: p });
+    }
   }
 
   async function confirm() {
@@ -782,23 +811,19 @@ export function CheckOut() {
     <div className="att">
       <h1>{t('att.checkout')}</h1>
       <Tabs tab={tab} onTab={setTab} label={t('att.captureMethod')} labels={{ camera: t('att.camera'), manual: t('att.manualEntry') }} />
+      <label className="field">{t('att.plateTicketOrPass')}
+        <Input value={entry} onChange={(e) => setEntry(e.target.value)} placeholder={t('att.plateTicketOrPass')} aria-label={t('att.plateTicketOrPass')} dir="ltr" autoCapitalize="off" />
+      </label>
+      <Button type="button" className="btn primary big" disabled={busy || !entry.trim()} onClick={findEntry}>{t('att.find')}</Button>
       {tab === 'camera' ? (
-        <>
-          {scanning ? (
-            <>
-              <LiveCamera regions={me!.tenant.plate_regions} plate={me!.tenant.ai_mode !== 'off'} busy={busy}
-                onQr={(text) => { const tk = text.trim().toUpperCase(); setScanning(false); setTicket(tk); void find({ ticket: tk }); }}
-                onPlate={(p) => { setScanning(false); const txt = normalizePlate(p.text); setPlate(txt); void find({ plate: txt }); }} />
-              <Button type="button" className="btn" onClick={() => setScanning(false)}>{t('att.stopScan')}</Button>
-            </>
-          ) : <Button type="button" className="btn big" onClick={() => setScanning(true)}>{t('att.scanQr')}</Button>}
-          <label className="field">{t('att.scanTicket')}<Input value={ticket} onChange={(e) => setTicket(e.target.value.toUpperCase())} dir="ltr" autoCapitalize="characters" /></label>
-          <div className="muted" style={{ textAlign: 'center' }}>{t('att.orPlate')}</div>
-          <label className="field">{t('att.plate')}<PlateInput value={plate} onChange={setPlate} autoFocus /></label>
-          <Button type="button" className="btn primary big" disabled={busy || (!plate && !ticket)} onClick={() => find()}>{t('att.find')}</Button>
-        </>
+        <LiveCamera regions={me!.tenant.plate_regions} plate={me!.tenant.ai_mode !== 'off'} busy={busy}
+          onQr={(text) => { const tk = text.trim().toUpperCase(); setEntry(text); setTicket(tk); setPlate(''); void find({ ticket: tk }); }}
+          onPlate={(p) => { const txt = normalizePlate(p.text); setEntry(txt); setPlate(txt); setTicket(''); void find({ plate: txt }); }} />
       ) : (
-        <PlateAutocomplete open={openSessions.data?.items ?? []} busy={busy || openSessions.loading} error={openSessions.error} onSelect={(tk) => { setTicket(tk); void find({ ticket: tk }); }} />
+        <>
+          <Keypad region={me!.tenant.plate_regions[0]} value={entry} onChange={setEntry} />
+          <PlateAutocomplete open={openSessions.data?.items ?? []} busy={busy || openSessions.loading} error={openSessions.error} onSelect={(tk) => { setEntry(tk); setTicket(tk); setPlate(''); void find({ ticket: tk }); }} />
+        </>
       )}
       {m && !m.matched && (
         <div className="stack">

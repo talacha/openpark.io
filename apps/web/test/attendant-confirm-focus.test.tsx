@@ -99,7 +99,7 @@ describe('a pass that rejects after the camera navigated to Confirm (criterion 2
 
     // Acknowledging returns the attendant to the capture screen to re-scan.
     await act(async () => { fireEvent.click(btn(container, translate('en', 'att.passDismiss'))); });
-    await waitFor(() => { if (!container.textContent?.includes(translate('en', 'att.scanPass'))) throw new Error('did not return to capture'); });
+    await waitFor(() => { if (!container.textContent?.includes(translate('en', 'att.plateOrCode'))) throw new Error('did not return to capture'); });
     expect(api.write).not.toHaveBeenCalled();
   });
 });

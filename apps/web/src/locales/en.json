@@ -138,6 +138,8 @@
   "att.keypad": "Enter plate",
   "att.camera": "Use camera",
   "att.plate": "Plate",
+  "att.plateOrCode": "Plate or code",
+  "att.plateTicketOrPass": "Plate, ticket or guest pass",
   "att.region": "Plate region",
   "att.read": "Read",
   "att.confidence": "Confidence {pct}",

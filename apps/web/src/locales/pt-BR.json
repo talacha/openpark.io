@@ -138,6 +138,8 @@
   "att.keypad": "Digitar placa",
   "att.camera": "Usar câmera",
   "att.plate": "Placa",
+  "att.plateOrCode": "Placa ou código",
+  "att.plateTicketOrPass": "Placa, ticket ou passe de visitante",
   "att.region": "Região da placa",
   "att.read": "Leitura",
   "att.confidence": "Confiança {pct}",

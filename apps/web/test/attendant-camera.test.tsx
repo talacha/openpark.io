@@ -9,19 +9,22 @@ import type { Me, SiteInfo } from '../src/app-context.js';
 
 /**
  * Criteria 3 & 4: the camera fills the plate field during check-IN and check-OUT. The real browser camera
- * (getUserMedia + the on-device model) cannot run in jsdom, so LiveCamera is replaced by a button that emits the
- * exact `onPlate` payload its reader would produce. The assertions then exercise the SHIPPED screen logic: a camera
- * read controls the visible plate field and drives navigation/match with no manual typing.
+ * (getUserMedia + the on-device model) cannot run in jsdom, so LiveCamera is replaced by buttons that emit the
+ * exact `onPlate`/`onQr` payloads its reader would produce. The assertions then exercise the SHIPPED screen logic:
+ * a camera read controls the visible plate field and drives navigation/match with no manual typing.
  */
-const cam = vi.hoisted(() => ({ plate: '' }));
+const cam = vi.hoisted(() => ({ plate: '', qr: '' }));
 vi.mock('../src/components/LiveCamera.js', () => ({
-  LiveCamera: ({ onPlate }: { onPlate: (p: { text: string; confidence: number; votes: number }) => void }) => (
-    <button type="button" onClick={() => onPlate({ text: cam.plate, confidence: 0.97, votes: 3 })}>__camera_plate__</button>
+  LiveCamera: ({ onPlate, onQr }: { onPlate: (p: { text: string; confidence: number; votes: number }) => void; onQr: (text: string) => void }) => (
+    <>
+      <button type="button" onClick={() => onPlate({ text: cam.plate, confidence: 0.97, votes: 3 })}>__camera_plate__</button>
+      <button type="button" onClick={() => onQr(cam.qr)}>__camera_qr__</button>
+    </>
   ),
 }));
 
-const api = vi.hoisted(() => ({ request: vi.fn() }));
-vi.mock('../src/api.js', async (io) => ({ ...(await io()), request: api.request }));
+const api = vi.hoisted(() => ({ request: vi.fn(), get: vi.fn() }));
+vi.mock('../src/api.js', async (io) => ({ ...(await io()), request: api.request, get: api.get }));
 
 vi.mock('../src/components/hooks.js', () => ({
   useApi: () => ({ data: null, loading: false, error: '', reload: vi.fn(() => Promise.resolve()) }),
@@ -44,26 +47,32 @@ function me(): Me {
 const withApp = () => ctx.useApp.mockReturnValue({ me: me(), site: SITE, can: () => false });
 
 const btn = (c: HTMLElement, text: string) => [...c.querySelectorAll('button')].find((b) => b.textContent === text)!;
+const hasBtn = (c: HTMLElement, text: string) => [...c.querySelectorAll('button')].some((b) => b.textContent === text);
+
+function mount(path: '/t/torre/a/checkin' | '/t/torre/a/checkout') {
+  return render(
+    <I18nProvider defaultLocale="en" terminology={{}}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/t/:slug/a" element={<Flow><Outlet /></Flow>}>
+            <Route path="checkin" element={<CheckInCapture />} />
+            <Route path="checkin/review" element={<CheckInReview />} />
+            <Route path="checkin/confirm" element={<CheckInConfirm />} />
+            <Route path="checkout" element={<CheckOut />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </I18nProvider>,
+  );
+}
 
 afterEach(() => cleanup());
-beforeEach(() => { api.request.mockReset(); });
+beforeEach(() => { api.request.mockReset(); api.get.mockReset(); });
 
 describe('camera plate scan fills the check-in plate field (criterion 3)', () => {
   it('a confident camera read fills the visible plate and advances to confirm with no manual entry', async () => {
     withApp();
-    const { container } = render(
-      <I18nProvider defaultLocale="en" terminology={{}}>
-        <MemoryRouter initialEntries={['/t/torre/a/checkin']}>
-          <Routes>
-            <Route path="/t/:slug/a" element={<Flow><Outlet /></Flow>}>
-              <Route path="checkin" element={<CheckInCapture />} />
-              <Route path="checkin/review" element={<CheckInReview />} />
-              <Route path="checkin/confirm" element={<CheckInConfirm />} />
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      </I18nProvider>,
-    );
+    const { container } = mount('/t/torre/a/checkin');
     cam.plate = 'XYZ789'; // a format-valid MX plate; 0.97 ≥ the 0.85 site threshold → auto-confident
     await act(async () => { fireEvent.click(btn(container, '__camera_plate__')); });
     // The read navigated to confirm and the scanned plate is shown in the field — the attendant typed nothing.
@@ -72,23 +81,49 @@ describe('camera plate scan fills the check-in plate field (criterion 3)', () =>
   });
 });
 
+describe('unified capture: one field, camera first, keypad on manual entry', () => {
+  it('check-in starts on the camera with the plate-or-code field; manual entry swaps the camera for the keypad', async () => {
+    withApp();
+    const { container } = mount('/t/torre/a/checkin');
+    expect(hasBtn(container, '__camera_plate__')).toBe(true); // camera widget on first paint
+    expect(container.querySelector('input[aria-label="Plate or code"]')).toBeTruthy();
+    await act(async () => { fireEvent.click(btn(container, translate('en', 'att.manualEntry'))); });
+    expect(hasBtn(container, '__camera_plate__')).toBe(false); // camera replaced, not merely hidden
+    expect(container.querySelector('.keypad')).toBeTruthy();
+    expect(container.querySelector('input[aria-label="Plate or code"]')).toBeTruthy();
+  });
+
+  it('a guest-pass QR scan lands in the same plate-or-code field and goes to the pass lookup', async () => {
+    withApp();
+    api.get.mockResolvedValue({ valid: false, reason: 'pass_expired', pass: { guestName: '', unit: { name: '' } } });
+    const { container } = mount('/t/torre/a/checkin');
+    cam.qr = 'OPP2|p1|3|K7Q2M9XA|DEMO-01|A-101|Rosa|ABC123|4102444800|SIG';
+    await act(async () => { fireEvent.click(btn(container, '__camera_qr__')); });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(`/v1/passes/lookup?token=${encodeURIComponent(cam.qr)}`));
+    expect((container.querySelector('input[aria-label="Plate or code"]') as HTMLInputElement).value).toBe(cam.qr);
+  });
+
+  it('check-out shows the single plate/ticket/pass field above the camera; manual entry swaps in the keypad', async () => {
+    withApp();
+    const { container } = mount('/t/torre/a/checkout');
+    expect(container.querySelector('input[aria-label="Plate, ticket or guest pass"]')).toBeTruthy();
+    expect(hasBtn(container, '__camera_plate__')).toBe(true); // camera visible without a Scan QR button first
+    const field = container.querySelector('input[aria-label="Plate, ticket or guest pass"]')!;
+    const cameraBtn = btn(container, '__camera_plate__');
+    expect(field.compareDocumentPosition(cameraBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // field precedes camera
+    await act(async () => { fireEvent.click(btn(container, translate('en', 'att.manualEntry'))); });
+    expect(hasBtn(container, '__camera_plate__')).toBe(false);
+    expect(container.querySelector('.keypad')).toBeTruthy();
+    expect(container.querySelector('input[aria-label="Plate, ticket or guest pass"]')).toBeTruthy();
+  });
+});
+
 describe('camera plate scan fills the check-out plate field and matches (criterion 4)', () => {
   it('a camera read during checkout fills the plate and looks the session up by it', async () => {
     withApp();
     api.request.mockResolvedValue({ matched: false, candidates: [] });
-    const { container } = render(
-      <I18nProvider defaultLocale="en" terminology={{}}>
-        <MemoryRouter initialEntries={['/t/torre/a/checkout']}>
-          <Routes>
-            <Route path="/t/:slug/a" element={<Flow><Outlet /></Flow>}>
-              <Route path="checkout" element={<CheckOut />} />
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      </I18nProvider>,
-    );
-    // Open the live camera for checkout, then read a plate.
-    await act(async () => { fireEvent.click(btn(container, translate('en', 'att.scanQr'))); });
+    const { container } = mount('/t/torre/a/checkout');
+    // The live camera is already open for checkout, so just read a plate.
     cam.plate = 'ABC123';
     await act(async () => { fireEvent.click(btn(container, '__camera_plate__')); });
 
@@ -98,7 +133,7 @@ describe('camera plate scan fills the check-out plate field and matches (criteri
     expect(method).toBe('POST');
     expect(path).toBe('/v1/checkout/match');
     expect((body as { plate?: string }).plate).toBe('ABC123');
-    // The plate field now holds the scanned value for the attendant to confirm.
+    // The unified field now holds the scanned value for the attendant to confirm.
     const plateInput = [...container.querySelectorAll('input')].find((i) => (i as HTMLInputElement).value === 'ABC123');
     expect(plateInput).toBeTruthy();
   });

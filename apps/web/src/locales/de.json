@@ -138,6 +138,8 @@
   "att.keypad": "Kennzeichen eingeben",
   "att.camera": "Kamera verwenden",
   "att.plate": "Kennzeichen",
+  "att.plateOrCode": "Kennzeichen oder Code",
+  "att.plateTicketOrPass": "Kennzeichen, Ticket oder Gästepass",
   "att.region": "Kennzeichenregion",
   "att.read": "Erkennung",
   "att.confidence": "Sicherheit {pct}",

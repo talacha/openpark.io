@@ -138,6 +138,8 @@
   "att.keypad": "[Éñtér plàté one t]",
   "att.camera": "[Ûsé çàmérà one ]",
   "att.plate": "[Plàté on]",
+  "att.plateOrCode": "[Plàté ôr çôdé one tw]",
+  "att.plateTicketOrPass": "[Plàté, tîçkét ôr gûést pàss one two thr]",
   "att.region": "[Plàté régîôñ one t]",
   "att.read": "[Réàd on]",
   "att.confidence": "[Côñfîdéñçé {pct} one t]",

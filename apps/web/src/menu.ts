@@ -16,12 +16,12 @@ export interface MenuGroup {
 
 const has = (roles: Role[], ...any: Role[]) => any.some((r) => roles.includes(r));
 
-/** Roles are cumulative; a Super Admin (platform-wide flag) has every area. */
+/** Roles are cumulative; a Super Admin (platform-wide flag) has every staff area. */
 export const isOps = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'supervisor', 'admin');
 export const isAdmin = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'admin');
 export const isOperator = (roles: Role[], superadmin = false) => superadmin || has(roles, 'attendant', 'supervisor', 'admin');
-/** Admins and Super Admins can open the Resident view to see what residents see (a unit is needed to use it). */
-export const hasResidentView = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'resident', 'admin');
+/** Only residents open the Resident view; staff roles and Super Admins do not get it by default (a unit is needed to use it). */
+export const hasResidentView = (roles: Role[], _superadmin: boolean) => has(roles, 'resident');
 /** Anyone who is not only a resident may use the staff screens (queue, check-in by link). */
 export const isStaff = (roles: Role[], superadmin: boolean) => superadmin || roles.some((r) => r !== 'resident');
 
