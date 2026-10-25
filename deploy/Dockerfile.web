@@ -9,6 +9,7 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY e2e/package.json e2e/
 RUN pnpm install --frozen-lockfile --filter @openpark/web...
+COPY packages/core packages/core
 COPY packages/ui packages/ui
 COPY apps/web apps/web
 RUN pnpm --filter @openpark/web build
