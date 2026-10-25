@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { CarFront, ChartNoAxesColumn, ChevronRight, Circle, House, Plus, Settings, UserRound } from 'lucide-react';
+import { CarFront, ChartNoAxesColumn, ChevronRight, Circle, House, Settings } from 'lucide-react';
 import { useApp, type PlatformTenant } from '../app-context.js';
 import { NAMES, SELECTABLE_LOCALES, useI18n, useT } from '../i18n.js';
 import { buildMenu, type MenuGroup, type MenuIcon } from '../menu.js';
@@ -36,8 +36,6 @@ const icons = {
   platform: ChartNoAxesColumn,
   operator: CarFront,
   admin: Settings,
-  profile: UserRound,
-  newpass: Plus,
 };
 
 function MenuIconGlyph({ icon }: { icon?: MenuIcon }) {
@@ -61,7 +59,14 @@ export function AppMenu({ onNavigate, collapsed: desktopPreference = false }: {
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
   const side = dir === 'rtl' ? 'right' : 'left';
 
-  const active = (group: MenuGroup) => group.items.some((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
+  // Destinations may carry a query or hash (e.g. /r#new); active state is decided by the path alone.
+  const pathOf = (to: string) => to.split(/[?#]/)[0] ?? to;
+  const isPath = (to: string) => {
+    const path = pathOf(to);
+    return pathname === path || pathname.startsWith(`${path}/`);
+  };
+  const isExactPath = (to: string) => pathname === pathOf(to);
+  const active = (group: MenuGroup) => group.items.some((item) => isPath(item.to));
 
   useEffect(() => {
     const here = groups.find(active);
@@ -124,7 +129,7 @@ export function AppMenu({ onNavigate, collapsed: desktopPreference = false }: {
                   <SidebarMenuButton
                     render={<NavLink to={group.to} onClick={onNavigate} />}
                     className="nav menu-link menu-top"
-                    isActive={pathname === group.to || pathname.startsWith(`${group.to}/`)}
+                    isActive={isPath(group.to)}
                     tooltip={t(group.labelKey)}
                     aria-label={t(group.labelKey)}
                     title={collapsed ? t(group.labelKey) : undefined}
@@ -157,7 +162,7 @@ export function AppMenu({ onNavigate, collapsed: desktopPreference = false }: {
                             <SidebarMenuSubButton
                               render={<NavLink to={item.to} end onClick={onNavigate} />}
                               className="nav menu-link menu-subitem"
-                              isActive={pathname === item.to}
+                              isActive={isExactPath(item.to)}
                             >
                               <span>{t(item.labelKey)}</span>
                             </SidebarMenuSubButton>

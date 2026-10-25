@@ -50,8 +50,8 @@ function initialsOf(name: string | null | undefined, email: string | null | unde
 }
 
 /**
- * A button-driven disclosure (not <details>) so its open state can be driven from the #new / ?edit=1 deep-links and
- * focus can be moved programmatically. Collapsed by default.
+ * A button-driven disclosure (not <details>) so its open state can be driven from the #new deep link and focus can be
+ * moved programmatically. Collapsed by default; the active-pass section opens itself when a pass exists.
  */
 function Collapsible({ title, open, onToggle, headingRef, children }:
   { title: string; open: boolean; onToggle: (next: boolean) => void; headingRef?: React.Ref<HTMLButtonElement>; children: ReactNode }) {
@@ -93,10 +93,10 @@ export function ResidentHome() {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Deep links: ?edit=1 wins over #new. edit opens the profile editor; #new opens the New Guest Parking Pass section.
+  // Deep links: ?edit=1 wins over #new. edit opens the profile editor; #new opens the pass section.
   // ?edit=1 comes from the router (useSearchParams); #new is read from the router location OR the window hash (a hash
   // link to the same route updates window.location.hash but not always the router search). The effect below re-runs on
-  // loc.key so a sidebar child link followed WHILE already on /r still opens/focuses the destination, not just on mount.
+  // loc.key so a deep link followed WHILE already on /r still opens/focuses the destination, not just on mount.
   const windowHash = typeof location !== 'undefined' ? location.hash : '';
   const wantEdit = params.get('edit') != null;
   const wantNew = !wantEdit && (loc.hash === '#new' || windowHash === '#new');
@@ -114,13 +114,23 @@ export function ResidentHome() {
   const guestNameRef = useRef<HTMLInputElement>(null);
   const shareBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Keep the open sections in step with the router location, so a sidebar child link (?edit=1 or #new) followed WHILE
+  // Keep the open sections in step with the router location, so a deep link (?edit=1 or #new) followed WHILE
   // already on /r opens and focuses the right section. edit wins over new (matching the mount-time precedence); #new
   // opens the pass section. Navigating to plain /r (no query, no hash) leaves whatever the resident has toggled.
   useEffect(() => {
     if (wantEdit) { setEditing(true); profileHeadRef.current?.focus(); }
     else if (wantNew) setNewOpen(true);
   }, [wantEdit, wantNew, loc.key]); // loc.key changes on every navigation, even to the same path with the same hash
+
+  // The active pass is the screen's primary content, so open its section once per pass. A manual collapse stays
+  // collapsed until a different pass arrives; polling the same pass must not re-open it.
+  const autoOpenedPass = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pass || wantEdit) return;
+    if (autoOpenedPass.current === pass.id) return;
+    autoOpenedPass.current = pass.id;
+    setNewOpen(true);
+  }, [pass, wantEdit]);
 
   // Strip spaces and dashes, keep + sign for guest phone input
   const [guestPhone, setGuestPhone] = useState('');
@@ -183,19 +193,22 @@ export function ResidentHome() {
           <h1>{t(me.user?.name ? 'res.welcomeName' : 'res.title', { name: me.user?.name ?? '' })}</h1>
           <div className="muted">{t('res.unit', { unit: me.unit.name })}</div>
         </div>
-        <Button type="button" ref={profileHeadRef} className="btn icon" aria-label={t('res.editProfile')} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>
+        <Button type="button" ref={profileHeadRef} className="btn icon" aria-label={t('res.editProfile')} aria-expanded={editing} aria-controls={editing ? 'resident-profile-editor' : undefined} onClick={() => setEditing((v) => !v)}>
           <svg className="menu-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
         </Button>
       </header>
 
-      {editing && <EditProfile me={me} onDone={async () => { setEditing(false); await reload(); }} />}
+      {editing && <EditProfile id="resident-profile-editor" me={me} onDone={async () => { setEditing(false); profileHeadRef.current?.focus(); await reload(); }} />}
 
       {err && <Alert variant="destructive" className="banner bad" role="alert">{err}</Alert>}
+      {!active.error && active.loading && !active.data && <p className="muted" role="status">{t('common.loading')}</p>}
+      {active.error && <Alert variant="destructive" className="banner bad" role="alert">{active.error}</Alert>}
+      {history.error && history.error !== active.error && <Alert variant="destructive" className="banner bad" role="alert">{history.error}</Alert>}
 
-      <Collapsible title={t('res.sectionNew')} open={newOpen} onToggle={setNewOpen} headingRef={newHeadRef}>
-        {active.loading || active.error ? (
-          <QueryState loading={active.loading} error={active.error} empty={false} />
-        ) : pending ? (
+      <Collapsible title={t(pass ? 'res.sectionCurrent' : 'res.sectionNew')} open={newOpen} onToggle={setNewOpen} headingRef={newHeadRef}>
+        {active.loading ? (
+          <QueryState loading error="" empty={false} />
+        ) : active.error ? null : pending ? (
           <Alert className="banner warn">{t('res.pendingVerify')}</Alert>
         ) : !pass ? (
           <Card render={<form className="card stack" onSubmit={create} />}>
@@ -251,7 +264,7 @@ export function ResidentHome() {
       </Collapsible>
 
       <Collapsible title={t('res.sectionPrevious')} open={prevOpen} onToggle={setPrevOpen}>
-        <QueryState loading={history.loading} error={history.error} empty={!history.data?.length} emptyLabel={t('res.noHistory')} />
+        <QueryState loading={history.loading} error="" empty={!history.error && !history.data?.length} emptyLabel={t('res.noHistory')} />
         {!history.loading && !history.error && !!history.data?.length && (
           <div className="stack">{history.data.map((p) => (
             <Card key={p.id} className="card row between">
@@ -320,7 +333,7 @@ async function resizeToWebP(file: File, quality: number = 80): Promise<{ data: s
 }
 
 /** Pencil edit form: Name + Phone (existing contract) + the guest-alert opt-in, and an optional avatar upload. */
-function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>['me']>; onDone: () => Promise<void> }) {
+function EditProfile({ me, id, onDone }: { me: NonNullable<ReturnType<typeof useApp>['me']>; id?: string; onDone: () => Promise<void> }) {
   const t = useT();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -359,7 +372,7 @@ function EditProfile({ me, onDone }: { me: NonNullable<ReturnType<typeof useApp>
   }
 
   return (
-    <Card render={<form className="card stack" onSubmit={save} />}>
+    <Card render={<form id={id} className="card stack" onSubmit={save} />}>
       <h2>{t('res.editProfile')}</h2>
       <label className="field">{t('auth.name')}<Input name="name" maxLength={100} defaultValue={me.user?.name ?? ''} /></label>
       <label className="field">{t('res.phone')}

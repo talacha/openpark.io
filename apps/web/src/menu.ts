@@ -1,7 +1,7 @@
 import type { Role } from './app-context.js';
 
 /** A short identifier for the inline-SVG icon a destination shows when the sidebar is collapsed (see AppMenu). A default covers anything unset. */
-export type MenuIcon = 'resident' | 'platform' | 'operator' | 'admin' | 'profile' | 'newpass';
+export type MenuIcon = 'resident' | 'platform' | 'operator' | 'admin';
 
 export interface MenuItem { id: string; labelKey: string; to: string; icon?: MenuIcon }
 export interface MenuGroup {
@@ -20,7 +20,7 @@ const has = (roles: Role[], ...any: Role[]) => any.some((r) => roles.includes(r)
 export const isOps = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'supervisor', 'admin');
 export const isAdmin = (roles: Role[], superadmin: boolean) => superadmin || has(roles, 'admin');
 export const isOperator = (roles: Role[], superadmin = false) => superadmin || has(roles, 'attendant', 'supervisor', 'admin');
-/** Only residents open the Resident view; staff roles and Super Admins do not get it by default (a unit is needed to use it). */
+/** Only residents open the Parking passes screen; staff roles and Super Admins do not get it by default (a unit is needed to use it). */
 export const hasResidentView = (roles: Role[], _superadmin: boolean) => has(roles, 'resident');
 /** Vehicle enforcement is a supervisor-only mode; other staff roles and the platform flag alone do not grant it. */
 export const hasEnforcement = (roles: Role[]) => has(roles, 'supervisor');
@@ -29,7 +29,7 @@ export const isStaff = (roles: Role[], superadmin: boolean) => superadmin || rol
 
 /**
  * The one menu used on every screen and device. Which groups appear depends only on the person's roles (a person can hold several):
- *  - Resident view: residents
+ *  - Parking passes: residents
  *  - Enforcement: supervisors only
  *  - Platform view (operations): supervisors, admins and super admins
  *  - Operator view (check in / check out): attendants and supervisors
@@ -40,11 +40,7 @@ export function buildMenu({ slug, roles, superadmin }: { slug: string | null; ro
   const groups: MenuGroup[] = [];
 
   if (slug && hasResidentView(roles, superadmin)) groups.push({
-    id: 'resident', labelKey: 'nav.resident', to: `${base}/r`, icon: 'resident',
-    items: [
-      { id: 'profile', labelKey: 'nav.editProfile', to: `${base}/r?edit=1`, icon: 'profile' },
-      { id: 'newpass', labelKey: 'nav.newPass', to: `${base}/r#new`, icon: 'newpass' },
-    ],
+    id: 'resident', labelKey: 'nav.parkingPasses', to: `${base}/r#new`, icon: 'resident', items: [],
   });
 
   if (slug && hasEnforcement(roles)) groups.push({

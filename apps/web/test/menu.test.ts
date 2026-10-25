@@ -12,11 +12,11 @@ const ADVANCED = ['rates', 'integrations', 'ai'];
 
 describe('menu by roles', () => {
   it('residents see only the resident view', () => expect(ids(['resident'])).toEqual(['resident']));
-  it('the resident view is a group with Edit profile and Issue new parking pass child links', () => {
+  it('the resident view is a single Parking passes destination with no Edit profile child link', () => {
     const resident = menu(['resident']).find((g) => g.id === 'resident')!;
-    expect(resident.items.map((i) => i.id)).toEqual(['profile', 'newpass']);
-    expect(resident.items.map((i) => i.to)).toEqual(['/t/acme/r?edit=1', '/t/acme/r#new']);
-    expect(resident.items.map((i) => i.labelKey)).toEqual(['nav.editProfile', 'nav.newPass']);
+    expect(resident.items).toEqual([]);
+    expect(resident.to).toBe('/t/acme/r#new');
+    expect(resident.labelKey).toBe('nav.parkingPasses');
   });
   it('attendants see only the operator view', () => expect(ids(['attendant'])).toEqual(['operator']));
   it('supervisors are attendants who also see enforcement and the platform view', () => expect(ids(['supervisor'])).toEqual(['enforcement', 'platform', 'operator']));

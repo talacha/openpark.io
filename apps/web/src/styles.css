@@ -224,6 +224,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .avatar { position: relative; inline-size: 72px; block-size: 72px; flex: 0 0 auto; }
 .avatar-img, .avatar-initials { inline-size: 72px; block-size: 72px; border-radius: 999px; object-fit: cover; display: grid; place-items: center; background: var(--surface-2); color: var(--ink-2); font-weight: 750; font-size: 1.5rem; }
 .avatar-pill { position: absolute; inset-block-end: -6px; inset-inline-start: 50%; transform: translateX(-50%); padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; background: var(--accent); color: var(--accent-ink); white-space: nowrap; box-shadow: var(--shadow); }
+[dir='rtl'] .avatar-pill { transform: translateX(50%); }
 .btn.icon { min-inline-size: 44px; padding-inline: 10px; display: grid; place-items: center; }
 .row.gap { gap: var(--space-2); }
 .collapsible { display: grid; gap: var(--space-3); }

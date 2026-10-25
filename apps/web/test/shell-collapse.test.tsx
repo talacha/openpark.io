@@ -100,22 +100,24 @@ describe('collapsible sidebar (AC-2.1, AC-2.2)', () => {
   it('keeps accessible names and tooltips on collapsed top-level destinations', () => {
     try { localStorage.setItem('op.menu.collapsed', '1'); } catch { /* ignore */ }
     const { container } = mount(['resident']);
-    // The Resident group renders as a head button even when collapsed.
-    const head = container.querySelector('.menu-group[data-group="resident"] .menu-head') as HTMLButtonElement;
-    expect(head.getAttribute('aria-label')).toBe(translate('en', 'nav.resident'));
-    expect(head.getAttribute('title')).toBe(translate('en', 'nav.resident'));
-    expect(head.querySelector('svg.menu-icon')).toBeTruthy(); // an icon stands in for the hidden label
-    expect(head.querySelector('.menu-label')?.textContent).toBe(translate('en', 'nav.resident')); // label kept in the DOM, only visually hidden
+    // The resident destination is a single top-level link (no group and no Edit profile child).
+    const link = container.querySelector('.menu-nav a.menu-top') as HTMLAnchorElement;
+    expect(link.getAttribute('aria-label')).toBe(translate('en', 'nav.parkingPasses'));
+    expect(link.getAttribute('title')).toBe(translate('en', 'nav.parkingPasses'));
+    expect(link.querySelector('svg.menu-icon')).toBeTruthy(); // an icon stands in for the hidden label
+    expect(link.querySelector('.menu-label')?.textContent).toBe(translate('en', 'nav.parkingPasses')); // label kept in the DOM, only visually hidden
+    expect(link.hasAttribute('data-active')).toBe(true); // /r is current even though the link carries #new
+    expect(container.querySelector('.menu-group[data-group="resident"]')).toBeNull();
   });
 
   it('clicking a collapsed group expands the whole sidebar and opens that group', () => {
     try { localStorage.setItem('op.menu.collapsed', '1'); } catch { /* ignore */ }
-    const { container } = mount(['resident']);
+    const { container } = mount(['admin']);
     const shell = container.querySelector('.shell') as HTMLElement;
     expect(shell.getAttribute('data-collapsed')).toBe('true');
-    act(() => { fireEvent.click(container.querySelector('.menu-group[data-group="resident"] .menu-head') as HTMLButtonElement); });
+    act(() => { fireEvent.click(container.querySelector('.menu-group[data-group="admin"] .menu-head') as HTMLButtonElement); });
     expect(shell.getAttribute('data-collapsed')).toBe('false'); // expanded by the click
-    const head = container.querySelector('.menu-group[data-group="resident"] .menu-head') as HTMLButtonElement;
+    const head = container.querySelector('.menu-group[data-group="admin"] .menu-head') as HTMLButtonElement;
     expect(head.getAttribute('aria-expanded')).toBe('true'); // the group is now open
   });
 

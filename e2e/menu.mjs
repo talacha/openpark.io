@@ -25,7 +25,7 @@ const WANT = {
   owner: { heads: ['Platform view', 'Operator view', 'Admin'], admin: [...ADMIN, 'Organisations'] },
   admin: { heads: ['Platform view', 'Operator view', 'Admin'], admin: ADMIN },
   supervisor: { heads: ['Platform view', 'Operator view'], links: ['Enforcement'] },
-  attendant: { heads: ['Operator view'] }, resident: { heads: ['Resident view'] },
+  attendant: { heads: ['Operator view'] }, resident: { links: ['Parking passes'] },
 };
 const b = await chromium.launch({ channel: 'chrome' });
 const errors = [];

@@ -35,8 +35,11 @@ const RealImage = globalThis.Image;
 // Drive the two useApi calls: /v1/passes/active (first) and /v1/passes?limit=10 (second).
 let activeData: unknown = null;
 let historyData: unknown = null;
+let activeError = '';
+let historyError = '';
+let activeLoading = false;
 const reload = vi.fn(() => Promise.resolve());
-const useApi = vi.fn((path: string | null) => ({ data: path?.includes('active') ? activeData : historyData, loading: false, error: '', reload }));
+const useApi = vi.fn((path: string | null) => ({ data: path?.includes('active') ? activeData : historyData, loading: path?.includes('active') ? activeLoading : false, error: path?.includes('active') ? activeError : historyError, reload }));
 vi.mock('../src/components/hooks.js', async (io) => ({ ...(await io()), useApi }));
 
 const patch = vi.fn(() => Promise.resolve({ ok: true }));
@@ -61,8 +64,9 @@ function makeMe(over: Partial<Me> = {}): Me {
 }
 
 /**
- * The screen reads `?edit=1` from the router (useSearchParams) and `#new` from the real window location (location.hash),
- * mirroring how the deep-links in the sidebar deliver them. `search` drives the router entry; `hash` the window.
+ * The screen reads `?edit=1` from the router (useSearchParams) and `#new` from the real window location (location.hash).
+ * These are direct or bookmarked deep links; the sidebar only links to `#new`. `search` drives the router entry; `hash`
+ * the window.
  */
 function mount(me: Me, { search = '', hash = '' }: { search?: string; hash?: string } = {}) {
   window.location.hash = hash;
@@ -76,7 +80,7 @@ function mount(me: Me, { search = '', hash = '' }: { search?: string; hash?: str
 
 const en = (k: string, v?: Record<string, unknown>) => translate('en', k, v);
 
-beforeEach(() => { store.clear(); images.length = 0; vi.stubGlobal('Image', FakeImage); activeData = { pass: null, policy }; historyData = []; reload.mockClear(); patch.mockClear(); post.mockClear(); });
+beforeEach(() => { store.clear(); images.length = 0; vi.stubGlobal('Image', FakeImage); activeData = { pass: null, policy }; historyData = []; activeError = ''; historyError = ''; activeLoading = false; reload.mockClear(); patch.mockClear(); post.mockClear(); });
 afterEach(() => { cleanup(); vi.stubGlobal('Image', RealImage); window.location.hash = ''; });
 
 describe('Resident view (AC-3.1 … 3.8)', () => {
@@ -91,6 +95,12 @@ describe('Resident view (AC-3.1 … 3.8)', () => {
   it('falls back to the email local-part initials when there is no name', () => {
     const { container } = mount(makeMe());
     expect(container.querySelector('.avatar-initials')?.textContent).toBe('RR'); // rosa.residente → R, R
+  });
+
+  it('uses the destination name as the no-name page title', () => {
+    const { container } = mount(makeMe());
+    expect(container.querySelector('h1')?.textContent).toBe(en('res.title'));
+    expect(en('res.title')).toBe('Parking passes');
   });
 
   it('shows a Gravatar picture and keeps the initials when the address has no profile (404)', () => {
@@ -127,6 +137,36 @@ describe('Resident view (AC-3.1 … 3.8)', () => {
     expect(container.querySelector('form')).toBeNull(); // the create form lives inside the collapsed New section
   });
 
+  it('opens the pass section and titles it as the current pass when a pass exists', () => {
+    const activePass: PassView = {
+      id: 'p-active', status: 'active', displayStatus: 'active', unit: { code: 'A-101', name: 'Apt 101' },
+      guestName: 'Luis', guestPhone: null, guestEmail: null, plateHint: null,
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(), createdAt: new Date().toISOString(),
+      checkedInAt: null, completedAt: null, cancelledAt: null, overstayCharge: null, qr: null, verifyCode: null,
+    };
+    activeData = { pass: activePass, policy };
+    const { container } = mount(makeMe());
+    const heads = [...container.querySelectorAll('.collapsible-head')] as HTMLButtonElement[];
+    expect(heads[0]!.getAttribute('aria-expanded')).toBe('true');
+    expect(heads[0]!.textContent).toContain(en('res.sectionCurrent'));
+    expect(container.textContent).toContain('Luis');
+  });
+
+  it('shows a failed pass request above the collapsed sections', () => {
+    activeError = 'active request failed';
+    const { container } = mount(makeMe());
+    expect(container.textContent).toContain('active request failed');
+    const heads = [...container.querySelectorAll('.collapsible-head')] as HTMLButtonElement[];
+    expect(heads.map((h) => h.getAttribute('aria-expanded'))).toEqual(['false', 'false']);
+  });
+
+  it('shows the pass loading state before the first response', () => {
+    activeData = null;
+    activeLoading = true;
+    const { container } = mount(makeMe());
+    expect(container.textContent).toContain(en('common.loading'));
+  });
+
   it('opens the editor from the pencil button and submits name + phone + notify opt-in', async () => {
     const { container, getByLabelText } = mount(makeMe());
     const pencil = container.querySelector('button[aria-label="' + en('res.editProfile') + '"]') as HTMLButtonElement;
@@ -136,6 +176,24 @@ describe('Resident view (AC-3.1 … 3.8)', () => {
     const form = container.querySelector('form')!;
     await act(async () => { fireEvent.submit(form); await Promise.resolve(); });
     expect(patch).toHaveBeenCalledWith('/v1/me/profile', expect.objectContaining({ name: 'Nueva Rosa', notifyGuestEvents: true }));
+  });
+
+  it('describes the notification toggle instead of the fine policy', () => {
+    const { container } = mount(makeMe());
+    act(() => fireEvent.click(container.querySelector('button[aria-label="' + en('res.editProfile') + '"]') as HTMLButtonElement));
+    expect(container.textContent).toContain(en('res.notifyHelp'));
+    expect(container.textContent).not.toContain('12 hours');
+  });
+
+  it('keeps the profile editor relationship and returns focus to the pencil when it closes', async () => {
+    const { container, getByText } = mount(makeMe());
+    const pencil = container.querySelector('button[aria-label="' + en('res.editProfile') + '"]') as HTMLButtonElement;
+    act(() => fireEvent.click(pencil));
+    expect(pencil.getAttribute('aria-controls')).toBe('resident-profile-editor');
+    expect(container.querySelector('#resident-profile-editor')).toBeTruthy();
+    const cancel = getByText(en('common.cancel')) as HTMLButtonElement;
+    await act(async () => { fireEvent.click(cancel); await Promise.resolve(); });
+    expect(document.activeElement).toBe(pencil);
   });
 
   it('?edit=1 opens the profile editor (wins over #new) and leaves the pass sections collapsed', () => {
@@ -158,7 +216,7 @@ describe('Resident view (AC-3.1 … 3.8)', () => {
     const text = container.textContent ?? '';
     expect(text).toContain(en('res.issuedBy_staff'));
     expect(text).toContain(en('res.issuedBy_host'));
-    expect(text).toContain(en('res.issuedBy_unknown')); // legacy NULL labelled neutrally
+    expect(text).toContain(en('res.issuedBy_unknown')); // legacy NULL gets a neutral label
   });
 
   it('shows the pending-verification banner (and hides the form) only for a resident with an unverified unit', () => {

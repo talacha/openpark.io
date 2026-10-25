@@ -16,7 +16,7 @@ considered verified (only a verified resident may issue passes).
 
 | Persona | Who they are | Code mapping | Primary journeys |
 | --- | --- | --- | --- |
-| **Resident** | Lives in the community and issues guest parking passes for a unit they belong to. | `membership.roles` contains `resident`, plus a **verified** unit (`membership.unit_verified`); only a verified resident may issue passes. | Edit profile · Issue new parking pass · Share pass · Previous passes |
+| **Resident** | Lives in the community and issues guest parking passes for a unit they belong to. | `membership.roles` contains `resident`, plus a **verified** unit (`membership.unit_verified`); only a verified resident may issue passes. | Parking passes (edit profile · issue pass · share pass · previous passes) |
 | **Operator / Parking Attendant** | Works the gate: checks cars in and out, takes payment, scans plates and QR codes. | `membership.roles` contains `attendant`. | Attendant home (capacity bar, recent activity) · Check in · Check out · Queue |
 | **Supervisor** | Everything an Attendant does, plus fee overrides, voids and the monitoring console; is alerted when a car overstays. | `membership.roles` contains `supervisor`. | All Attendant journeys · Occupancy dashboard · Stays · Slots · Guest passes · Overstay alerts |
 | **Admin** | Configures a single community: sites, slots, units, users, rates, integrations and AI. | `membership.roles` contains `admin`. | Sites (Sites/Zones/Slots) · Units · Users · Bulk import / export · Advanced (Rates, Integrations, AI) |
@@ -28,11 +28,13 @@ Routes are those in `apps/web/src/App.tsx`; the leading `/t/:slug` is the curren
 
 ### Resident — `/t/:slug/r`
 
-The single Resident home screen; an admin or super admin may open it to see what residents see
-(`hasResidentView` in `menu.ts`), though a verified unit is needed to issue a pass.
+The single Resident home screen, reached from the **Parking passes** menu destination; an admin or super
+admin may open it to see what residents see (`hasResidentView` in `menu.ts`), though a verified unit is
+needed to issue a pass.
 
 - **Edit profile** — name, phone, profile picture, and opt-in to guest check-in/check-out notifications.
-- **Issue new parking pass** — the "New Guest Parking Pass" section; one active pass per unit.
+  Opened from the pencil next to the resident's name; there is no separate menu item.
+- **Issue new parking pass** — the "New guest parking pass" section; one active pass per unit.
 - **Share pass** — share the pass QR / link with the guest.
 - **Previous passes** — passes issued for the unit, including those issued by an attendant linked to
   the unit, not only by the resident.
