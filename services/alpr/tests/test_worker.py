@@ -2,10 +2,11 @@ import base64
 import io
 
 from fastapi.testclient import TestClient
+import numpy as np
 from PIL import Image
 
 from app import main
-from app.engines import Candidate, ReadResult, parse_vlm_json, vote
+from app.engines import Candidate, OnnxEngine, ReadResult, parse_vlm_json, vote
 
 
 def img_b64() -> str:
@@ -65,6 +66,19 @@ def test_no_engine_is_503(monkeypatch):
 def test_bad_image_is_422(monkeypatch):
     with_engines(monkeypatch, Fake("onnx", []), None)
     assert TestClient(main.app).post("/read", json={"image": "not-an-image"}).status_code == 422
+
+
+def test_onnx_preserves_rgb_channel_order():
+    engine = object.__new__(OnnxEngine)
+
+    class FakeALPR:
+        def predict(self, image):
+            assert image.tolist() == [[[255, 128, 0]]]
+            return []
+
+    engine._alpr = FakeALPR()
+    image = Image.fromarray(np.array([[[255, 128, 0]]], dtype=np.uint8), "RGB")
+    assert engine.read(image, None).candidates == []
 
 
 def test_vote_requires_agreement():

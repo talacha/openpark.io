@@ -125,8 +125,9 @@ x-api-env: &api-env
   ADMIN_DATABASE_URL: postgres://postgres:\${POSTGRES_PASSWORD}@supabase_db_openpark-single-tenant:5432/postgres
   OPENPARK_APP_PASSWORD: \${OPENPARK_APP_PASSWORD}
   JWT_SECRET: \${JWT_SECRET}
-  SUPABASE_URL: http://supabase_kong_openpark-single-tenant:8000
+  SUPABASE_URL: \${SUPABASE_BROWSER_URL}
   SUPABASE_JWT_SECRET: \${SUPABASE_JWT_SECRET}
+  OIDC_JWKS_URL: http://supabase_kong_openpark-single-tenant:8000/auth/v1/.well-known/jwks.json
   STORAGE_DIR: /data
   ALPR_URL: http://alpr:8000
   TRIAL_SIGNUP: "true"
@@ -155,7 +156,7 @@ services:
       context: ../../..
       dockerfile: deploy/Dockerfile.web
       args:
-        VITE_SUPABASE_URL: http://localhost:8000
+        VITE_SUPABASE_URL: \${SUPABASE_BROWSER_URL:-http://localhost:8000}
         VITE_SUPABASE_PUBLISHABLE_KEY: \${VITE_SUPABASE_PUBLISHABLE_KEY}
     ports: ["\${WEB_PORT:-8080}:80"]
     depends_on: { api: { condition: service_healthy } }

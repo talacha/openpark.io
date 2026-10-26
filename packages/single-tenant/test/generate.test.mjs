@@ -34,6 +34,9 @@ describe('single-tenant generator', () => {
     assert.doesNotMatch(compose, /models:\/models/);
     assert.match(compose, /Dockerfile.alpr-single-tenant/);
     assert.match(compose, /context: \.\.\/\.\.\/\.\./);
+    assert.match(compose, /SUPABASE_URL: \$\{SUPABASE_BROWSER_URL\}/);
+    assert.match(compose, /OIDC_JWKS_URL: http:\/\/supabase_kong_openpark-single-tenant:8000\/auth\/v1\/\.well-known\/jwks\.json/);
+    assert.match(compose, /VITE_SUPABASE_URL: \$\{SUPABASE_BROWSER_URL:-http:\/\/localhost:8000\}/);
   });
 
   it('supports all-standard floors and unique sequential slot codes', () => {

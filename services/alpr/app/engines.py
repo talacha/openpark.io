@@ -113,7 +113,7 @@ class OnnxEngine:
 
     def read(self, image: Image.Image, region: str | None) -> ReadResult:
         t0 = time.perf_counter()
-        results = self._alpr.predict(np.asarray(image)[:, :, ::-1])  # RGB -> BGR for OpenCV
+        results = self._alpr.predict(np.asarray(image))
         cands: list[Candidate] = []
         crop = None
         best = -1.0

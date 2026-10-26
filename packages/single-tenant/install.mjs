@@ -48,7 +48,7 @@ async function applyImport(path, doc, auth) {
   const preview = await api(path, { ...auth, body: { text: JSON.stringify(doc) } });
   if (!preview?.job) throw new Error(`Import preview did not return a job: ${path}`);
   const base = path.split('?')[0];
-  await api(`${base}/${preview.job}/apply`, auth);
+  await api(`${base}/${preview.job}/apply`, { ...auth, body: {} });
 }
 
 const tenantDoc = JSON.parse(readFileSync(resolve(GENERATED, 'tenant.json'), 'utf8'));
@@ -60,9 +60,11 @@ run('supabase', ['start'], { cwd: resolve(GENERATED, 'supabase') });
 const status = JSON.parse(run('supabase', ['status', '-o', 'json'], { cwd: resolve(GENERATED, 'supabase') }).toString());
 const publishableKey = statusValue(status, 'ANON_KEY', 'publishable_key', 'publishableKey');
 const supabaseJwtSecret = statusValue(status, 'JWT_SECRET', 'jwtSecret');
-if (!publishableKey) throw new Error('Supabase did not return its publishable key');
+const supabaseUrl = statusValue(status, 'API_URL', 'apiUrl');
+if (!publishableKey || !supabaseUrl) throw new Error('Supabase did not return its API URL and publishable key');
 
 const env = {
+  SUPABASE_BROWSER_URL: supabaseUrl,
   POSTGRES_PASSWORD: 'postgres',
   OPENPARK_APP_PASSWORD: randomBytes(24).toString('base64url'),
   JWT_SECRET: randomBytes(48).toString('base64url'),
@@ -78,17 +80,58 @@ compose(['up', '-d', '--build'], env);
 await waitForHealth('http://localhost:8080/healthz');
 
 console.log('Creating the tenant and applying property configuration…');
-const signup = await api('/v1/signup', {
-  token: '', tenant: '',
-  body: {
-    organisation: tenantDoc.property.name,
-    country: tenantDoc.property.country,
-    email: tenantDoc.property.owner.email,
-    name: tenantDoc.property.owner.name,
-    password,
-  },
-});
-const auth = { token: signup.token, tenant: signup.tenant.slug };
+const serviceKey = statusValue(status, 'SECRET_KEY', 'SERVICE_ROLE_KEY');
+const authRequest = async (path, body, { admin = false, method = 'POST' } = {}) => {
+  const response = await fetch(`${supabaseUrl}${path}`, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      ...(admin ? { apikey: serviceKey, authorization: `Bearer ${serviceKey}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(`Supabase Auth ${path}: ${response.status} ${JSON.stringify(data)}`);
+  return data;
+};
+const credentials = { email: tenantDoc.property.owner.email, password };
+const login = () => authRequest('/auth/v1/token?grant_type=password', credentials);
+const resetExistingAdmin = async () => {
+  if (!serviceKey) throw new Error('Supabase did not return its admin key');
+  const directory = await authRequest('/auth/v1/admin/users?page=1&per_page=1000', undefined, { admin: true, method: 'GET' });
+  const existing = directory.users?.find((user) => user.email?.toLowerCase() === credentials.email.toLowerCase());
+  if (!existing) throw new Error(`Supabase admin account not found: ${credentials.email}`);
+  await authRequest(`/auth/v1/admin/users/${existing.id}`, { password, email_confirm: true }, { admin: true, method: 'PUT' });
+  return login();
+};
+let external;
+try {
+  external = await authRequest('/auth/v1/signup', {
+    ...credentials, data: { full_name: tenantDoc.property.owner.name },
+  });
+} catch {
+  external = null;
+}
+if (!external?.access_token) external = await resetExistingAdmin();
+let signup = { tenant: { slug: tenantDoc.slug, name: tenantDoc.property.name } };
+try {
+  await api('/v1/me', { token: external.access_token, tenant: tenantDoc.slug, method: 'GET' });
+} catch {
+  signup = await api('/v1/signup', {
+    token: external.access_token, tenant: '',
+    body: {
+      organisation: tenantDoc.property.name,
+      country: tenantDoc.property.country,
+      name: tenantDoc.property.owner.name,
+      slug: tenantDoc.slug,
+    },
+  });
+}
+const auth = { token: external.access_token, tenant: signup.tenant.slug };
+const sites = await api('/v1/sites', { ...auth, method: 'GET' });
+if (sites.some((site) => site.code === 'DEMO-01' && site.name === 'Demo Site')) {
+  await api('/v1/sites/DEMO-01', { ...auth, method: 'DELETE', body: {} });
+}
 const withTenant = (name) => ({ ...JSON.parse(readFileSync(resolve(GENERATED, name), 'utf8')), tenant: signup.tenant.slug });
 await applyImport('/v1/inventory/import?mode=replace&dryRun=false', withTenant('inventory.json'), auth);
 await applyImport('/v1/units/import?mode=replace&dryRun=false', withTenant('units.json'), auth);
