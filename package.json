@@ -11,7 +11,10 @@
     "dev:web": "pnpm --filter @openpark/web dev",
     "migrate": "pnpm --filter @openpark/api migrate",
     "e2e": "pnpm --filter @openpark/e2e smoke",
-    "dev:marketing": "pnpm --filter @openpark/marketing dev"
+    "dev:marketing": "pnpm --filter @openpark/marketing dev",
+    "single-tenant:generate": "node packages/single-tenant/generate.mjs",
+    "single-tenant:install": "node packages/single-tenant/install.mjs",
+    "single-tenant:package": "node scripts/package-single-tenant.mjs"
   },
   "description": "OpenPark: open-source parking platform"
 }

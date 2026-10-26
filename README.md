@@ -12,6 +12,18 @@ docker compose --profile ai up -d   # optional: ALPR worker + VLM server (off by
 
 Open http://localhost:8080/signup. (`TRIAL_SIGNUP=true` in `.env.example` opens self-service signup; it defaults to off, see below.) Signup creates a tenant with a demo site (52 slots) and a rate plan from the country template.
 
+## Single-tenant installation
+
+Use `packages/single-tenant/README.md` for a self-contained one-property installation with generated inventory, Supabase Auth, embedded plate-reading models, and supporting services. The conversational setup skill is `skills/openpark-single-tenant/SKILL.md`.
+
+```bash
+node packages/single-tenant/generate.mjs path/to/answers.json
+OPENPARK_ADMIN_PASSWORD='replace-with-your-own-password' node packages/single-tenant/install.mjs
+pnpm single-tenant:package
+```
+
+The packaging command creates `dist/openpark-single-tenant/` and `dist/openpark-single-tenant.tar.gz`, with no generated configuration, credentials, local data, or model binaries.
+
 ## Develop
 
 ```bash

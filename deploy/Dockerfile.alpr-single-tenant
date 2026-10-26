@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+WORKDIR /srv
+RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-0 libgl1 && rm -rf /var/lib/apt/lists/*
+COPY services/alpr/pyproject.toml ./
+COPY services/alpr/app ./app
+RUN pip install --no-cache-dir '.[onnx]'
+# Download and instantiate the pinned ONNX pair during the build. The final image starts without a model download.
+ENV HOME=/models
+RUN python -c "from app.engines import OnnxEngine; OnnxEngine()"
+EXPOSE 8000
+HEALTHCHECK CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

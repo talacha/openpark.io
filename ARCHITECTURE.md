@@ -66,6 +66,8 @@ Every client goes through the API; only the ALPR worker talks to the VLM, and bo
 | Managed cloud services | Terraform modules: AWS (ECS, RDS, S3), GCP (Cloud Run, Cloud SQL, GCS), Azure (Container Apps, PostgreSQL Flexible Server, Blob) |
 | Edge box at the lot | ALPR worker on-site next to the cameras; talks to a cloud API and buffers when offline |
 
+**Single-tenant package.** `packages/single-tenant` generates the property inventory, units, users, and community metadata from a conversational answer file, then installs one organisation with Supabase Auth and applies those imports through the real API. The source archive includes the app and deployment assets. The ALPR image instantiates its ONNX models during the build, so startup does not download them. Redis is included as a supporting service; jobs continue to use Postgres. The setup wizard is `skills/openpark-single-tenant/SKILL.md`, and `scripts/package-single-tenant.mjs` writes `dist/openpark-single-tenant/` and its archive without credentials, generated files, local data, or model binaries.
+
 ## Data model
 
 Thirteen tables cover v1: a tenant owns sites, a site owns zones, a zone owns slots, a session ties one vehicle to one slot for one stay, and that session's event log records who did what, and when.

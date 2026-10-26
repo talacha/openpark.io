@@ -10,6 +10,7 @@ pnpm monorepo (TypeScript apps/packages) plus two Python projects. `ARCHITECTURE
 | `packages/ui` | Design tokens + plate chip (React, peer dep) |
 | `packages/sdk-ts` | TypeScript SDK |
 | `packages/sdk-py` | Python SDK |
+| `packages/single-tenant` | Single-property installer, answer generator, Compose assets, and setup wizard |
 | `apps/api` | Fastify + Zod API, Postgres RLS migrations, pg-boss jobs, SSE |
 | `apps/web` | React + Vite PWA (admin + attendant), 7 locales + pseudo-locale |
 | `apps/marketing` | Astro static site |
@@ -32,6 +33,9 @@ pnpm dev:marketing                    # :4321 (set PUBLIC_API_URL / PUBLIC_APP_U
 pnpm typecheck
 pnpm test                             # core, api, web, marketing, sdk-ts (api tests need Postgres at :54329 or TEST_ADMIN_URL)
 pnpm e2e                              # Playwright against running api + web (uses installed Chrome)
+pnpm single-tenant:generate -- path/to/answers.json
+pnpm single-tenant:install             # needs OPENPARK_ADMIN_PASSWORD, Docker, and Supabase CLI
+pnpm single-tenant:package             # writes the source archive to dist/
 pytest services/alpr packages/sdk-py -q   # Python (venv at services/alpr/.venv)
 ```
 

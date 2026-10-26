@@ -1,0 +1,52 @@
+{
+  "property": {
+    "type": "residential",
+    "name": "Ahuizotl Residences",
+    "country": "MX",
+    "timezone": "America/Mexico_City",
+    "owner": {
+      "email": "admin@example.com",
+      "name": "Property Administrator"
+    }
+  },
+  "buildings": [
+    {
+      "code": "A",
+      "siteCode": "TOWER-A",
+      "name": "Tower A",
+      "units": { "prefix": "A", "start": 101, "count": 24 },
+      "floors": [
+        {
+          "code": "B1",
+          "name": "Basement 1",
+          "level": -1,
+          "slots": { "standard": 36, "accessible": 2, "moto": 4, "ev": 4 }
+        },
+        {
+          "code": "G",
+          "name": "Ground floor",
+          "level": 0,
+          "slots": { "standard": 12, "accessible": 1, "moto": 0, "ev": 2 }
+        }
+      ]
+    },
+    {
+      "code": "B",
+      "siteCode": "TOWER-B",
+      "name": "Tower B",
+      "units": { "prefix": "B", "start": 101, "count": 18 },
+      "floors": [
+        {
+          "code": "B1",
+          "name": "Basement 1",
+          "level": -1,
+          "slots": { "standard": 30, "accessible": 2, "moto": 2, "ev": 4 }
+        }
+      ]
+    }
+  ],
+  "staff": [
+    { "email": "supervisor@example.com", "name": "Site Supervisor", "roles": ["supervisor"] },
+    { "email": "attendant@example.com", "name": "Gate Attendant", "roles": ["attendant"] }
+  ]
+}

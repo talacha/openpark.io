@@ -12,3 +12,5 @@ apps/web/public/models/
 apps/web/public/ort/
 .worktrees/
 .env*
+supabase/.temp/
+packages/single-tenant/generated/

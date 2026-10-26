@@ -1,0 +1,11 @@
+{
+  "name": "@openpark/single-tenant",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs",
+    "setup": "node install.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}
